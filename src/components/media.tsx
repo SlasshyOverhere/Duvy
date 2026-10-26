@@ -1,0 +1,286 @@
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { MetaPreview } from "../lib/types";
+import { placeholderGradient, progressPercent } from "../lib/format";
+import { Icon, IconButton, Badge } from "./ui";
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join(" · ");
+}
+
+export function PosterCard({
+  item,
+  onOpen,
+  onPlay,
+  progress,
+  caption = false,
+  wide = false,
+}: {
+  item: MetaPreview;
+  onOpen: () => void;
+  onPlay?: () => void;
+  progress?: number;
+  caption?: boolean;
+  wide?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const gradient = placeholderGradient(item.name);
+
+  return (
+    <article className={`poster-card${wide ? " is-wide" : ""}`}>
+      <div
+        className="poster-frame"
+        role="button"
+        tabIndex={0}
+        aria-label={item.name}
+        style={{ background: gradient } as CSSProperties}
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen();
+          }
+        }}
+      >
+        {item.poster && !failed ? (
+          <img src={item.poster} alt="" loading="lazy" onError={() => setFailed(true)} />
+        ) : (
+          <div className="poster-fallback">{initials(item.name)}</div>
+        )}
+        <div className="poster-hover">
+          <span className="poster-hover-title">{item.name}</span>
+          <span className="poster-hover-meta">
+            {[item.releaseInfo, item.imdbRating ? `★ ${item.imdbRating}` : null]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+        {onPlay ? (
+          <button
+            type="button"
+            className="poster-play"
+            aria-label={`Play ${item.name}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPlay();
+            }}
+          >
+            <Icon name="play" size={17} />
+          </button>
+        ) : null}
+        {progress && progress > 0 ? (
+          <div className="poster-progress">
+            <span style={{ width: `${Math.min(100, progress)}%` }} />
+          </div>
+        ) : null}
+      </div>
+      {caption ? (
+        <div className="poster-caption">
+          <span className="poster-name">{item.name}</span>
+          <span className="poster-sub">
+            {[item.releaseInfo, item.type === "series" ? "Series" : "Film"]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+export function Row({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail?: ReactNode;
+  children: ReactNode;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+
+  const scroll = (direction: number) => {
+    const node = scroller.current;
+    if (!node) return;
+    node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
+  };
+
+  return (
+    <section className="row">
+      <header className="row-head">
+        <h2>{title}</h2>
+        <div className="row-head-right">
+          {detail}
+          <div className="row-arrows">
+            <IconButton icon="back" label="Scroll left" size={16} onClick={() => scroll(-1)} />
+            <IconButton icon="forward" label="Scroll right" size={16} onClick={() => scroll(1)} />
+          </div>
+        </div>
+      </header>
+      <div className="row-scroller" ref={scroller}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+export function ContinueCard({
+  poster,
+  background,
+  name,
+  subtitle,
+  position,
+  duration,
+  onOpen,
+}: {
+  poster?: string | null;
+  background?: string | null;
+  name: string;
+  subtitle?: string;
+  position: number;
+  duration: number;
+  onOpen: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  const percent = progressPercent(position, duration);
+  return (
+    <button
+      type="button"
+      className="continue-card"
+      onClick={onOpen}
+      style={{ background: placeholderGradient(name) } as CSSProperties}
+    >
+      {(background || poster) && !failed ? (
+        <img src={background ?? poster ?? ""} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : null}
+      <span className="continue-scrim" />
+      <span className="continue-body">
+        <span className="continue-name">{name}</span>
+        {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
+      </span>
+      <span className="continue-play">
+        <Icon name="play" size={16} />
+      </span>
+      <span className="continue-progress">
+        <span style={{ width: `${Math.max(2, percent)}%` }} />
+      </span>
+    </button>
+  );
+}
+
+export function Hero({
+  item,
+  onOpen,
+  onPlay,
+  onLibrary,
+  inLibrary,
+  onPrev,
+  onNext,
+  index,
+  count,
+}: {
+  item: MetaPreview;
+  onOpen: () => void;
+  onPlay: () => void;
+  onLibrary: () => void;
+  inLibrary: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
+  index?: number;
+  count?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  // A new featured title gets a clean attempt at its artwork.
+  useEffect(() => setFailed(false), [item.id]);
+
+  return (
+    <section className="hero">
+      <AnimatePresence initial={false}>
+        <motion.div
+          key={item.id}
+          className="hero-cross"
+          style={{ background: placeholderGradient(item.name) } as CSSProperties}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+        >
+          {item.background && !failed ? (
+            <img
+              className="hero-backdrop"
+              src={item.background}
+              alt=""
+              onError={() => setFailed(true)}
+            />
+          ) : null}
+          <div className="hero-scrim" />
+        </motion.div>
+      </AnimatePresence>
+
+      <div className="hero-body">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={item.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10, transition: { duration: 0.2 } }}
+            transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
+          >
+            <h1 className="hero-title">{item.name}</h1>
+            <div className="hero-meta">
+              {item.imdbRating ? <Badge tone="accent">★ {item.imdbRating}</Badge> : null}
+              {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
+              {item.runtime ? <span>{item.runtime}</span> : null}
+              {item.genres?.slice(0, 2).map((genre) => (
+                <span key={genre} className="hero-genre">
+                  {genre}
+                </span>
+              ))}
+            </div>
+            {item.description ? <p className="hero-overview">{item.description}</p> : null}
+            <div className="hero-actions">
+              <button type="button" className="btn btn-primary btn-lg" onClick={onPlay}>
+                <Icon name="play" size={17} />
+                <span>Watch Now</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-square"
+                onClick={onLibrary}
+                title={inLibrary ? "Remove from library" : "Add to library"}
+                aria-label={inLibrary ? "Remove from library" : "Add to library"}
+              >
+                <Icon name={inLibrary ? "check" : "plus"} size={20} />
+              </button>
+              <button type="button" className="hero-link" onClick={onOpen}>
+                More info
+              </button>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {onPrev && onNext ? (
+        <div className="hero-arrows">
+          {typeof index === "number" && typeof count === "number" && count > 1 ? (
+            <span className="hero-count">
+              {String(index + 1).padStart(2, "0")} / {String(count).padStart(2, "0")}
+            </span>
+          ) : null}
+          <button type="button" className="hero-arrow" onClick={onPrev} aria-label="Previous featured title">
+            <Icon name="back" size={18} />
+          </button>
+          <button type="button" className="hero-arrow" onClick={onNext} aria-label="Next featured title">
+            <Icon name="forward" size={18} />
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}

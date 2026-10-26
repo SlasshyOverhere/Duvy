@@ -1,0 +1,485 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { listen } from "@tauri-apps/api/event";
+import { api, isTauri } from "./bridge";
+import { seasonLabel } from "./format";
+import type {
+  AddonInfo,
+  AppInfo,
+  Details,
+  LibraryItem,
+  MetaPreview,
+  PlaybackSession,
+  PlayRequest,
+  PlayerSnapshot,
+  ProgressItem,
+  Settings,
+  Video,
+} from "./types";
+
+export type Route =
+  | { name: "home" }
+  | { name: "discover"; mediaType?: string }
+  | { name: "search"; query?: string }
+  | { name: "library" }
+  | { name: "addons" }
+  | { name: "settings"; section?: string }
+  | { name: "details"; id: string; type: string }
+  | { name: "player" };
+
+export type ToastTone = "info" | "success" | "error";
+export interface Toast {
+  id: number;
+  text: string;
+  tone: ToastTone;
+}
+
+interface Store {
+  booting: boolean;
+  bootError: string | null;
+  appInfo: AppInfo | null;
+  settings: Settings | null;
+  addons: AddonInfo[];
+  library: LibraryItem[];
+  progress: ProgressItem[];
+  toasts: Toast[];
+  route: Route;
+  navigate: (route: Route) => void;
+  back: () => void;
+  refreshAddons: () => Promise<void>;
+  refreshLibrary: () => Promise<void>;
+  refreshProgress: () => Promise<void>;
+  saveSettings: (patch: Partial<Settings>) => Promise<void>;
+  toggleLibrary: (item: MetaPreview) => Promise<void>;
+  inLibrary: (id: string) => boolean;
+  notify: (text: string, tone?: ToastTone) => void;
+  dismissToast: (id: number) => void;
+  progressFor: (key: string) => ProgressItem | undefined;
+  playRequest: (request: PlayRequest) => Promise<void>;
+  playItem: (item: MetaPreview) => Promise<void>;
+  resumeEntry: (entry: ProgressItem) => Promise<void>;
+  buildSession: (details: Details, video: Video | null) => PlaybackSession;
+}
+
+const StoreContext = createContext<Store | null>(null);
+
+// Playback ticks arrive several times a second. Keeping them in their own
+// context means a ticking timeline re-renders the player instead of every
+// screen in the app.
+const PlayerContext = createContext<PlayerSnapshot | null>(null);
+
+export function useApp(): Store {
+  const store = useContext(StoreContext);
+  if (!store) throw new Error("useApp must be used inside <StoreProvider>");
+  return store;
+}
+
+export function usePlayer(): PlayerSnapshot | null {
+  return useContext(PlayerContext);
+}
+
+export function sessionFor(details: Details, video: Video | null): PlaybackSession {
+  const season = video?.season ?? null;
+  const episode = video?.episode ?? video?.number ?? null;
+  return {
+    key:
+      season != null && episode != null
+        ? `${details.id}:${season}:${episode}`
+        : details.id,
+    metaId: details.id,
+    type: details.type,
+    name: details.name,
+    poster: details.poster ?? null,
+    background: details.background ?? null,
+    season,
+    episode,
+    episodeTitle: video?.title ?? null,
+  };
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Something went wrong";
+}
+
+export function StoreProvider({ children }: { children: ReactNode }) {
+  const [route, setRoute] = useState<Route>({ name: "home" });
+  const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [addons, setAddons] = useState<AddonInfo[]>([]);
+  const [library, setLibrary] = useState<LibraryItem[]>([]);
+  const [progress, setProgress] = useState<ProgressItem[]>([]);
+  const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastId = useRef(1);
+  const depth = useRef(0);
+  const opening = useRef(false);
+
+  const notify = useCallback((text: string, tone: ToastTone = "info") => {
+    const id = toastId.current++;
+    setToasts((current) => [...current.slice(-4), { id, text, tone }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 4200);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  const navigate = useCallback((next: Route) => {
+    depth.current += 1;
+    window.history.pushState({ route: next, depth: depth.current }, "");
+    setRoute(next);
+  }, []);
+
+  // window.history.back() on the first entry does nothing (or leaves the app),
+  // so fall back to home when there is nowhere to go back to.
+  const back = useCallback(() => {
+    if (depth.current > 0) window.history.back();
+    else setRoute({ name: "home" });
+  }, []);
+
+  useEffect(() => {
+    window.history.replaceState({ route: { name: "home" }, depth: 0 }, "");
+    const onPop = (event: PopStateEvent) => {
+      const state = event.state as { route?: Route; depth?: number } | null;
+      depth.current = state?.depth ?? 0;
+      setRoute(state?.route ?? { name: "home" });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const refreshAddons = useCallback(async () => {
+    setAddons(await api.addons.list());
+  }, []);
+
+  const refreshLibrary = useCallback(async () => {
+    setLibrary(await api.library.list());
+  }, []);
+
+  const refreshProgress = useCallback(async () => {
+    try {
+      setProgress(await api.progress.list());
+    } catch {
+      // Progress is cosmetic; a failed refresh must never break a screen.
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress] =
+          await Promise.all([
+            api.appInfo(),
+            api.settings.get(),
+            api.addons.list(),
+            api.library.list(),
+            api.progress.list(),
+          ]);
+        if (!alive) return;
+        setAppInfo(info);
+        setSettings(loadedSettings);
+        setAddons(loadedAddons);
+        setLibrary(loadedLibrary);
+        setProgress(loadedProgress);
+      } catch (error) {
+        if (alive) setBootError(errorMessage(error));
+      } finally {
+        if (alive) setBooting(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settings) return;
+    document.documentElement.dataset.accent = settings.accent;
+    document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
+  }, [settings?.accent, settings?.reduceMotion]);
+
+  // Player events are pushed from Rust while mpv is running.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    const attach = async () => {
+      try {
+        const tick = await listen<PlayerSnapshot>("player:tick", (event) => {
+          setPlayer(event.payload);
+        });
+        const closed = await listen("player:closed", () => {
+          setPlayer(null);
+          void refreshProgress();
+        });
+        const ended = await listen("player:ended", () => {
+          void refreshProgress();
+        });
+        if (disposed) {
+          tick();
+          closed();
+          ended();
+          return;
+        }
+        unlisteners.push(tick, closed, ended);
+      } catch {
+        // Without the event bridge the player still works through polling.
+      }
+    };
+    void attach();
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, [refreshProgress]);
+
+  const saveSettings = useCallback(
+    async (patch: Partial<Settings>) => {
+      const next = await api.settings.set(patch);
+      setSettings(next);
+      // Only re-probe the player when the executable itself changed.
+      if ("mpvPath" in patch) {
+        const info = await api.appInfo();
+        setAppInfo(info);
+      }
+    },
+    [],
+  );
+
+  const toggleLibrary = useCallback(
+    async (item: MetaPreview) => {
+      try {
+        const added = await api.library.toggle({
+          id: item.id,
+          type: item.type,
+          name: item.name,
+          poster: item.poster ?? null,
+          background: item.background ?? null,
+          addedAt: Date.now(),
+          meta: item,
+        });
+        await refreshLibrary();
+        notify(
+          added ? `Added ${item.name} to your library` : `Removed ${item.name}`,
+          added ? "success" : "info",
+        );
+      } catch (error) {
+        notify(errorMessage(error), "error");
+      }
+    },
+    [notify, refreshLibrary],
+  );
+
+  const inLibrary = useCallback(
+    (id: string) => library.some((item) => item.id === id),
+    [library],
+  );
+
+  const progressFor = useCallback(
+    (key: string) => progress.find((item) => item.key === key),
+    [progress],
+  );
+
+  const playRequest = useCallback(
+    async (request: PlayRequest) => {
+      // A double click used to start two players; the last one won, but both
+      // sessions were spawned and both were pushed onto history.
+      if (opening.current) return;
+      opening.current = true;
+      try {
+        const snapshot = await api.player.open(request);
+        setPlayer(snapshot);
+        navigate({ name: "player" });
+      } catch (error) {
+        notify(errorMessage(error), "error");
+      } finally {
+        opening.current = false;
+      }
+    },
+    [navigate, notify],
+  );
+
+  const buildSession = useCallback((details: Details, video: Video | null) => {
+    return sessionFor(details, video);
+  }, []);
+
+  /** Resolve metadata, resume point, and the best playable source in one go. */
+  const playItem = useCallback(
+    async (item: MetaPreview) => {
+      try {
+        notify(`Finding a source for ${item.name}…`);
+        const details = await api.details(item.id, item.type);
+        let video: Video | null = null;
+        if (details.type === "series") {
+          const last = progress
+            .filter((entry) => entry.metaId === details.id)
+            .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+          video =
+            (last
+              ? details.videos.find(
+                  (candidate) =>
+                    candidate.season === last.season &&
+                    (candidate.episode ?? candidate.number) === last.episode,
+                )
+              : undefined) ??
+            details.videos[0] ??
+            null;
+          if (!video) throw new Error("This series has no episodes listed yet.");
+        }
+        const session = sessionFor(details, video);
+        const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;
+        const options = await api.streams({
+          id: details.imdbId ?? details.id,
+          mediaType: details.type,
+          season: session.season,
+          episode: session.episode,
+          imdbId: details.imdbId,
+        });
+        const source = options.find((stream) => stream.playable && stream.url);
+        if (!source?.url) {
+          throw new Error(
+            "No playable source came back. Direct links play today; torrent-only sources need the P2P engine.",
+          );
+        }
+        const label = video
+          ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
+          : details.name;
+        await playRequest({ url: source.url, title: label, startAt: resume, session });
+      } catch (error) {
+        notify(errorMessage(error), "error");
+      }
+    },
+    [notify, playRequest, progress, progressFor, settings?.autoResume],
+  );
+
+  /** Resume a specific Continue Watching entry (exact episode, exact position). */
+  const resumeEntry = useCallback(
+    async (entry: ProgressItem) => {
+      try {
+        const details = await api.details(entry.metaId, entry.type);
+        const video =
+          entry.type === "series"
+            ? details.videos.find(
+                (candidate) =>
+                  candidate.season === entry.season &&
+                  (candidate.episode ?? candidate.number) === entry.episode,
+              ) ??
+              details.videos[0] ??
+              null
+            : null;
+        if (entry.type === "series" && !video) {
+          navigate({ name: "details", id: entry.metaId, type: entry.type });
+          return;
+        }
+        const session: PlaybackSession = {
+          key: entry.key,
+          metaId: entry.metaId,
+          type: entry.type,
+          name: entry.name,
+          poster: entry.poster ?? null,
+          background: entry.background ?? null,
+          season: entry.season ?? null,
+          episode: entry.episode ?? null,
+          episodeTitle: entry.episodeTitle ?? null,
+        };
+        const sources = await api.streams({
+          id: details.imdbId ?? details.id,
+          mediaType: details.type,
+          season: entry.season,
+          episode: entry.episode,
+          imdbId: details.imdbId,
+        });
+        const source = sources.find((stream) => stream.playable && stream.url);
+        if (!source?.url) throw new Error("No playable source found for this title.");
+        notify("Resuming…");
+        await playRequest({
+          url: source.url,
+          title: video
+            ? `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`
+            : details.name,
+          startAt: entry.position,
+          session,
+        });
+      } catch (error) {
+        notify(errorMessage(error), "error");
+      }
+    },
+    [navigate, notify, playRequest],
+  );
+
+  const value = useMemo<Store>(
+    () => ({
+      booting,
+      bootError,
+      appInfo,
+      settings,
+      addons,
+      library,
+      progress,
+      toasts,
+      route,
+      navigate,
+      back,
+      refreshAddons,
+      refreshLibrary,
+      refreshProgress,
+      saveSettings,
+      toggleLibrary,
+      inLibrary,
+      notify,
+      dismissToast,
+      progressFor,
+      playRequest,
+      playItem,
+      resumeEntry,
+      buildSession,
+    }),
+    [
+      booting,
+      bootError,
+      appInfo,
+      settings,
+      addons,
+      library,
+      progress,
+      toasts,
+      route,
+      navigate,
+      back,
+      refreshAddons,
+      refreshLibrary,
+      refreshProgress,
+      saveSettings,
+      toggleLibrary,
+      inLibrary,
+      notify,
+      dismissToast,
+      progressFor,
+      playRequest,
+      playItem,
+      resumeEntry,
+      buildSession,
+    ],
+  );
+
+  return (
+    <StoreContext.Provider value={value}>
+      <PlayerContext.Provider value={player}>{children}</PlayerContext.Provider>
+    </StoreContext.Provider>
+  );
+}

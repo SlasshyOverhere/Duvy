@@ -1,0 +1,362 @@
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { api, openExternal } from "../lib/bridge";
+import { useApp } from "../lib/store";
+import type { Details, Video } from "../lib/types";
+import { StreamDrawer } from "../components/StreamDrawer";
+import { Badge, Button, EmptyState, Icon, Spinner } from "../components/ui";
+import {
+  episodeCode,
+  placeholderGradient,
+  progressPercent,
+  seasonLabel,
+  timeAgo,
+} from "../lib/format";
+
+export function DetailsView({ id, type }: { id: string; type: string }) {
+  const {
+    navigate,
+    playRequest,
+    toggleLibrary,
+    inLibrary,
+    progress,
+    progressFor,
+    notify,
+    buildSession,
+    settings,
+  } = useApp();
+
+  const [details, setDetails] = useState<Details | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [season, setSeason] = useState<number | null>(null);
+  const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    setDetails(null);
+    setImageFailed(false);
+    api
+      .details(id, type)
+      .then((result) => {
+        if (!alive) return;
+        setDetails(result);
+        const seasons = [...new Set(result.videos.map((video) => video.season ?? 1))].sort(
+          (a, b) => a - b,
+        );
+        // Prefer a real season over Specials (season 0).
+        setSeason(seasons.find((value) => value > 0) ?? seasons[0] ?? null);
+      })
+      .catch((e: unknown) => {
+        if (alive) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, type]);
+
+  const seriesProgress = useMemo(
+    () =>
+      progress
+        .filter((entry) => entry.metaId === id)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null,
+    [progress, id],
+  );
+
+  const seasons = useMemo(
+    () => [...new Set((details?.videos ?? []).map((video) => video.season ?? 1))].sort((a, b) => a - b),
+    [details],
+  );
+
+  const episodes = useMemo(
+    () =>
+      (details?.videos ?? [])
+        .filter((video) => (video.season ?? 1) === season)
+        .sort(
+          (a, b) =>
+            (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
+        ),
+    [details, season],
+  );
+
+  const resumeTarget = useMemo(() => {
+    if (!details) return { video: null as Video | null, position: 0, label: "Play" };
+    if (details.type !== "series") {
+      const entry = progressFor(details.id);
+      return {
+        video: null,
+        position: entry?.position ?? 0,
+        label: entry ? `Resume · ${timeAgo(entry.updatedAt)}` : "Play",
+      };
+    }
+    const video =
+      details.videos.find(
+        (candidate) =>
+          candidate.season === seriesProgress?.season &&
+          (candidate.episode ?? candidate.number) === seriesProgress?.episode,
+      ) ?? details.videos[0] ?? null;
+    const entry = video ? progressFor(buildSession(details, video).key) : undefined;
+    return {
+      video,
+      position: entry?.position ?? 0,
+      label: entry ? "Resume" : "Play",
+    };
+  }, [details, seriesProgress, progressFor, buildSession]);
+
+  const openSources = (video: Video | null) => {
+    if (!details) return;
+    let target = video;
+    if (details.type === "series" && !target) {
+      target = resumeTarget.video ?? details.videos[0] ?? null;
+    }
+    if (details.type === "series" && !target) {
+      notify("This series has no episodes listed yet.", "error");
+      return;
+    }
+    setDrawer({ video: target });
+  };
+
+  const startStream = (url: string) => {
+    if (!details || !drawer) return;
+    const session = buildSession(details, drawer.video);
+    const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;
+    setDrawer(null);
+    void playRequest({
+      url,
+      title: drawer.video
+        ? `${details.name} · ${seasonLabel(drawer.video.season, drawer.video.episode ?? drawer.video.number)}`
+        : details.name,
+      startAt: resume,
+      session,
+    });
+  };
+
+  const drawerRequest =
+    details && drawer
+      ? {
+          id: details.imdbId ?? details.id,
+          mediaType: details.type,
+          season: drawer.video?.season ?? null,
+          episode: drawer.video?.episode ?? drawer.video?.number ?? null,
+          imdbId: details.imdbId,
+        }
+      : null;
+
+  if (loading) {
+    return (
+      <div className="page page-loading">
+        <Spinner label="Loading title…" />
+      </div>
+    );
+  }
+
+  if (error || !details) {
+    return (
+      <div className="page">
+        <EmptyState
+          icon="info"
+          title="Could not load this title"
+          body={error ?? "Unknown error"}
+          action={<Button onClick={() => navigate({ name: "home" })}>Back home</Button>}
+        />
+      </div>
+    );
+  }
+
+  const inWatchlist = inLibrary(details.id);
+  const trailer = details.trailer;
+
+  return (
+    <div className="page detail-page">
+      <section
+        className="detail-hero"
+        style={{ background: placeholderGradient(details.name) } as CSSProperties}
+      >
+        {details.background && !imageFailed ? (
+          <img
+            className="detail-backdrop"
+            src={details.background}
+            alt=""
+            onError={() => setImageFailed(true)}
+          />
+        ) : null}
+        <div className="detail-scrim" />
+        <div className="detail-body">
+          <div className="detail-poster">
+            {details.poster ? <img src={details.poster} alt={details.name} /> : null}
+          </div>
+          <div className="detail-info">
+            <p className="kicker">
+              {details.type === "series" ? "Series" : "Film"}
+              {details.year ? ` · ${details.year}` : ""}
+            </p>
+            <h1>{details.name}</h1>
+            <div className="detail-meta">
+              {details.rating ? (
+                <Badge tone="accent">★ {details.rating}</Badge>
+              ) : null}
+              {details.runtime ? <span>{details.runtime}</span> : null}
+              {details.status ? <span>{details.status}</span> : null}
+              {(details.genres ?? []).slice(0, 3).map((genre) => (
+                <span key={genre} className="detail-genre">
+                  {genre}
+                </span>
+              ))}
+            </div>
+            <p className="detail-overview">{details.description || "No overview yet."}</p>
+
+            <div className="detail-actions">
+              <Button
+                variant="primary"
+                icon="play"
+                onClick={() => openSources(null)}
+                disabled={details.type === "series" && details.videos.length === 0}
+              >
+                {resumeTarget.label}
+              </Button>
+              <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
+                Sources
+              </Button>
+              <Button
+                icon={inWatchlist ? "check" : "plus"}
+                onClick={() =>
+                  void toggleLibrary({
+                    id: details.id,
+                    type: details.type,
+                    name: details.name,
+                    poster: details.poster,
+                    background: details.background,
+                    releaseInfo: details.year,
+                    imdbRating: details.rating,
+                  })
+                }
+              >
+                {inWatchlist ? "In library" : "Library"}
+              </Button>
+              {trailer ? (
+                <Button icon="external" onClick={() => void openExternal(trailer)}>
+                  Trailer
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="detail-facts">
+              {(details.director ?? []).length ? (
+                <p>
+                  <span>Director</span> {(details.director ?? []).join(", ")}
+                </p>
+              ) : null}
+              {(details.cast ?? []).length ? (
+                <p>
+                  <span>Cast</span>{" "}
+                  {details.cast
+                    .slice(0, 5)
+                    .map((member) => member.name)
+                    .join(", ")}
+                </p>
+              ) : null}
+              {details.source === "tmdb" ? (
+                <p className="detail-source">Metadata from TMDB</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {details.type === "series" && details.videos.length > 0 ? (
+        <section className="episodes">
+          <div className="episodes-head">
+            <h2>Episodes</h2>
+            <div className="season-tabs">
+              {seasons.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`chip${season === value ? " is-active" : ""}`}
+                  onClick={() => setSeason(value)}
+                >
+                  {value === 0 ? "Specials" : `Season ${value}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="episode-list">
+            {episodes.map((video) => {
+              const key = buildSession(details, video).key;
+              const entry = progressFor(key);
+              const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
+              return (
+                <button
+                  key={video.id}
+                  type="button"
+                  className="episode"
+                  onClick={() => openSources(video)}
+                >
+                  <span className="episode-thumb">
+                    {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
+                    <span className="episode-play">
+                      <Icon name="play" size={16} />
+                    </span>
+                  </span>
+                  <span className="episode-body">
+                    <span className="episode-top">
+                      <span className="episode-num">{episodeCode(video)}</span>
+                      <span className="episode-title">{video.title ?? "Untitled episode"}</span>
+                      {entry ? <span className="episode-seen">Watched {timeAgo(entry.updatedAt)}</span> : null}
+                    </span>
+                    <span className="episode-overview">{video.overview ?? ""}</span>
+                    {percent > 0 ? (
+                      <span className="episode-progress">
+                        <span style={{ width: `${percent}%` }} />
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {(details.cast ?? []).length ? (
+        <section className="cast-section">
+          <h2>Cast</h2>
+          <div className="cast-row">
+            {(details.cast ?? []).map((member) => (
+              <div className="cast-card" key={`${member.name}-${member.character}`}>
+                <div className="cast-photo">
+                  {member.photo ? (
+                    <img src={member.photo} alt="" loading="lazy" />
+                  ) : (
+                    <span>{member.name.slice(0, 1)}</span>
+                  )}
+                </div>
+                <span className="cast-name">{member.name}</span>
+                {member.character ? <span className="cast-role">{member.character}</span> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <StreamDrawer
+        open={drawer !== null}
+        title={details.name}
+        subtitle={
+          drawer?.video
+            ? `${episodeCode(drawer.video)}${drawer.video.title ? ` · ${drawer.video.title}` : ""}`
+            : "Choose a source"
+        }
+        request={drawerRequest}
+        onClose={() => setDrawer(null)}
+        onPlay={(stream) => stream.url && startStream(stream.url)}
+      />
+    </div>
+  );
+}

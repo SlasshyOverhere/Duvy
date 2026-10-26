@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BetterNuvio",
+  "version": "0.1.0",
+  "identifier": "app.betternuvio.desktop",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BetterNuvio",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true,
+        "theme": "Dark",
+        "transparent": false,
+        "backgroundColor": "#08090c",
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "resources/mpv/mpv.exe": "mpv/mpv.exe",
+      "resources/mpv/d3dcompiler_43.dll": "mpv/d3dcompiler_43.dll"
+    },
+    "category": "Entertainment",
+    "shortDescription": "Fast native media hub",
+    "longDescription": "BetterNuvio is an unofficial, performance-first desktop media hub that brings your own addons, libraries and player together.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

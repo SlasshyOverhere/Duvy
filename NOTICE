@@ -1,0 +1,40 @@
+BetterNuvio
+===========
+
+Independence
+------------
+BetterNuvio is an unofficial, independent desktop media client inspired by the feature set of
+Nuvio Desktop (https://github.com/NuvioMedia/NuvioDesktop).
+
+This repository does not contain code copied from Nuvio Desktop. It is a separate
+implementation written in Rust and TypeScript. Nuvio Desktop is licensed under GPL-3.0; that
+license applies to Nuvio Desktop, not to this independent work. No Nuvio Desktop binaries,
+assets, or source files are redistributed here.
+
+Names and marks
+---------------
+"Nuvio", "Nuvio Desktop" and any associated logos belong to their respective owners. The name
+"betterNuvio" is used descriptively to identify this independent project and does not imply
+affiliation, endorsement, or sponsorship. If a rights holder objects to the name, it will be
+changed.
+
+Content and services
+--------------------
+BetterNuvio ships no media, no catalogs and no scrapers. All metadata, catalogs and streams come
+from third-party addon URLs that the user installs, or from TMDB when the user supplies a key.
+Users are responsible for the addons they configure and for complying with the laws that apply
+to them.
+
+Addon protocol
+--------------
+The addon transport implemented here follows the publicly documented Stremio addon protocol.
+Stremio is a trademark of its respective owner; this project is not affiliated with Stremio.
+
+Third-party services
+--------------------
+- TMDB: this product uses the TMDB API but is not endorsed or certified by TMDB.
+- mpv: playback is performed by mpv (GPL-2.0-or-later), which is installed separately and is not
+  bundled with this repository.
+
+Third-party crates and npm packages are used under their own licenses; see `Cargo.lock` and
+`bun.lock` for the exact set.
