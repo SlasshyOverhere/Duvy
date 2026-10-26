@@ -1,11 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { useApp, usePlayer } from "../lib/store";
-import type { Details, PlayerSnapshot, SubtitleTrack, Video } from "../lib/types";
+import type { Details, PlayerSnapshot, Settings, SubtitleTrack, Video } from "../lib/types";
 import { Icon, Spinner } from "../components/ui";
+import { findSkip, type SkipEntry } from "../components/player/skip";
 import { formatTime, progressPercent, seasonLabel } from "../lib/format";
+import "../components/player/player.css";
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const NEXT_LEAD = 45;
+const SUB_STYLE_KEY = "betternuvio.subtitleStyle";
+const SUB_COLORS = [
+  { value: "#ffffff", label: "White" },
+  { value: "#f1e2c6", label: "Warm white" },
+  { value: "#ffd84d", label: "Yellow" },
+  { value: "#8fd8ff", label: "Sky blue" },
+];
+
+type Surface = "tracks" | "keys" | "stats" | null;
+
+interface SubtitleStyle {
+  size: number;
+  color: string;
+  background: number;
+}
+
+interface Hud {
+  label: string;
+  value: string;
+  out: boolean;
+}
+
+const DEFAULT_SUB_STYLE: SubtitleStyle = { size: 46, color: "#ffffff", background: 55 };
+
+function whole(value: unknown, min: number, max: number, fallback: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(number)));
+}
+
+function readSubtitleStyle(): SubtitleStyle {
+  try {
+    const raw = window.localStorage.getItem(SUB_STYLE_KEY);
+    if (!raw) return DEFAULT_SUB_STYLE;
+    const stored = JSON.parse(raw) as Partial<SubtitleStyle> | null;
+    if (!stored || typeof stored !== "object") return DEFAULT_SUB_STYLE;
+    return {
+      size: whole(stored.size, 30, 90, DEFAULT_SUB_STYLE.size),
+      color: SUB_COLORS.some((option) => option.value === stored.color)
+        ? String(stored.color)
+        : DEFAULT_SUB_STYLE.color,
+      background: whole(stored.background, 0, 100, DEFAULT_SUB_STYLE.background),
+    };
+  } catch {
+    return DEFAULT_SUB_STYLE;
+  }
+}
 
 /**
  * Playback screen.
@@ -15,11 +68,10 @@ import { formatTime, progressPercent, seasonLabel } from "../lib/format";
  * top of them are visible; everything else is the video.
  */
 export function PlayerView() {
-  const { settings, notify, navigate, playRequest, buildSession } = useApp();
+  const { settings, notify, navigate, playRequest, buildSession, appInfo } = useApp();
   const player = usePlayer();
   const [local, setLocal] = useState<PlayerSnapshot | null>(player);
-  const [panel, setPanel] = useState(false);
-  const [help, setHelp] = useState(false);
+  const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
@@ -29,11 +81,31 @@ export function PlayerView() {
   // visible instead of an unchanging spinner.
   const [waited, setWaited] = useState(0);
 
+  const [hud, setHud] = useState<Hud | null>(null);
+  const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
+  const [nextOff, setNextOff] = useState(false);
+  // Stored position offered by the resume prompt, and the seconds left before
+  // it settles on Resume by itself.
+  const [resumeAt, setResumeAt] = useState<number | null>(null);
+  const [resumeLeft, setResumeLeft] = useState(8);
+  const [thumbBroken, setThumbBroken] = useState(false);
+  const [markers, setMarkers] = useState<SkipEntry | null>(null);
+  const [markMsg, setMarkMsg] = useState<string | null>(null);
+
   const advanced = useRef(false);
   const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
   const wasPlaying = useRef(false);
   const fsNow = useRef(false);
+  const volRef = useRef(100);
+  const speedRef = useRef(1);
+  const posRef = useRef(0);
+  const hudTimer = useRef<number | null>(null);
+  const hudOutTimer = useRef<number | null>(null);
+  const openedAt = useRef(Date.now());
+  // A segment jumps once per playback session, even if the tick lands inside
+  // the window again.
+  const fired = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
 
   useEffect(() => {
     setLocal(player);
@@ -85,12 +157,6 @@ export function PlayerView() {
     };
   }, [session?.metaId, session?.type]);
 
-  useEffect(() => {
-    advanced.current = false;
-    // A new episode brings its own subtitle list; keep the old one out.
-    setSubs(null);
-  }, [session?.key]);
-
   const queue = useMemo<Video[]>(() => {
     if (!details || details.type !== "series") return [];
     return [...details.videos].sort(
@@ -111,6 +177,23 @@ export function PlayerView() {
 
   const nextEpisode = index >= 0 ? queue[index + 1] ?? null : null;
   const prevEpisode = index > 0 ? queue[index - 1] ?? null : null;
+
+  const duration = local?.duration ?? 0;
+  const position = local?.position ?? 0;
+  const shownPosition = scrub ?? position;
+  const remaining = Math.max(0, duration - shownPosition);
+  const loading = Boolean(local && !local.ended && duration <= 0);
+  const audioTracks = local?.audioTracks ?? [];
+  const subTracks = local?.subTracks ?? [];
+  const activeSub = subTracks.find((track) => track.id === local?.activeSub) ?? null;
+  const step = settings?.seekStep ?? 10;
+  const nextCountdown = Math.max(0, Math.ceil((duration || 0) - position));
+  const nextAutoPlay = settings?.autoPlayNext ?? false;
+  const showNext = Boolean(
+    nextEpisode &&
+      !nextOff &&
+      (local?.ended || (duration > 60 && nextCountdown <= NEXT_LEAD)),
+  );
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -142,12 +225,6 @@ export function PlayerView() {
     [buildSession, details, notify, playRequest],
   );
 
-  useEffect(() => {
-    if (!local?.ended || !settings?.autoPlayNext || !nextEpisode || advanced.current) return;
-    advanced.current = true;
-    void playVideo(nextEpisode);
-  }, [local?.ended, settings?.autoPlayNext, nextEpisode, playVideo]);
-
   const leaveFullscreen = useCallback(() => {
     if (!fsNow.current) return;
     fsNow.current = false;
@@ -178,14 +255,16 @@ export function PlayerView() {
   }, [send]);
 
   const seekTo = useCallback(
-    (position: number) => {
-      send("seek", Math.max(0, position));
+    (target: number) => {
+      setResumeAt(null);
+      send("seek", Math.max(0, target));
     },
     [send],
   );
 
   const seekRel = useCallback(
     (delta: number) => {
+      setResumeAt(null);
       send("seek-rel", delta);
     },
     [send],
@@ -219,12 +298,80 @@ export function PlayerView() {
     }
   }, [notify]);
 
+  const showHud = useCallback((label: string, value: string) => {
+    if (hudTimer.current) window.clearTimeout(hudTimer.current);
+    if (hudOutTimer.current) window.clearTimeout(hudOutTimer.current);
+    setHud({ label, value, out: false });
+    hudTimer.current = window.setTimeout(() => {
+      setHud((current) => (current ? { ...current, out: true } : current));
+    }, 1200);
+    hudOutTimer.current = window.setTimeout(() => setHud(null), 1500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (hudTimer.current) window.clearTimeout(hudTimer.current);
+      if (hudOutTimer.current) window.clearTimeout(hudOutTimer.current);
+    },
+    [],
+  );
+
+  const changeVolume = useCallback(
+    (delta: number) => {
+      const next = Math.min(130, Math.max(0, Math.round(volRef.current + delta)));
+      volRef.current = next;
+      setVolume(next);
+      showHud("Volume", `${next}%`);
+    },
+    [setVolume, showHud],
+  );
+
+  const toggleMute = useCallback(() => {
+    send("mute");
+    showHud("Sound", local?.muted ? "On" : "Muted");
+  }, [local?.muted, send, showHud]);
+
+  const changeSpeed = useCallback(
+    (direction: 1 | -1) => {
+      const found = SPEEDS.findIndex((speed) => Math.abs(speed - speedRef.current) < 0.01);
+      const from = found === -1 ? SPEEDS.indexOf(1) : found;
+      const next = SPEEDS[Math.min(SPEEDS.length - 1, Math.max(0, from + direction))];
+      speedRef.current = next;
+      send("speed", next);
+      showHud("Speed", `${next}×`);
+    },
+    [send, showHud],
+  );
+
+  const cycleSub = useCallback(() => {
+    if (subTracks.length === 0) return;
+    const from =
+      local?.activeSub != null
+        ? subTracks.findIndex((track) => track.id === local.activeSub)
+        : -1;
+    const next = from + 1 >= subTracks.length ? null : subTracks[from + 1].id;
+    send("sub", next);
+  }, [local?.activeSub, send, subTracks]);
+
+  const cycleAudio = useCallback(() => {
+    if (audioTracks.length === 0) return;
+    const from =
+      local?.activeAudio != null
+        ? audioTracks.findIndex((track) => track.id === local.activeAudio)
+        : -1;
+    send("audio", audioTracks[(from + 1) % audioTracks.length].id);
+  }, [audioTracks, local?.activeAudio, send]);
+
+  const toggleSurface = useCallback((next: Exclude<Surface, null>) => {
+    setSurface((current) => (current === next ? null : next));
+  }, []);
+
   const bump = useCallback(() => {
     setChrome(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    if (local?.paused || local?.ended || panel || help) return;
+    if (local?.paused || local?.ended || surface) return;
     hideTimer.current = window.setTimeout(() => setChrome(false), 2600);
-  }, [local?.paused, local?.ended, panel, help]);
+  }, [local?.paused, local?.ended, surface]);
 
   useEffect(() => {
     bump();
@@ -233,7 +380,20 @@ export function PlayerView() {
     };
   }, [bump]);
 
-  const step = settings?.seekStep ?? 10;
+  const dismissNext = useCallback(() => {
+    setNextOff(true);
+    // Keep the end-of-file handler from starting the episode the viewer
+    // explicitly waved off.
+    advanced.current = true;
+  }, []);
+
+  const applyResume = useCallback(
+    (target: number) => {
+      setResumeAt(null);
+      send("seek", Math.max(0, target));
+    },
+    [send],
+  );
 
   const loadSubtitles = useCallback(async () => {
     if (!session || subs) return;
@@ -251,69 +411,257 @@ export function PlayerView() {
     }
   }, [session, subs]);
 
+  // Each episode is a fresh session: clear everything that belonged to the
+  // previous one, including a dismissed next-episode card.
+  useEffect(() => {
+    advanced.current = false;
+    openedAt.current = Date.now();
+    setSubs(null);
+    setNextOff(false);
+    setThumbBroken(false);
+    setResumeAt(null);
+    setSurface(null);
+  }, [session?.key]);
+
+  // Markers belong to the show, so one read per playback session covers every
+  // episode under that id.
+  useEffect(() => {
+    fired.current = { intro: false, outro: false };
+    setMarkers(null);
+    setMarkMsg(null);
+    const metaId = session?.metaId;
+    if (!metaId || !isTauri()) return;
+    let alive = true;
+    invoke<SkipEntry | null>("skip_get", { metaId })
+      .then((entry) => {
+        if (alive) setMarkers(entry);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [session?.key]);
+
+  useEffect(() => {
+    volRef.current = local?.volume ?? volRef.current;
+  }, [local?.volume]);
+
+  useEffect(() => {
+    speedRef.current = local?.speed ?? speedRef.current;
+  }, [local?.speed]);
+
+  useEffect(() => {
+    posRef.current = position;
+  }, [position]);
+
+  // A stored position is worth offering when it is past the opening minutes
+  // but not close enough to the end to count as finished.
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || !settings?.autoResume) return;
+    let alive = true;
+    void api.progress
+      .forKey(key)
+      .then((entry) => {
+        if (!alive || !entry || entry.duration <= 0) return;
+        // A lookup that took this long is not an "on open" prompt any more.
+        if (Date.now() - openedAt.current > 30000) return;
+        if (entry.position > 30 && entry.position / entry.duration < 0.92) {
+          setResumeAt(entry.position);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [session?.key, settings?.autoResume]);
+
+  // The prompt settles on Resume after eight seconds of playback. The clock
+  // only starts once the picture is open, so a slow source cannot eat it, and
+  // it samples the playhead so a stream that already resumed is never rewound.
+  useEffect(() => {
+    if (resumeAt == null || loading || showNext) return;
+    setResumeLeft(8);
+    let atStoredPoint = Math.abs(posRef.current - resumeAt) <= 12;
+    const deadline = Date.now() + 8000;
+    const tick = window.setInterval(() => {
+      if (Math.abs(posRef.current - resumeAt) <= 12) atStoredPoint = true;
+      setResumeLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    }, 250);
+    const done = window.setTimeout(() => {
+      if (atStoredPoint) setResumeAt(null);
+      else applyResume(resumeAt);
+    }, 8000);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(done);
+    };
+  }, [resumeAt, loading, showNext, applyResume]);
+
+  // Markers move the playhead through the same path the skip buttons use. The
+  // check is local, so it costs nothing per tick.
+  useEffect(() => {
+    if (!markers || loading || scrub != null) return;
+    const segment = findSkip(markers, position, duration);
+    if (!segment || fired.current[segment.kind]) return;
+    fired.current[segment.kind] = true;
+    seekTo(segment.at);
+  }, [markers, position, duration, loading, scrub, seekTo]);
+
+  // Styles live in the settings blob and in local storage: the stored settings
+  // blob is the canonical home, local storage keeps the panel usable on builds
+  // whose settings model has not learned the key yet.
+  const styleLoaded = useRef(false);
+  useEffect(() => {
+    if (!styleLoaded.current) {
+      styleLoaded.current = true;
+      return;
+    }
+    try {
+      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
+    } catch {
+      // Storage can be full or blocked; the panel still works for this session.
+    }
+    const timer = window.setTimeout(() => {
+      void api.settings
+        .set({ subtitleStyle: subStyle } as unknown as Partial<Settings>)
+        .catch(() => undefined);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [subStyle]);
+
+  const patchSubStyle = (patch: Partial<SubtitleStyle>) => {
+    setSubStyle((current) => ({ ...current, ...patch }));
+  };
+
+  const saveMarker = useCallback(
+    async (patch: SkipEntry, label: string) => {
+      const metaId = session?.metaId;
+      if (!metaId) return;
+      if (!isTauri()) {
+        setMarkMsg("Markers save in the desktop app");
+        return;
+      }
+      const at = posRef.current;
+      try {
+        const entry = await invoke<SkipEntry | null>("skip_set", { metaId, entry: patch });
+        setMarkers(entry);
+        setMarkMsg(`${label} at ${formatTime(at)} saved`);
+      } catch (e) {
+        setMarkMsg(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [session?.metaId],
+  );
+
+  // Ended episodes advance on their own only when the setting allows it and
+  // the card has not been dismissed.
+  useEffect(() => {
+    if (!local?.ended || !settings?.autoPlayNext || !nextEpisode || advanced.current || nextOff) {
+      return;
+    }
+    advanced.current = true;
+    void playVideo(nextEpisode);
+  }, [local?.ended, settings?.autoPlayNext, nextEpisode, nextOff, playVideo]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
-      switch (event.key) {
+      if (
+        target &&
+        (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) || target.isContentEditable)
+      ) {
+        return;
+      }
+      const key = event.key;
+      let handled = true;
+      switch (key) {
         case " ":
         case "k":
+        case "K":
           event.preventDefault();
           togglePause();
           break;
         case "ArrowLeft":
-          seekRel(-step);
-          break;
         case "ArrowRight":
-          seekRel(step);
+          event.preventDefault();
+          seekRel((key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 60 : step));
           break;
         case "ArrowUp":
-          event.preventDefault();
-          setVolume((local?.volume ?? 100) + 5);
-          break;
         case "ArrowDown":
           event.preventDefault();
-          setVolume((local?.volume ?? 100) - 5);
-          break;
-        case "f":
-          void toggleFullscreen();
+          changeVolume(key === "ArrowUp" ? 5 : -5);
           break;
         case "m":
-          send("mute");
+        case "M":
+          toggleMute();
+          break;
+        case "f":
+        case "F":
+          void toggleFullscreen();
           break;
         case "s":
-          void loadSubtitles();
-          setPanel((current) => !current);
+        case "S":
+          cycleSub();
+          break;
+        case "a":
+        case "A":
+          cycleAudio();
+          break;
+        case "+":
+        case "=":
+          changeSpeed(1);
+          break;
+        case "-":
+        case "_":
+          changeSpeed(-1);
+          break;
+        case "n":
+        case "N":
+          if (nextEpisode && !busy) void playVideo(nextEpisode);
+          break;
+        case "i":
+        case "I":
+          toggleSurface("stats");
           break;
         case "?":
-          setHelp((current) => !current);
+          toggleSurface("keys");
           break;
         case "Escape":
-          if (help) setHelp(false);
-          else if (panel) setPanel(false);
+          if (surface) setSurface(null);
+          else if (resumeAt != null) setResumeAt(null);
+          else if (showNext) dismissNext();
           else if (fsNow.current) void toggleFullscreen();
           else void stop();
           break;
         default:
-          return;
+          handled = false;
       }
-      bump();
+      if (handled) bump();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [
     bump,
-    help,
-    loadSubtitles,
-    local?.volume,
-    panel,
+    busy,
+    changeSpeed,
+    changeVolume,
+    cycleAudio,
+    cycleSub,
+    dismissNext,
+    nextEpisode,
+    playVideo,
+    resumeAt,
     seekRel,
-    send,
-    setVolume,
+    showNext,
     step,
     stop,
-    togglePause,
+    surface,
     toggleFullscreen,
+    toggleMute,
+    togglePause,
+    toggleSurface,
   ]);
 
   const loadSubtitleFile = async () => {
@@ -362,31 +710,45 @@ export function PlayerView() {
     );
   }
 
-  const duration = local.duration || 0;
-  const audioTracks = local.audioTracks ?? [];
-  const subTracks = local.subTracks ?? [];
-  const shownPosition = scrub ?? local.position;
   const percent = progressPercent(shownPosition, duration);
   const bufferedPercent =
     duration > 0 && local.buffered ? Math.min(100, (local.buffered / duration) * 100) : 0;
-  const remaining = Math.max(0, duration - shownPosition);
-  const loading = !local.ended && duration <= 0;
   const title = session?.name ?? local.title;
-  const activeSub = subTracks.find((track) => track.id === local.activeSub) ?? null;
+  const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
+  const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
 
   const ratioFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
   };
 
-  const shortcuts: Array<[string, string]> = [
+  const shortcutRows: Array<[string, string]> = [
     ["Space / K", "Play and pause"],
-    ["← →", `Back and forward ${step}s`],
-    ["↑ ↓", "Volume"],
-    ["F", "Fullscreen"],
+    ["← / →", `Seek ${step}s`],
+    ["Shift + ← / →", "Seek 60s"],
+    ["↑ / ↓", "Volume up and down"],
     ["M", "Mute"],
-    ["S", "Tracks"],
-    ["Esc", "Leave playback"],
+    ["S", "Cycle subtitles"],
+    ["A", "Cycle audio"],
+    ["+ / −", "Speed up and down"],
+    ["N", "Next episode"],
+    ["I", "Playback stats"],
+    ["F", "Fullscreen"],
+    ["?", "This sheet"],
+    ["Esc", "Close a panel, or leave"],
+  ];
+
+  const statsRows: Array<[string, string]> = [
+    ["Title", title],
+    ["Engine", appInfo?.mpv?.version ?? "mpv"],
+    ["State", local.ended ? "Ended" : local.paused ? "Paused" : "Playing"],
+    ["Position", `${formatTime(local.position)} / ${formatTime(duration)}`],
+    ["Cached to", formatTime(local.buffered ?? 0)],
+    ["Speed", `${local.speed}×`],
+    ["Volume", `${Math.round(local.volume)}%${local.muted ? " (muted)" : ""}`],
+    ["Audio", activeAudio?.label ?? "Default"],
+    ["Subtitles", activeSub?.label ?? "Off"],
+    ["Source", activeSub ? (activeSub.external ? "External file" : "Embedded") : "None"],
   ];
 
   return (
@@ -421,9 +783,10 @@ export function PlayerView() {
         </div>
         <button
           type="button"
-          className={`pv-icon${help ? " is-on" : ""}`}
-          onClick={() => setHelp((current) => !current)}
+          className={`pv-icon${surface === "keys" ? " is-on" : ""}`}
+          onClick={() => toggleSurface("keys")}
           aria-label="Keyboard shortcuts"
+          aria-expanded={surface === "keys"}
         >
           <Icon name="key" size={17} />
         </button>
@@ -443,9 +806,20 @@ export function PlayerView() {
         </div>
       ) : null}
 
-      {help ? (
+      {surface === "keys" ? (
         <section className="pv-help" aria-label="Keyboard shortcuts">
-          {shortcuts.map(([keys, what]) => (
+          <div className="pv-help-head">
+            <h2>Keyboard</h2>
+            <button
+              type="button"
+              className="pv-icon"
+              onClick={() => setSurface(null)}
+              aria-label="Close shortcuts"
+            >
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+          {shortcutRows.map(([keys, what]) => (
             <p key={keys}>
               <kbd>{keys}</kbd>
               <span>{what}</span>
@@ -454,48 +828,124 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {local.ended ? (
-        <section className="pv-next">
-          <p className="pv-next-label">{nextEpisode ? "Up next" : "End of the line"}</p>
-          {nextEpisode ? (
-            <>
-              <h2>
-                {seasonLabel(nextEpisode.season, nextEpisode.episode ?? nextEpisode.number)}
-                {nextEpisode.title ? ` · ${nextEpisode.title}` : ""}
-              </h2>
-              <div className="pv-next-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={busy}
-                  onClick={() => void playVideo(nextEpisode)}
-                >
-                  <Icon name="play" size={15} />
-                  {busy ? "Loading…" : "Play next"}
-                </button>
-                <button type="button" className="btn btn-ghost" onClick={() => void stop()}>
-                  Close
-                </button>
+      {surface === "stats" ? (
+        <section className="pv-stats" aria-label="Playback statistics">
+          <div className="pv-stats-head">
+            <h2>Playback</h2>
+            <button
+              type="button"
+              className="pv-icon"
+              onClick={() => setSurface(null)}
+              aria-label="Close playback statistics"
+            >
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+          <dl>
+            {statsRows.map(([label, value]) => (
+              <div key={label} className="pv-stat">
+                <dt>{label}</dt>
+                <dd>{value}</dd>
               </div>
-            </>
-          ) : (
-            <>
-              <h2>Nothing queued after this one.</h2>
-              <div className="pv-next-actions">
-                <button type="button" className="btn btn-ghost" onClick={() => void stop()}>
-                  Close
-                </button>
-              </div>
-            </>
-          )}
+            ))}
+          </dl>
+          <p className="pv-hint">
+            Codec, resolution, bitrate and dropped frames are not exposed by the player bridge.
+          </p>
         </section>
       ) : null}
 
-      {panel ? (
-        <aside className="pv-panel">
+      {resumeAt != null && !loading && !showNext ? (
+        <section className="pv-resume" aria-label="Resume playback">
+          <p className="pv-resume-label">Welcome back</p>
+          <div className="pv-resume-actions">
+            <button
+              type="button"
+              className="pv-resume-choice"
+              onClick={() => applyResume(resumeAt)}
+            >
+              Resume from {formatTime(resumeAt)}
+            </button>
+            <button
+              type="button"
+              className="pv-resume-choice is-quiet"
+              onClick={() => applyResume(0)}
+            >
+              Start over
+            </button>
+          </div>
+          <p className="pv-hint">Continuing automatically in {resumeLeft}s</p>
+        </section>
+      ) : null}
+
+      {showNext && nextEpisode ? (
+        <section
+          className={`pv-next${nextThumb ? " pv-next--rich" : " pv-next--closable"}`}
+          aria-label="Next episode"
+        >
+          {nextThumb ? (
+            <img
+              className="pv-next-thumb"
+              src={nextThumb}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setThumbBroken(true)}
+            />
+          ) : null}
+          <div className="pv-next-body">
+            <p className="pv-next-label">Up next</p>
+            <h2>
+              {seasonLabel(nextEpisode.season, nextEpisode.episode ?? nextEpisode.number)}
+              {nextEpisode.title ? ` · ${nextEpisode.title}` : ""}
+            </h2>
+            <p className="pv-next-meta">
+              {nextAutoPlay
+                ? local.ended
+                  ? "Starting now"
+                  : `Starting in ${nextCountdown}s`
+                : "Ready when you are"}
+            </p>
+            <div className="pv-next-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+              >
+                <Icon name="play" size={15} />
+                {busy ? "Loading…" : "Play now"}
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="pv-icon pv-next-close"
+            onClick={dismissNext}
+            aria-label="Dismiss next episode"
+          >
+            <Icon name="x" size={15} />
+          </button>
+        </section>
+      ) : null}
+
+      {local.ended && !nextEpisode ? (
+        <section className="pv-next">
+          <p className="pv-next-label">End of the line</p>
+          <h2>Nothing queued after this one.</h2>
+          <div className="pv-next-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => void stop()}>
+              Close
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {surface === "tracks" ? (
+        <aside className="pv-panel" aria-label="Tracks and subtitles">
           <div className="pv-panel-head">
             <h2>Tracks</h2>
-            <button type="button" className="pv-icon" onClick={() => setPanel(false)} aria-label="Close">
+            <button type="button" className="pv-icon" onClick={() => setSurface(null)} aria-label="Close">
               <Icon name="x" size={15} />
             </button>
           </div>
@@ -540,13 +990,95 @@ export function PlayerView() {
               value={String(local.speed)}
               onChange={(event) => send("speed", Number(event.target.value))}
             >
-              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
+              {SPEEDS.map((speed) => (
                 <option key={speed} value={speed}>
                   {speed}×
                 </option>
               ))}
             </select>
           </label>
+
+          <div className="pv-style">
+            <p className="pv-field-label">Subtitle style</p>
+            <div className="pv-subpreview">
+              <span
+                style={{
+                  color: subStyle.color,
+                  background: `rgba(0, 0, 0, ${subStyle.background / 100})`,
+                  fontSize: `${Math.round(15 + (subStyle.size - 30) * 0.24)}px`,
+                }}
+              >
+                Subtitles appear like this
+              </span>
+            </div>
+            <label className="pv-range">
+              <span>
+                Font size <b>{subStyle.size}</b>
+              </span>
+              <input
+                type="range"
+                min={30}
+                max={90}
+                step={1}
+                value={subStyle.size}
+                aria-label="Subtitle font size"
+                onChange={(event) => patchSubStyle({ size: Number(event.target.value) })}
+              />
+            </label>
+            <label className="pv-field">
+              <span>Text colour</span>
+              <select
+                value={subStyle.color}
+                onChange={(event) => patchSubStyle({ color: event.target.value })}
+              >
+                {SUB_COLORS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="pv-range">
+              <span>
+                Background <b>{subStyle.background}%</b>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={subStyle.background}
+                aria-label="Subtitle background opacity"
+                onChange={(event) => patchSubStyle({ background: Number(event.target.value) })}
+              />
+            </label>
+            <p className="pv-hint">
+              Saved with your settings. This engine build does not apply styling to the picture yet.
+            </p>
+          </div>
+
+          <div className="pv-style">
+            <p className="pv-field-label">Skip intro</p>
+            <div className="pv-row">
+              <button
+                type="button"
+                className="pv-file"
+                onClick={() => void saveMarker({ introStart: posRef.current }, "Intro start")}
+              >
+                Set intro here
+              </button>
+              <button
+                type="button"
+                className="pv-file"
+                onClick={() => void saveMarker({ introEnd: posRef.current }, "Intro end")}
+              >
+                Set intro end
+              </button>
+            </div>
+            <p className="pv-hint">
+              {markMsg ?? "Applies to every episode of this show."}
+            </p>
+          </div>
 
           <div className="pv-addonsubs">
             <p className="pv-field-label">From addons</p>
@@ -587,6 +1119,7 @@ export function PlayerView() {
           aria-valuemin={0}
           aria-valuemax={Math.round(duration)}
           aria-valuenow={Math.round(shownPosition)}
+          aria-valuetext={formatTime(shownPosition)}
           onPointerDown={(event) => {
             if (!duration) return;
             dragging.current = true;
@@ -636,13 +1169,32 @@ export function PlayerView() {
           </p>
 
           <div className="pv-steps">
-            <button type="button" className="pv-step" onClick={() => seekRel(-step)} aria-label={`Back ${step} seconds`}>
+            <button
+              type="button"
+              className="pv-step"
+              onClick={() => seekRel(-step)}
+              aria-label={`Back ${step} seconds`}
+            >
               −{step}
             </button>
-            <button type="button" className="pv-step" onClick={() => seekRel(step)} aria-label={`Forward ${step} seconds`}>
+            <button
+              type="button"
+              className="pv-step"
+              onClick={() => seekRel(step)}
+              aria-label={`Forward ${step} seconds`}
+            >
               +{step}
             </button>
           </div>
+
+          <button
+            type="button"
+            className="pv-text pv-keys"
+            onClick={() => toggleSurface("keys")}
+            aria-expanded={surface === "keys"}
+          >
+            Keys
+          </button>
 
           {prevEpisode ? (
             <button
@@ -671,7 +1223,7 @@ export function PlayerView() {
                 type="button"
                 className="pv-icon"
                 aria-label={local.muted ? "Unmute" : "Mute"}
-                onClick={() => send("mute")}
+                onClick={toggleMute}
               >
                 <Icon name={local.muted ? "mute" : "volume"} size={18} />
               </button>
@@ -689,23 +1241,35 @@ export function PlayerView() {
               type="button"
               className={`pv-text${activeSub ? " is-set" : ""}`}
               onClick={() => {
-                setPanel((current) => !current);
+                toggleSurface("tracks");
                 void loadSubtitles();
               }}
+              aria-expanded={surface === "tracks"}
             >
               {activeSub?.label ?? "Subs"}
             </button>
 
             <button
               type="button"
-              className={`pv-icon${panel ? " is-on" : ""}`}
+              className={`pv-icon${surface === "tracks" ? " is-on" : ""}`}
               onClick={() => {
-                setPanel((current) => !current);
+                toggleSurface("tracks");
                 void loadSubtitles();
               }}
               aria-label="Tracks"
+              aria-expanded={surface === "tracks"}
             >
               <Icon name="sliders" size={18} />
+            </button>
+
+            <button
+              type="button"
+              className={`pv-icon${surface === "stats" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("stats")}
+              aria-label="Playback stats"
+              aria-expanded={surface === "stats"}
+            >
+              <Icon name="info" size={18} />
             </button>
 
             <button
@@ -723,6 +1287,17 @@ export function PlayerView() {
           </div>
         </div>
       </footer>
+
+      {hud ? (
+        <div
+          className={`pv-hud${hud.out ? " is-out" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span>{hud.label}</span>
+          <b>{hud.value}</b>
+        </div>
+      ) : null}
     </div>
   );
 }

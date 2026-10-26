@@ -111,6 +111,12 @@ let settings: Settings = {
   homeRowsLimit: 8,
   trackProgress: true,
   playerWindow: "mpv",
+  nuvioAutoSync: true,
+  nuvioBaseUrl: "",
+  nuvioApiKey: "",
+  p2pConsent: false,
+  p2pCacheMb: 2048,
+  traktScrobble: true,
 };
 
 let addons: AddonInfo[] = [

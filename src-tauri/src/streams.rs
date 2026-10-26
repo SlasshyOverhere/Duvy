@@ -240,10 +240,13 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     }
 
     let url = stream.url.clone();
-    let playable = url
-        .as_deref()
-        .map(|u| u.starts_with("http://") || u.starts_with("https://") || u.starts_with("file://"))
-        .unwrap_or(false);
+    // A magnet/hash row is playable too: the torrent engine turns it into a
+    // local HTTP stream at playback time.
+    let playable = stream.info_hash.is_some()
+        || url
+            .as_deref()
+            .map(|u| u.starts_with("http://") || u.starts_with("https://") || u.starts_with("file://"))
+            .unwrap_or(false);
 
     StreamOption {
         addon: addon.to_string(),
@@ -299,7 +302,7 @@ mod tests {
             ..Default::default()
         };
         let option = normalize("A", &torrent);
-        assert!(!option.playable);
+        assert!(option.playable);
         assert!(option.info_hash.is_some());
     }
 

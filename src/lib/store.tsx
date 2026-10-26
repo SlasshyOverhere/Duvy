@@ -22,6 +22,7 @@ import type {
   PlayerSnapshot,
   ProgressItem,
   Settings,
+  StreamOption,
   Video,
 } from "./types";
 
@@ -67,6 +68,7 @@ interface Store {
   playItem: (item: MetaPreview) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
   buildSession: (details: Details, video: Video | null) => PlaybackSession;
+  resolveStream: (stream: StreamOption) => Promise<string>;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -213,6 +215,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
   }, [settings?.accent, settings?.reduceMotion]);
 
+  // Keep the Nuvio account in step with the phone and the official desktop app:
+  // once on launch, then every few minutes while the app stays open.
+  useEffect(() => {
+    if (!settings?.nuvioAutoSync) return;
+    let alive = true;
+    const run = async () => {
+      try {
+        const status = await api.nuvio.status();
+        if (!status.signedIn) return;
+        await api.nuvio.syncNow();
+        if (!alive) return;
+        await Promise.all([refreshProgress(), refreshLibrary()]);
+      } catch {
+        // Offline, or signed out elsewhere. The next tick tries again.
+      }
+    };
+    void run();
+    const timer = setInterval(() => void run(), 5 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary]);
+
   // Player events are pushed from Rust while mpv is running.
   useEffect(() => {
     if (!isTauri()) return;
@@ -318,6 +344,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return sessionFor(details, video);
   }, []);
 
+  /**
+   * Turn a source row into something mpv can actually open: HTTP links pass
+   * through (debrid accounts may still need to unrestrict them), magnets and
+   * hashes go to the local torrent engine.
+   */
+  const resolveStream = useCallback(
+    async (stream: StreamOption): Promise<string> => {
+      const direct = stream.url ?? "";
+      const magnet = !direct && stream.infoHash
+        ? `magnet:?xt=urn:btih:${stream.infoHash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`
+        : direct;
+      if (!magnet) throw new Error("That source has no link or info hash to play.");
+
+      if (!magnet.startsWith("magnet:") && !/^[0-9a-f]{40}$/i.test(magnet)) {
+        const providers = await api.debrid.providers().catch(() => []);
+        if (!providers.some((provider) => provider.connected)) return magnet;
+        return api.debrid.resolve(magnet);
+      }
+
+      if (!settings?.p2pConsent) {
+        throw new Error(
+          "That is a torrent source. Allow P2P playback in Settings before starting it.",
+        );
+      }
+      return api.torrent.start(magnet, stream.fileIdx != null ? String(stream.fileIdx) : undefined);
+    },
+    [settings?.p2pConsent],
+  );
+
   /** Resolve metadata, resume point, and the best playable source in one go. */
   const playItem = useCallback(
     async (item: MetaPreview) => {
@@ -350,21 +405,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: session.episode,
           imdbId: details.imdbId,
         });
-        const source = options.find((stream) => stream.playable && stream.url);
-        if (!source?.url) {
-          throw new Error(
-            "No playable source came back. Direct links play today; torrent-only sources need the P2P engine.",
-          );
+        const source = options.find((stream) => stream.playable);
+        if (!source) {
+          throw new Error("No source came back for this title. Check that your addons have one.");
         }
+        const url = await resolveStream(source);
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
           : details.name;
-        await playRequest({ url: source.url, title: label, startAt: resume, session });
+        await playRequest({ url, title: label, startAt: resume, session });
       } catch (error) {
         notify(errorMessage(error), "error");
       }
     },
-    [notify, playRequest, progress, progressFor, settings?.autoResume],
+    [notify, playRequest, progress, progressFor, resolveStream, settings?.autoResume],
   );
 
   /** Resume a specific Continue Watching entry (exact episode, exact position). */
@@ -448,6 +502,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       playItem,
       resumeEntry,
       buildSession,
+      resolveStream,
     }),
     [
       booting,
@@ -474,6 +529,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       playItem,
       resumeEntry,
       buildSession,
+      resolveStream,
     ],
   );
 

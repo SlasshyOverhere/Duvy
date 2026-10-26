@@ -260,7 +260,7 @@ export function StreamDrawer({
             <EmptyState
               icon="puzzle"
               title="No sources yet"
-              body="Install a stream addon in Addons, or add one that returns direct video URLs. Torrent-only sources arrive with the P2P engine."
+              body="Install a stream addon in Addons. Torrent sources play after you allow P2P in Settings → Playback."
               action={<Button onClick={onClose}>Close</Button>}
             />
           ) : null}

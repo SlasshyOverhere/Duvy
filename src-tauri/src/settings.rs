@@ -29,6 +29,18 @@ pub struct Settings {
     pub track_progress: bool,
     /// Open playback in a dedicated mpv window (the only renderer in v0.1).
     pub player_window: String,
+    /// Sync library, progress and watched items with the Nuvio account.
+    pub nuvio_auto_sync: bool,
+    /// Override for the Nuvio backend. Empty means the official endpoint.
+    pub nuvio_base_url: String,
+    /// Override for the Nuvio publishable key. Empty means the bundled one.
+    pub nuvio_api_key: String,
+    /// User consent to peer-to-peer streaming (off until explicitly accepted).
+    pub p2p_consent: bool,
+    /// Upper bound for the torrent cache, in megabytes.
+    pub p2p_cache_mb: i64,
+    /// Send watched events to Trakt while playing.
+    pub trakt_scrobble: bool,
 }
 
 impl Default for Settings {
@@ -48,6 +60,12 @@ impl Default for Settings {
             home_rows_limit: 8,
             track_progress: true,
             player_window: "mpv".into(),
+            nuvio_auto_sync: true,
+            nuvio_base_url: String::new(),
+            nuvio_api_key: String::new(),
+            p2p_consent: false,
+            p2p_cache_mb: 2048,
+            trakt_scrobble: true,
         }
     }
 }

@@ -353,20 +353,33 @@ pub fn list_watched(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 // Settings
 // ---------------------------------------------------------------------------
 
-pub fn read_settings(conn: &Connection) -> rusqlite::Result<Value> {
+pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
     let raw: Option<String> = conn
-        .query_row("SELECT value FROM settings WHERE key = 'app'", [], |r| r.get(0))
+        .query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| {
+            r.get(0)
+        })
         .optional()?;
-    Ok(raw
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(Value::Object(Default::default())))
+    Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
+}
+
+pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, value.to_string()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_kv(conn: &Connection, key: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
+}
+
+pub fn read_settings(conn: &Connection) -> rusqlite::Result<Value> {
+    Ok(read_kv(conn, "app")?.unwrap_or(Value::Object(Default::default())))
 }
 
 pub fn write_settings(conn: &Connection, value: &Value) -> rusqlite::Result<()> {
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('app', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = ?1",
-        params![value.to_string()],
-    )?;
-    Ok(())
+    write_kv(conn, "app", value)
 }

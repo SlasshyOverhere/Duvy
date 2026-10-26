@@ -157,6 +157,60 @@ export interface Settings {
   homeRowsLimit: number;
   trackProgress: boolean;
   playerWindow: string;
+  nuvioAutoSync: boolean;
+  nuvioBaseUrl: string;
+  nuvioApiKey: string;
+  p2pConsent: boolean;
+  p2pCacheMb: number;
+  traktScrobble: boolean;
+}
+
+export interface NuvioStatus {
+  signedIn: boolean;
+  email: string;
+  profile: number;
+  lastSync: number;
+  baseUrl: string;
+}
+
+export interface NuvioProfile {
+  id: string;
+  name: string;
+  profileIndex: number;
+  avatarColorHex: string;
+  avatarUrl?: string | null;
+  pinEnabled: boolean;
+}
+
+export interface NuvioSyncReport {
+  progress: number;
+  watched: number;
+  library: number;
+  pushed: number;
+}
+
+export interface TorrentStats {
+  active: boolean;
+  name: string;
+  progress: number;
+  downloadBps: number;
+  uploadBps: number;
+  peers: number;
+  seeds: number;
+}
+
+export interface DebridProvider {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
+export interface TraktStatus {
+  connected: boolean;
+  username: string;
+  lastSync: number;
+  userCode: string;
+  verificationUrl: string;
 }
 
 export interface AppInfo {

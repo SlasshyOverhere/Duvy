@@ -7,6 +7,10 @@ Nothing here is copied code. BetterNuvio is an independent Rust + TypeScript
 implementation of the same *feature surface*, using documented public protocols
 (Stremio addons, TMDB, mpv IPC).
 
+The authoritative, exhaustive list (both Nuvio Desktop and Stremio, unioned, with
+priorities and a release sequence) lives in [`FEATURE-SCOPE.md`](./FEATURE-SCOPE.md).
+This file stays the per-area status snapshot against v0.1.
+
 Legend: **Done** ships in v0.1 · **Partial** exists but is narrower · **Planned** not yet built.
 
 ## Core experience

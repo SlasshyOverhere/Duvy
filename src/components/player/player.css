@@ -1,0 +1,310 @@
+/* ---------------------------------------------------------------------------
+   Player extensions
+   These only add to the rules in styles.css; the deck, shade and panel keep
+   their established shapes and type.
+   --------------------------------------------------------------------------- */
+
+/* Keyboard sheet: the base panel lives in styles.css, this gives it a title
+   row and keeps a long list inside the viewport. */
+.pv .pv-help {
+  width: 306px;
+  max-height: calc(100vh - 132px);
+  overflow-y: auto;
+}
+
+.pv-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.pv-help-head h2 {
+  font-size: 0.98rem;
+}
+
+/* Playback statistics */
+.pv-stats {
+  position: absolute;
+  top: 76px;
+  right: 26px;
+  z-index: 4;
+  width: 312px;
+  max-height: calc(100vh - 132px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.96);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pv-stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pv-stats-head h2 {
+  font-size: 0.98rem;
+}
+
+.pv-stats dl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.pv-stat {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.pv-stat dt {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.44);
+}
+
+.pv-stat dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Resume prompt and next card sit on the left, centered in the free space
+   between the top strip and the deck so they can never cover the controls. */
+.pv .pv-resume,
+.pv .pv-next {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.pv-resume {
+  position: absolute;
+  left: 26px;
+  z-index: 4;
+  width: min(370px, calc(100vw - 52px));
+  padding: 18px 20px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.96);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pv-resume-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.pv-resume-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 4px;
+}
+
+.pv-resume-choice {
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  transition: color 0.14s ease;
+}
+
+.pv-resume-choice:hover {
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+.pv-resume-choice.is-quiet {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pv-resume-choice.is-quiet:hover {
+  color: #fff;
+}
+
+/* Next episode card */
+.pv-next.pv-next--closable {
+  padding-right: 48px;
+}
+
+.pv-next.pv-next--rich {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding-right: 48px;
+}
+
+.pv-next:not(.pv-next--rich) .pv-next-body {
+  display: contents;
+}
+
+.pv-next-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pv-next-thumb {
+  width: 152px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 2px;
+  background: #101010;
+}
+
+.pv-next-meta {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-next-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Subtitle styling, kept inside the tracks panel */
+.pv-style {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.pv-subpreview {
+  display: grid;
+  place-items: center;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 2px;
+  background: #131313;
+}
+
+.pv-subpreview span {
+  padding: 2px 8px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.pv-range {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pv-range > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.pv-range > span b {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.pv-range input[type="range"] {
+  width: 100%;
+}
+
+/* Transient volume and speed readout */
+.pv-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 128px;
+  z-index: 5;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.9);
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.pv-hud.is-out {
+  opacity: 0;
+}
+
+.pv-hud span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.pv-hud b {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reduced-motion rules in styles.css already flatten transitions; this
+   keeps the readout readable instead of a zero-duration fade to nothing. */
+:root[data-motion="reduced"] .pv-hud {
+  transition: none;
+}
+
+@media (max-width: 720px) {
+  .pv .pv-stats,
+  .pv .pv-help {
+    width: calc(100vw - 40px);
+    right: 20px;
+  }
+
+  .pv .pv-resume,
+  .pv .pv-next {
+    left: 20px;
+    width: calc(100vw - 40px);
+  }
+
+  .pv-next.pv-next--rich {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+
+  .pv-next-thumb {
+    width: 112px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-hud {
+    transition: none;
+  }
+}

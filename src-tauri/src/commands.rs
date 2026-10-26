@@ -961,3 +961,52 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
         Err("The window could not go fullscreen".into())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Nuvio Cloud sync
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn nuvio_status(state: State<'_, AppState>) -> Result<crate::nuvio_sync::Status, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let settings = Settings::load(&conn);
+    Ok(crate::nuvio_sync::status(&conn, &settings))
+}
+
+#[tauri::command]
+pub async fn nuvio_sign_in(
+    email: String,
+    password: String,
+    sign_up: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<crate::nuvio_sync::Status, String> {
+    crate::nuvio_sync::sign_in(&state, &email, &password, sign_up.unwrap_or(false)).await?;
+    // First sync right after sign-in so the other devices land immediately.
+    let _ = crate::nuvio_sync::sync_now(&state).await;
+    nuvio_status(state)
+}
+
+#[tauri::command]
+pub fn nuvio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
+    crate::nuvio_sync::sign_out(&state)
+}
+
+#[tauri::command]
+pub fn nuvio_set_profile(index: i64, state: State<'_, AppState>) -> Result<(), String> {
+    crate::nuvio_sync::set_profile(&state, index)
+}
+
+#[tauri::command]
+pub async fn nuvio_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::nuvio_sync::NuvioProfile>, String> {
+    crate::nuvio_sync::profiles(&state).await
+}
+
+#[tauri::command]
+pub async fn nuvio_sync_now(
+    state: State<'_, AppState>,
+) -> Result<crate::nuvio_sync::SyncReport, String> {
+    let report = crate::nuvio_sync::sync_now(&state).await?;
+    Ok(report)
+}

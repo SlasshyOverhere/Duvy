@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import type { Details, Video } from "../lib/types";
+import type { Details, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { Badge, Button, EmptyState, Icon, Spinner } from "../components/ui";
 import {
@@ -22,6 +22,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     progressFor,
     notify,
     buildSession,
+    resolveStream,
     settings,
   } = useApp();
 
@@ -121,19 +122,20 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     setDrawer({ video: target });
   };
 
-  const startStream = (url: string) => {
+  const startStream = async (stream: StreamOption) => {
     if (!details || !drawer) return;
     const session = buildSession(details, drawer.video);
     const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;
+    const title = drawer.video
+      ? `${details.name} · ${seasonLabel(drawer.video.season, drawer.video.episode ?? drawer.video.number)}`
+      : details.name;
     setDrawer(null);
-    void playRequest({
-      url,
-      title: drawer.video
-        ? `${details.name} · ${seasonLabel(drawer.video.season, drawer.video.episode ?? drawer.video.number)}`
-        : details.name,
-      startAt: resume,
-      session,
-    });
+    try {
+      const url = await resolveStream(stream);
+      await playRequest({ url, title, startAt: resume, session });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "That source could not be opened.", "error");
+    }
   };
 
   const drawerRequest =
@@ -355,7 +357,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         }
         request={drawerRequest}
         onClose={() => setDrawer(null)}
-        onPlay={(stream) => stream.url && startStream(stream.url)}
+        onPlay={(stream) => void startStream(stream)}
       />
     </div>
   );

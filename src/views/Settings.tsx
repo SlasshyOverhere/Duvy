@@ -2,12 +2,19 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import { Badge, Button, Icon, Toggle, type IconName } from "../components/ui";
+import { Button, Icon, Toggle, type IconName } from "../components/ui";
+import { NuvioSync } from "./settings/NuvioSync";
+import TraktView from "./Trakt";
+import DebridView from "./Debrid";
+import TorrentView from "./Torrent";
+import { MediaServers } from "./settings/MediaServers";
 
 const SECTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: "general", label: "General", icon: "sliders" },
   { id: "playback", label: "Playback", icon: "play" },
+  { id: "servers", label: "Servers", icon: "tv" },
   { id: "integrations", label: "Integrations", icon: "key" },
+  { id: "sync", label: "Sync", icon: "refresh" },
   { id: "about", label: "About", icon: "info" },
 ];
 
@@ -306,6 +313,37 @@ export function SettingsView({ section }: { section?: string }) {
               </section>
 
               <section className="settings-group">
+                <h2>Peer-to-peer streaming</h2>
+                <p className="settings-hint">
+                  Torrents stream through a local engine, so your IP address is visible to the swarm.
+                  Only enable this if you know what that means for you.
+                </p>
+                <div className="settings-row">
+                  <div>
+                    <h3>Allow P2P playback</h3>
+                    <p className="settings-hint">Torrent sources stay disabled until this is on.</p>
+                  </div>
+                  <Toggle
+                    label="Allow P2P playback"
+                    checked={settings.p2pConsent}
+                    onChange={(next) => update({ p2pConsent: next })}
+                  />
+                </div>
+                <div className="settings-row">
+                  <div>
+                    <h3>Disk cache</h3>
+                    <p className="settings-hint">Cleared leftovers above this size before each start.</p>
+                  </div>
+                  <span className="settings-value">{settings.p2pCacheMb} MB</span>
+                </div>
+                {settings.p2pConsent ? (
+                  <div className="settings-embed">
+                    <TorrentView />
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="settings-group">
                 <h2>Try the player</h2>
                 <p className="settings-hint">
                   Play a local video to confirm mpv, hardware decoding and progress tracking work.
@@ -380,26 +418,23 @@ export function SettingsView({ section }: { section?: string }) {
               </section>
 
               <section className="settings-group">
-                <h2>Coming next</h2>
-                <div className="roadmap">
-                  {[
-                    ["Trakt + Simkl sync", "Scrobble playback and mirror your library."],
-                    ["Debrid", "Resolve cached torrents to direct links."],
-                    ["Jellyfin / Emby", "Play from your own media server."],
-                    ["P2P streaming", "Built-in torrent engine with buffer control."],
-                  ].map(([title, body]) => (
-                    <div key={title} className="roadmap-item">
-                      <Badge>planned</Badge>
-                      <div>
-                        <h3>{title}</h3>
-                        <p>{body}</p>
-                      </div>
-                    </div>
-                  ))}
+                <h2>Trakt</h2>
+                <div className="settings-embed">
+                  <TraktView />
+                </div>
+              </section>
+
+              <section className="settings-group">
+                <h2>Debrid</h2>
+                <div className="settings-embed">
+                  <DebridView />
                 </div>
               </section>
             </>
           ) : null}
+
+          {tab === "sync" ? <NuvioSync /> : null}
+          {tab === "servers" ? <MediaServers /> : null}
 
           {tab === "about" ? (
             <section className="settings-group">

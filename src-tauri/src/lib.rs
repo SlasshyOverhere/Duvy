@@ -6,12 +6,18 @@
 mod addons;
 mod commands;
 mod db;
+mod debrid;
 mod models;
+mod nuvio_sync;
 mod playback_log;
 mod player;
+mod servers;
 mod settings;
+mod skip;
 mod streams;
 mod tmdb;
+mod torrent;
+mod trakt;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -269,6 +275,33 @@ pub fn run() {
             commands::player_stop,
             commands::player_subtitle,
             commands::window_fullscreen,
+            commands::nuvio_status,
+            commands::nuvio_sign_in,
+            commands::nuvio_sign_out,
+            commands::nuvio_set_profile,
+            commands::nuvio_profiles,
+            commands::nuvio_sync_now,
+            trakt::set_client,
+            trakt::scrobble,
+            debrid::check_cache,
+            skip::skip_get,
+            skip::skip_set,
+            servers::srv_list,
+            servers::srv_add,
+            servers::srv_remove,
+            servers::srv_items,
+            servers::srv_stream,
+            torrent::start,
+            torrent::stats,
+            torrent::stop,
+            trakt::status,
+            trakt::begin,
+            trakt::poll,
+            trakt::disconnect,
+            trakt::sync,
+            debrid::providers,
+            debrid::set_key,
+            debrid::resolve,
         ])
         .build(tauri::generate_context!())
         .expect("error while building BetterNuvio");

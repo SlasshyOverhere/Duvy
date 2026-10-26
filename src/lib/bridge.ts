@@ -4,15 +4,21 @@ import type {
   AddonInfo,
   AppInfo,
   Details,
+  DebridProvider,
   HomeFeed,
   LibraryItem,
   MetaPreview,
+  NuvioProfile,
+  NuvioStatus,
+  NuvioSyncReport,
   PlayRequest,
   PlayerSnapshot,
   ProgressItem,
   Settings,
   StreamOption,
   SubtitleTrack,
+  TorrentStats,
+  TraktStatus,
 } from "./types";
 
 export function isTauri(): boolean {
@@ -110,5 +116,41 @@ export const api = {
     stop: () => call<null>("player_stop"),
     subtitle: (url: string, label?: string) =>
       call<null>("player_subtitle", { url, label }),
+  },
+
+  nuvio: {
+    status: () => call<NuvioStatus>("nuvio_status"),
+    signIn: (email: string, password: string, signUp = false) =>
+      call<NuvioStatus>("nuvio_sign_in", { email, password, signUp }),
+    signOut: () => call<null>("nuvio_sign_out"),
+    setProfile: (index: number) => call<null>("nuvio_set_profile", { index }),
+    profiles: () => call<NuvioProfile[]>("nuvio_profiles"),
+    syncNow: () => call<NuvioSyncReport>("nuvio_sync_now"),
+  },
+
+  torrent: {
+    start: (source: string, fileHint?: string) =>
+      call<string>("start", { source, fileHint }),
+    stats: () => call<TorrentStats>("stats"),
+    stop: () => call<null>("stop"),
+  },
+
+  debrid: {
+    providers: () => call<DebridProvider[]>("providers"),
+    setKey: (provider: string, key: string) =>
+      call<DebridProvider[]>("set_key", { provider, key }),
+    resolve: (url: string) => call<string>("resolve", { url }),
+    checkCache: (source: string) => call<boolean>("check_cache", { source }),
+  },
+
+  trakt: {
+    status: () => call<TraktStatus>("status"),
+    begin: (clientId?: string, clientSecret?: string) =>
+      call<TraktStatus>("begin", { clientId, clientSecret }),
+    poll: () => call<TraktStatus>("poll"),
+    disconnect: () => call<null>("disconnect"),
+    sync: () => call<{ pulled?: number; pushed?: number }>("sync"),
+    scrobble: (action: string, key: string, progress: number) =>
+      call<null>("scrobble", { action, key, progress }),
   },
 };
