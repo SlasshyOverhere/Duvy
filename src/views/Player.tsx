@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
-import { pickSource, useApp, usePlayer } from "../lib/store";
+import { noSourceError, pickSource, useApp, usePlayer } from "../lib/store";
 import type { Details, PlayerSnapshot, SubtitleTrack, Video } from "../lib/types";
 import { Icon, Spinner } from "../components/ui";
 import { findSkip, type SkipEntry } from "../components/player/skip";
@@ -240,8 +240,12 @@ export function PlayerView() {
           episode: video.episode ?? video.number,
           imdbId: details.imdbId,
         });
-        const source = pickSource(sources, settings?.preferredQuality ?? "auto");
-        if (!source) throw new Error("No playable source for that episode.");
+        const source = pickSource(
+          sources,
+          settings?.preferredQuality ?? "auto",
+          settings?.p2pConsent ?? false,
+        );
+        if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
         await playRequest({
           url,
@@ -255,7 +259,15 @@ export function PlayerView() {
         setBusy(false);
       }
     },
-    [buildSession, details, notify, playRequest, resolveStream, settings?.preferredQuality],
+    [
+      buildSession,
+      details,
+      notify,
+      playRequest,
+      resolveStream,
+      settings?.p2pConsent,
+      settings?.preferredQuality,
+    ],
   );
 
   const leaveFullscreen = useCallback(() => {

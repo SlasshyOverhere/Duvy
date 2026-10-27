@@ -115,14 +115,30 @@ function errorMessage(error: unknown): string {
 }
 
 /** The preferred quality when one matches, otherwise the best source offered. */
-export function pickSource(options: StreamOption[], quality: string): StreamOption | undefined {
-  const playable = options.filter((stream) => stream.playable);
+export function pickSource(
+  options: StreamOption[],
+  quality: string,
+  p2pAllowed = true,
+): StreamOption | undefined {
+  const playable = options.filter(
+    (stream) => stream.playable && (p2pAllowed || Boolean(stream.url)),
+  );
   if (quality && quality !== "auto") {
     const wanted = quality.toLowerCase();
     const match = playable.find((stream) => stream.quality.toLowerCase().includes(wanted));
     if (match) return match;
   }
   return playable[0];
+}
+
+/** Explain why nothing could play, without sending the user to the addons page for a consent gate. */
+export function noSourceError(options: StreamOption[], p2pAllowed: boolean): Error {
+  if (!p2pAllowed && options.some((stream) => stream.playable && stream.infoHash)) {
+    return new Error(
+      "Only torrent sources are available. Enable P2P playback in Settings to play them.",
+    );
+  }
+  return new Error("No playable source found for this title.");
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -417,10 +433,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: session.episode,
           imdbId: details.imdbId,
         });
-        const source = pickSource(options, settings?.preferredQuality ?? "auto");
-        if (!source) {
-          throw new Error("No source came back for this title. Check that your addons have one.");
-        }
+        const source = pickSource(
+          options,
+          settings?.preferredQuality ?? "auto",
+          settings?.p2pConsent ?? false,
+        );
+        if (!source) throw noSourceError(options, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
@@ -437,6 +455,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       progressFor,
       resolveStream,
       settings?.autoResume,
+      settings?.p2pConsent,
       settings?.preferredQuality,
     ],
   );
@@ -478,8 +497,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode,
           imdbId: details.imdbId,
         });
-        const source = pickSource(sources, settings?.preferredQuality ?? "auto");
-        if (!source) throw new Error("No playable source found for this title.");
+        const source = pickSource(
+          sources,
+          settings?.preferredQuality ?? "auto",
+          settings?.p2pConsent ?? false,
+        );
+        if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
         notify("Resuming…");
         await playRequest({
@@ -494,7 +517,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         notify(errorMessage(error), "error");
       }
     },
-    [navigate, notify, playRequest, resolveStream, settings?.preferredQuality],
+    [navigate, notify, playRequest, resolveStream, settings?.p2pConsent, settings?.preferredQuality],
   );
 
   const value = useMemo<Store>(
