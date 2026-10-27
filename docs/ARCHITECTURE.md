@@ -4,65 +4,77 @@
 
 ```
 ┌─────────────────────────────┐        invoke() / events        ┌──────────────────────────┐
-│ React 19 + Vite (WebView2)   │ ◄─────────────────────────────► │ Rust core (Tauri 2)      │
+│ React 19 + Vite (WebView2)  │ ◄─────────────────────────────► │ Rust core (Tauri 2)      │
 │  shell, rows, details,      │                                 │  command surface          │
-│  settings, player console   │                                 │  addon client · TMDB      │
-└─────────────────────────────┘                                 │  SQLite · stream ranking  │
+│  settings, player console   │                                 │  addons · metadata        │
+└─────────────────────────────┘                                 │  SQLite · sources         │
                                                                 └────────┬─────────────────┘
                                                                          │ JSON IPC (named pipe)
                                                                          ▼
                                                                 ┌──────────────────────────┐
-                                                                │ mpv (separate process)    │
-                                                                │ hardware decode + render  │
-                                                                │ paints the app window     │
+                                                                │ mpv (separate process)   │
+                                                                │ hardware decode + render │
+                                                                │ paints the app window    │
                                                                 └──────────────────────────┘
 ```
 
-The WebView never decodes or composites video. mpv is given `--wid=<app window>` and paints its
-picture straight into the app window's client area, so the video is the bottom layer of the same
-window the UI lives in. There is no separate player window and no surface to move around.
+The WebView never decodes or composites video. On Windows, mpv is given `--wid=<app window>` and
+paints straight into the app window's client area, so the picture is the bottom layer of the same
+window the UI lives in. If no window handle is available (non-Windows), mpv opens its own window
+and is still driven over IPC.
 
-The picture is only visible because the WebView above it is see-through: `lib.rs` calls
-`window.set_background_color(Color(0, 0, 0, 0))`, which sets the WebView2 controller's default
-background to alpha 0. The window itself stays opaque, which matters because a `transparent: true`
-Tauri window uses `DwmEnableBlurBehindWindow` on the very HWND mpv presents to; an earlier attempt
-at window-level transparency produced audio with no picture.
+The picture is visible because the WebView above it is see-through: `lib.rs` sets the WebView2
+background to alpha 0. The native window stays opaque, because window-level transparency on the
+HWND that mpv presents to produced audio with no picture in an earlier attempt.
 
-Because mpv's render window is created after the web view, it lands on top of it and would eat
+mpv's render window is created after the web view and would otherwise sit on top and swallow
 every click meant for the controls. `raise_webview()` returns the `Chrome_WidgetWin*` child to
-`HWND_TOP` for the first few ticks after a load so the React controls stay on top of the video.
-mpv's own UI is switched off (`--osc=no --osd-bar=no --input-vo-keyboard=no`): the entire player
-chrome is `src/views/Player.tsx`.
+`HWND_TOP` for the first few ticks after a load. mpv draws no chrome of its own (`--osc=no
+--osd-bar=no --input-vo-keyboard=no --input-default-bindings=no`); the player UI is
+`src/views/Player.tsx`. Fullscreen is a direct style swap on the window handle
+(`window_fullscreen` -> `set_fullscreen`), because the framework's fullscreen path can wedge the
+UI thread while video is presenting into the same window.
 
 ## Modules
 
 | File | Responsibility |
 | --- | --- |
-| `addons.rs` | Stremio protocol models, URL normalisation/builders, id shaping (`tt123:2:5`). Pure + tested. |
-| `streams.rs` | Turns free-form addon titles into ranked `StreamOption`s: quality, size, seeders, languages, HDR/cached badges, playability. Tested. |
-| `tmdb.rs` | Optional discovery rows, multi-search, details (credits, videos, external ids) and IMDb→TMDB resolution. |
-| `player.rs` | mpv discovery (bundled resource dir, `where mpv`, WinGet/Scoop/Program Files), spawn with explicit flags (`--wid` on the app window), pipe connection with retry, property observers, command dispatch, ticker + progress persistence. |
-| `db.rs` | SQLite schema, WAL, queries for addons/library/progress/watched/settings. |
-| `commands.rs` | All `#[tauri::command]` entry points, fan-out with `JoinSet`, metadata merge logic. |
-| `models.rs` | Serde shapes shared by commands and events. |
+| `addons.rs` | Stremio protocol models, URL normalisation/builders, id shaping (`tt123:2:5`). Pure and tested. |
+| `streams.rs` | Turns free-form addon titles into ranked stream options: quality, size, seeders, languages, HDR and cached badges, playability. Tested. |
+| `meta.rs` | Cinemeta-first metadata (episodes, cast, artwork) with a TMDB-schema fallback, cast photo cache. Tested. |
+| `tmdb.rs` | Optional discovery rows, search, details and IMDb to TMDB resolution when a key is set. |
+| `player.rs` | mpv discovery, spawn flags, IPC connection, property observers, subtitle loading, ticker, progress persistence. |
+| `torrent.rs` | One `librqbit` session per playback, metadata resolution, loopback HTTP range server, cache bound, stats and teardown. Tested parsers. |
+| `debrid.rs` | Real-Debrid, AllDebrid, Premiumize and TorBox key storage, cache checks and link unrestricting. Tested parsers. |
+| `trakt.rs` | Device-code auth, scrobbling, watched/progress pull and push. Tested merge helpers. |
+| `nuvio_sync.rs` | Unofficial Nuvio Cloud sign-in and full pull/merge/push of profiles, progress, watched and library. Tested helpers. |
+| `servers.rs` | Jellyfin and Emby sign-in, library browsing, artwork and direct stream URLs. Tested URL builders. |
+| `skip.rs` | Per-show intro/outro markers and the skip decision. Tested. |
+| `playback_log.rs` | Small in-memory timeline of playback steps, exposed in Settings. |
+| `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence. |
+| `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out, source resolution, metadata merge. |
+| `models.rs` | Serde shapes shared by commands and events. |
+| `lib.rs` | State wiring, HTTP client, window helpers, command registration. |
 
-## Addon request flow
+## Addon and metadata flow
 
 1. `addons_install(url)` normalises the input (`stremio://`, trailing slash, `manifest.json`),
    fetches, validates `id`/`name`, then upserts keyed by transport URL.
-2. `home_feed` reads enabled addons, takes up to 4 non-required-extra catalogs per addon and
-   spawns one task per catalog. Rows are ordered by addon position, then truncated to
-   `homeRowsLimit`. Duplicate titles get a `· Movies` / `· Series` suffix.
-3. `search` only asks catalogs whose manifest advertises a `search` extra; TMDB results are
-   appended when a key exists; results are de-duplicated by `(id, type)`.
-4. `meta_details` resolves the id through the first metadata addon that supports it. `tmdb:*`
-   ids are resolved through TMDB and enriched with addon episodes when an IMDb id exists.
+2. `home_feed` loads enabled addons and takes up to 4 catalogs per addon that are movie/series and
+   have no required extra. One Tokio task per catalog runs in a `JoinSet`; rows are ordered by
+   addon position, truncated to the configured home row limit, and duplicate names get a
+   `· Movies` / `· Shows` suffix. Optional TMDB discovery rows run in parallel with a 14s cap.
+3. `search` asks catalogs whose manifest advertises a `search` extra, appends TMDB results when a
+   key exists, and de-duplicates by `(id, type)`.
+4. `meta_details` tries Cinemeta first, then a TMDB-schema mirror for ids Cinemeta does not know.
+   `tmdb:*` ids are resolved through TMDB. Cast photos are fetched separately and cached in the
+   `people` table.
 5. `streams` builds `{type}:{imdb}:{season}:{episode}` ids, queries every stream-capable addon in
-   parallel, normalises, de-duplicates by URL/infoHash, sorts by score.
+   parallel, normalises, de-duplicates by URL or info hash, and sorts by score.
 6. `subtitles` does the same for `/subtitles/...` addons.
 
-All URLs use the documented protocol shapes:
+All requests use the documented protocol shapes:
 
 ```
 {base}/catalog/{type}/{id}.json
@@ -72,27 +84,43 @@ All URLs use the documented protocol shapes:
 {base}/subtitles/{type}/{id}.json
 ```
 
+## Source resolution
+
+The UI turns a stream row into a playable URL in this order:
+
+- **Direct HTTP(S):** played as-is, or routed through the connected debrid account first when one
+  exists, since a host link may need unrestricting.
+- **Debrid:** a magnet, info hash or supported host link is unrestricted through the connected
+  account. Each provider has its own JSON parser and polling rules.
+- **P2P:** requires `p2pConsent`. The selected magnet is added to a local `librqbit` session;
+  the chosen file is served from a loopback HTTP endpoint that honours `Range`, so mpv can seek.
+  The engine is torn down on stop, and a single torrent is active at a time.
+- **Media servers:** Jellyfin and Emby items resolve to a direct `/Videos/{id}/stream` URL with
+  the stored token.
+- **Local files:** a path is handed to mpv directly.
+
 ## Playback lifecycle
 
-1. UI resolves the title/stream and calls `player_open({ url, title, startAt, session })`.
-2. Rust drops any existing `Player` (which terminates the old mpv), spawns mpv with
-   `--input-ipc-server=\\.\pipe\betternuvio-<pid>-<ts> --no-config --idle=yes --wid=<app window>
-   --osc=no --vo=gpu-next --tone-mapping=bt.2390 --hwdec=auto-safe --cache=yes
-   --sub-auto=fuzzy --log-file=<appdata>/mpv.log`, then connects to the pipe with a 3s retry loop.
-3. mpv fills the window client area with the picture and draws no chrome of its own; the player
-   route renders transparent and `Player.tsx` supplies the controls. `Esc` is bound to `quit` in
-   mpv; the app returns to the title when mpv exits. Fullscreen is a direct style swap on the
-   window handle (`window_fullscreen` → `set_fullscreen`), because the framework's fullscreen
-   flag can wedge the UI thread while video is presenting into the same window.
-4. It registers `observe_property` for `time-pos`, `duration`, `demuxer-cache-time`, `pause`,
-   `volume`, `mute`, `speed`, `track-list`, `eof-reached`, `media-title` and issues
-   `loadfile ... start=N`.
-5. A reader thread parses newline-delimited JSON and updates the shared snapshot. A ticker
-   thread emits `player:tick` every 500ms and, every 5s, writes progress.
-6. At ≥92% the title is marked watched and its progress row is cleared; otherwise the position
-   is upserted into `progress`.
-7. `end-file` emits `player:ended`; the UI offers/auto-plays the next episode. Closing mpv emits
-   `player:closed` and the UI navigates back to the title.
+1. The UI calls `player_open({ url, title, startAt, session })`.
+2. Rust drops any existing player (terminating the old mpv), then spawns mpv with
+   `--no-config --idle=yes --keep-open=no --input-ipc-server=\\.\pipe\betternuvio-<pid>-<ts>`,
+   hardware decoding from settings, `--vo=gpu-next`, `--tone-mapping=bt.2390`, `--cache=yes`,
+   `--sub-auto=fuzzy`, subtitle/audio language preferences, and `--wid=<app window>` on Windows.
+   Logs go to the app data directory (`mpv.log`, `mpv-stderr.log`).
+3. The IPC pipe is connected with a short retry loop. `observe_property` covers `time-pos`,
+   `duration`, `demuxer-cache-time`, `pause`, `volume`, `mute`, `speed`, `track-list`,
+   `eof-reached`, `media-title` and related fields.
+4. A reader thread parses newline-delimited JSON into a shared snapshot. A ticker emits
+   `player:tick` every 500ms and persists progress every 5s.
+5. At 92% the title is marked watched and the progress row is kept for the Watched list. Below
+   that, the position is upserted into `progress`. Continue Watching excludes rows at or above
+   90% and rows already marked watched.
+6. `end-file` emits `player:ended`; the UI offers or auto-plays the next episode. Closing mpv
+   emits `player:closed` and the UI returns to the title.
+7. Intro/outro markers are read per meta id; when the playhead enters a marked segment the UI
+   seeks to its end. Markers are set manually from the player console.
+8. Subtitles come from addon tracks (`sub-add`) or a file picker. Style controls map to mpv
+   subtitle options; there is no subtitle delay or auto-sync feature.
 
 `session.key` is the resume identity: `metaId` for a film, `metaId:season:episode` for a series.
 
@@ -104,58 +132,50 @@ library(id PK, media_type, name, poster, background, added_at, meta)
 progress(key PK, meta_id, media_type, name, poster, background,
          season, episode, episode_title, position, duration, updated_at)
 watched(key PK, meta_id, watched, updated_at)
-settings(key PK, value)          -- one JSON row, key = 'app'
+people(key PK, photo, checked_at)
+settings(key PK, value)
 ```
 
-WAL + `synchronous=NORMAL`; one connection behind a mutex. Every query touches a handful of
-rows, so a pool would add latency, not remove it.
+`settings` stores the app settings under `app`, plus one JSON value each for `debrid`, `servers`,
+`trakt`, `nuvio` and `skip`. WAL and `synchronous=NORMAL`; one connection behind a mutex. Every
+query touches a small number of rows, so a pool would add latency, not remove it.
 
-## Performance notes (design, not benchmarked)
+## Privacy and trust boundaries
 
-- Video decode/render is out of process; the UI thread only paints lists.
-- Addon requests are concurrent and share a pooled client; a single slow addon cannot serialize
-  the home screen.
-- Stream string parsing happens once per addon response in Rust (regex-free scanning), not on
-  every render.
-- Posters use `loading="lazy"` and a CSS gradient placeholder, so an empty/unreachable metadata
-  host still produces a usable grid.
-- Row artwork is fetched at the size the addon provides; no proxy or re-encode.
+- No telemetry, analytics or crash reporting is built in.
+- Credentials are stored in the local settings table as JSON. They are not encrypted at rest by
+  the app.
+- The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
+  binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
+  opt-in.
+- Outbound requests share one reqwest client with an 18s timeout and an 8s connect timeout.
 
-## Verification status
+## Verification
 
-Run on this machine (Windows 11, WebView2):
+Automated checks in CI (`windows-latest`):
 
-- `cargo test` — 11 tests: addon URL/id builders, stream parsing/ranking, SQLite round-trips
-  (addons, progress, library, watched), settings merge/reset.
-- `bun run check` and `bun run build` — clean.
-- Desktop app launched via `bun run tauri dev`, driven over the WebView2 DevTools protocol:
-  installed Cinemeta from its live URL, loaded 4 real catalog rows (40 posters), searched
-  "dune" (25 live results), opened *Dune: Prophecy* details (6 episodes, 2 season tabs, cast),
-  confirmed the empty source state, saved it to the library and reloaded it from SQLite.
-- Screenshots in `screenshots/` come from that run.
+```bash
+bun run check
+bun run build
+cargo test --manifest-path src-tauri/Cargo.toml
+```
 
-- Playback end to end with a bundled mpv 0.41 against a real 90s 720p H.264 file: `player_open`
-  returned a duration of 90s, position advanced in real time and `mpv.log` shows `vo/gpu-next`
-  rendering at 1440x920. That run used the earlier owned-surface layout; the current build paints
-  into the app window itself and has not been re-run here.
-- Repeated play → end-of-file → play-again → stop: no wedged window, commands stay responsive.
+The Rust unit tests cover addon URL/id building, stream parsing and ranking, metadata helpers,
+SQLite round-trips, settings merge/reset, debrid and torrent parsers, Trakt and Nuvio merge
+helpers, server URL builders and skip decisions.
 
-Not verified here:
+Not covered by automated tests, and not a support guarantee: playback against real streams,
+hardware decoding, HDR, P2P swarms, debrid accounts, Trakt, Nuvio sync, Jellyfin/Emby servers and
+installer packaging. Those paths require accounts, servers or media that CI does not have.
 
-- HDR/10-bit, Dolby Vision, network HLS sources on this machine.
-- The in-window layout (video behind a transparent web layer, controls on top) is compiled but not
-  yet confirmed on screen: the earlier run verified the owned-surface variant from the previous
-  paragraph.
-- P2P, debrid, media-server playback — not implemented.
-- MSI/NSIS packaging — configured, not built here.
-- macOS/Linux — code is cross-platform (named pipes vs Unix sockets), untested.
+## Known limits
 
-## Known sharp edges
-
-- mpv flags are explicit (`--no-config`) for predictability; a user's `mpv.conf` is intentionally
-  ignored for now.
-- Track selection uses mpv track ids, which are stable only for the current file. The UI re-reads
-  them on every `track-list` change.
+- Windows is the supported platform. The in-window player path is Windows-specific; other
+  platforms fall back to a separate mpv window and are untested.
+- One mpv process and one torrent at a time.
+- No updater, downloads/offline library, local profiles or PIN, translations or app icon packs.
+- Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
+- The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
+  configuration pages, addon permissions and addon collections are not implemented.
+- mpv flags are explicit (`--no-config`), so a user's `mpv.conf` is ignored.
 - `tmdb:*` ids need a TMDB key even to open details.
-- The source drawer marks torrent-only streams disabled instead of hiding them, so the missing
-  P2P engine is visible rather than mysterious.

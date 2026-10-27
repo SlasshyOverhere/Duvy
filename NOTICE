@@ -11,19 +11,48 @@ implementation written in Rust and TypeScript. Nuvio Desktop is licensed under G
 license applies to Nuvio Desktop, not to this independent work. No Nuvio Desktop binaries,
 assets, or source files are redistributed here.
 
+BetterNuvio is not affiliated with, endorsed by, or sponsored by Nuvio Media, Trakt, Jellyfin,
+Emby, Stremio, TMDB, Real-Debrid, AllDebrid, Premiumize, TorBox, any other debrid provider, or
+any addon author. Optional integrations talk to those services using their public APIs and the
+credentials the user supplies. Those services have their own terms and privacy policies.
+
 Names and marks
 ---------------
-"Nuvio", "Nuvio Desktop" and any associated logos belong to their respective owners. The name
-"betterNuvio" is used descriptively to identify this independent project and does not imply
-affiliation, endorsement, or sponsorship. If a rights holder objects to the name, it will be
-changed.
+"Nuvio", "Nuvio Desktop", "Trakt", "Jellyfin", "Emby", "Stremio", "TMDB", "Real-Debrid",
+"AllDebrid", "Premiumize", "TorBox" and any associated logos belong to their respective owners.
+The name "BetterNuvio" is used descriptively to identify this independent project and does not
+imply affiliation, endorsement, or sponsorship. If a rights holder objects to the name, it will
+be changed.
+
+Bundled third-party software
+----------------------------
+Windows bundles produced from this repository include two files from `src-tauri/resources/mpv/`,
+mapped into the installer by `src-tauri/tauri.conf.json`:
+
+- `mpv.exe`, a Windows build of mpv reporting version `v0.41.0-1227-ge471496c5`. mpv is free
+  software distributed under GPL-2.0-or-later. The corresponding source is published by the mpv
+  project at https://github.com/mpv-player/mpv; the commit named in the version string is in that
+  repository. The build also uses FFmpeg (https://ffmpeg.org), libplacebo
+  (https://github.com/haasn/libplacebo) and other libraries, each under its own license and with
+  its own published source. This repository does not currently ship a copy of mpv's license text;
+  the upstream terms are in the mpv repository's `Copyright` and `LICENSE.GPL` files.
+- `d3dcompiler_43.dll`, Microsoft's Direct3D 43 shader compiler redistributable, included
+  alongside the mpv Windows build. It is Microsoft software governed by Microsoft's
+  redistributable terms, not by the GPL.
+
+The `src-tauri/resources/mpv/` directory is git-ignored, so a source checkout does not contain
+these files. Installers built from a checkout that includes them redistribute them under the
+terms above. Anyone redistributing an installer should keep this NOTICE with it and keep the
+corresponding source locations available.
 
 Content and services
 --------------------
-BetterNuvio ships no media, no catalogs and no scrapers. All metadata, catalogs and streams come
-from third-party addon URLs that the user installs, or from TMDB when the user supplies a key.
-Users are responsible for the addons they configure and for complying with the laws that apply
-to them.
+BetterNuvio ships no media, no catalogs, no addons and no scrapers. All metadata, catalogs and
+streams come from third-party addon URLs that the user installs, from media servers the user
+connects, or from files the user opens. TMDB data is used only when the user supplies a key.
+Users are responsible for the addons and services they configure and for complying with the laws
+and terms that apply to them. P2P playback exposes the user's IP address to other peers. Debrid
+resolution uses the user's own account and remains subject to that provider's terms.
 
 Addon protocol
 --------------
@@ -33,8 +62,15 @@ Stremio is a trademark of its respective owner; this project is not affiliated w
 Third-party services
 --------------------
 - TMDB: this product uses the TMDB API but is not endorsed or certified by TMDB.
-- mpv: playback is performed by mpv (GPL-2.0-or-later), which is installed separately and is not
-  bundled with this repository.
+- Trakt: the user creates their own Trakt API application. BetterNuvio is not affiliated with
+  Trakt.
+- Nuvio Cloud sync: an unofficial client for the backend used by the official Nuvio apps. It may
+  change or stop working without notice. BetterNuvio is not affiliated with Nuvio Media.
+- Jellyfin and Emby: the user connects their own server. BetterNuvio is not affiliated with either
+  project.
+- Debrid: the user connects their own account. BetterNuvio is not affiliated with any provider.
+- mpv: playback is performed by the bundled or user-installed mpv, under the terms described
+  above.
 
 Third-party crates and npm packages are used under their own licenses; see `Cargo.lock` and
-`bun.lock` for the exact set.
+`bun.lock` for the exact set. BetterNuvio's own source is MIT-licensed; see `LICENSE`.

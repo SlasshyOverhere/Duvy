@@ -1,5 +1,11 @@
 # BetterNuvio feature scope
 
+> Status note (October 2026): this file is the original planning inventory and has not been kept
+> in step with the code. P2P, debrid, Trakt, Nuvio Cloud sync, Jellyfin/Emby, local subtitle
+> files, subtitle styling and intro/outro markers have since shipped. Use
+> [`FEATURE-PARITY.md`](./FEATURE-PARITY.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md) for
+> current status; the status marks below are historical.
+
 Master feature list for BetterNuvio, derived from two references:
 
 - **Nuvio Desktop** (`NuvioMedia/NuvioDesktop`, Kotlin Multiplatform + Compose, GPL-3.0) — audited from `composeApp/src/commonMain` (753 Kotlin files, 2493 UI strings) and its full settings tree.

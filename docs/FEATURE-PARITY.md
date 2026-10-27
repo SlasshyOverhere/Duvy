@@ -1,100 +1,106 @@
-# Feature parity: Nuvio Desktop → BetterNuvio
+# Feature parity: Nuvio Desktop to BetterNuvio
 
-This is an audit of the upstream project (`NuvioMedia/NuvioDesktop`, Kotlin Multiplatform
-+ Compose, GPL-3.0, alpha) taken from its `Dev` branch, and where BetterNuvio stands.
+Status of BetterNuvio 0.1.0 beta against the feature surface of the upstream project
+(`NuvioMedia/NuvioDesktop`, Kotlin Multiplatform and Compose, GPL-3.0, alpha). This is a
+per-area snapshot, not a delivery promise.
 
-Nothing here is copied code. BetterNuvio is an independent Rust + TypeScript
-implementation of the same *feature surface*, using documented public protocols
-(Stremio addons, TMDB, mpv IPC).
+Nothing here is copied code. BetterNuvio is an independent Rust and TypeScript implementation
+using documented public protocols (Stremio addons, TMDB, Trakt, Jellyfin/Emby, mpv IPC).
 
-The authoritative, exhaustive list (both Nuvio Desktop and Stremio, unioned, with
-priorities and a release sequence) lives in [`FEATURE-SCOPE.md`](./FEATURE-SCOPE.md).
-This file stays the per-area status snapshot against v0.1.
+The longer planning list lives in [`FEATURE-SCOPE.md`](./FEATURE-SCOPE.md). That file predates
+several implemented features; where it disagrees, this page and
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) are authoritative.
 
-Legend: **Done** ships in v0.1 · **Partial** exists but is narrower · **Planned** not yet built.
+Legend: **Done** works in the beta · **Partial** works but is narrower · **Planned** not built.
 
 ## Core experience
 
-| Capability | Upstream | BetterNuvio v0.1 | Notes |
+| Capability | Upstream | BetterNuvio | Notes |
 | --- | --- | --- | --- |
-| Catalog browsing | Done | **Done** | Home rows, Discover with catalog chips, skip pagination |
-| Global search | Done | **Done** | Searches every addon with a `search` extra, plus TMDB |
-| Title details | Done | **Done** | Backdrop hero, ratings, cast, trailer link, sources |
-| Episode browser | Done | **Done** | Season tabs, episode art, per-episode progress |
-| Addon protocol | Stremio addons | **Done** | manifest/catalog/meta/stream/subtitles, install/remove/enable |
-| Stream picker | Rich, grouped, badges | **Partial** | Quality, size, seeds, cached, HDR, languages, addon filter |
+| Catalog browsing | Done | **Done** | Home rows, Discover with filters, skip pagination |
+| Global search | Done | **Done** | Every addon with a `search` extra, plus TMDB when keyed |
+| Title details | Done | **Done** | Artwork, ratings, cast photos, trailer link, similar titles |
+| Episode browser | Done | **Done** | Season tabs, episode list, per-episode progress |
+| Addon protocol | Stremio addons | **Done** | manifest/catalog/meta/stream/subtitles; install, remove, enable, disable |
+| Addon management | Rich | **Partial** | No reorder, addon configuration page, permissions or collections |
+| Stream picker | Rich, grouped, badges | **Done** | Quality, size, seeds, cached, HDR, languages, addon filter; no presets or regex autoplay |
 | Library | Done | **Done** | Toggle from any title, filters, local SQLite |
-| Continue watching | Done | **Done** | Per-episode resume, 92% completes and marks watched |
-| Resume + autoplay next | Done | **Done** | Configurable, uses best playable source |
-| Keyboard shortcuts | Full | **Partial** | `/` and `Ctrl/Cmd+K` search, Esc closes dialogs, mpv handles playback keys |
-| Themes | Multiple + custom editor | **Partial** | Four accent palettes, reduce motion; no custom theme editor |
-| App icons | 5 icon packs | **Planned** | — |
+| Continue watching | Done | **Done** | One row per title, per-episode resume |
+| Resume and autoplay next | Done | **Done** | Configurable, uses the best playable source |
+| Keyboard shortcuts | Full | **Partial** | Search shortcuts, dialog dismissal, player keys; no gamepad or full map |
+| Themes | Multiple plus custom editor | **Partial** | Four accent palettes, reduce motion; no custom theme editor |
+| App icons | 5 icon packs | **Planned** | Single built-in icon set |
 | i18n | Many languages | **Planned** | English only |
 
 ## Playback
 
-| Capability | Upstream | BetterNuvio v0.1 | Notes |
+| Capability | Upstream | BetterNuvio | Notes |
 | --- | --- | --- | --- |
-| Video engine | libmpv (embedded) | **Done** | mpv over JSON IPC paints into the app window behind a transparent web layer; video never touches the WebView |
+| Video engine | libmpv embedded | **Done** | mpv over JSON IPC paints into the app window behind a transparent web layer on Windows; separate window fallback elsewhere |
 | Hardware decoding | Done | **Done** | `hwdec=auto-safe`, toggleable |
-| Audio/subtitle tracks | Done | **Done** | Listed from mpv, switchable from the console |
-| External subtitles | Addon + local | **Partial** | Addon tracks + mpv fuzzy local matching; no file picker yet |
-| Subtitle styling | Full | **Partial** | mpv defaults, no in-app style editor yet |
-| Subtitle auto-sync | Done | **Planned** | Upstream has a `docs/subtitle-autosync.md` design |
-| Speed / volume / seek | Done | **Done** | Console controls |
-| In-player overlay UI | Custom, gesture-driven | **Partial** | mpv's OSC and key bindings over the video; the HTML overlay is covered while a video is on screen |
-| Hover previews | Done | **Planned** | Needs transcoded preview pipeline |
-| Skip intro/outro | Done | **Planned** | Needs segment metadata source |
+| Audio/subtitle tracks | Done | **Done** | Read from mpv and switchable from the player console |
+| External subtitles | Addon plus local | **Done** | Addon tracks and a local file picker |
+| Subtitle styling | Full | **Partial** | Size, colour and background opacity; no custom font, outline or position editor |
+| Subtitle delay and auto-sync | Done | **Planned** | No offset controls or analysis |
+| Speed, volume, seek | Done | **Done** | Player console controls |
+| In-player overlay | Custom, gesture driven | **Done** | Custom HUD with track, subtitle, skip and style panels |
+| Hover previews | Done | **Planned** | Needs a preview pipeline |
+| Skip intro/outro | Done | **Done** | Manual per-show markers with automatic skipping; no metadata provider |
 | Watch party | Done | **Planned** | Needs a sync backend |
 
 ## Sources
 
-| Capability | Upstream | BetterNuvio v0.1 | Notes |
+| Capability | Upstream | BetterNuvio | Notes |
 | --- | --- | --- | --- |
 | Direct HTTP streams | Done | **Done** | Plays anything mpv can fetch |
-| Local files | Done | **Done** | Settings → Playback → Open a video file |
-| P2P / torrent streaming | Done (consent flow, buffer) | **Planned** | Biggest remaining gap; torrent-only sources are shown disabled |
-| Debrid (RD, AD, TB, …) | Done + templates | **Planned** | Addon-resolved debrid links already work as direct URLs |
-| Media servers (Jellyfin, Emby, MediaBrowser) | Done | **Planned** | Protocol clients are straightforward to add |
-| Downloads / offline | Done | **Planned** | — |
+| Local files | Done | **Done** | Settings -> Playback -> Open a video file |
+| P2P / torrent streaming | Done (consent, buffer) | **Done** | Opt-in consent, local librqbit engine, loopback range server, peer and speed stats; one torrent at a time and no seeder count |
+| Debrid (RD, AD, PB, TB) | Done plus templates | **Done** | Real-Debrid, AllDebrid, Premiumize and TorBox keys; link unrestricting plus a provider cache-check command; no cloud browser or rule engine |
+| Media servers (Jellyfin, Emby) | Done | **Done** | Sign-in, library browse, artwork and direct playback; progress stays local |
+| Downloads / offline | Done | **Planned** | The torrent cache is transient and cleared, not a download library |
 
 ## Integrations
 
-| Capability | Upstream | BetterNuvio v0.1 | Notes |
+| Capability | Upstream | BetterNuvio | Notes |
 | --- | --- | --- | --- |
-| TMDB | Done | **Done** | Optional key; discovery rows, search, artwork, cast, trailer |
-| Trakt | Done | **Planned** | Scrobble + library mirror |
-| Simkl | Done | **Planned** | — |
-| MDBList | Done | **Planned** | — |
-| Cloud sync / auth | Done (Nuvio account) | **Planned** | Local-first today; no account required |
-| Profiles | Done | **Planned** | DB already keys progress by profile-ready identifiers |
-| Notifications | Done | **Planned** | Updater/notification service |
-| Discord rich presence | Done | **Planned** | — |
-| JS plugin runtime | Done (QuickJS) | **Planned** | Upstream scraper plugins |
-| Auto-updater | Done | **Planned** | Tauri updater |
+| TMDB | Done | **Done** | Optional key; discovery rows, search, artwork, cast |
+| Trakt | Done | **Done** | User-supplied API app, device-code auth, scrobbling, watched/progress sync |
+| Nuvio Cloud sync | Official account | **Done (unofficial)** | Library, progress and watched sync against the official backend; deletions are not pushed and the API may change |
+| Profiles | Done | **Partial** | Only Nuvio account profile selection; no local profiles or PIN |
+| Simkl | Done | **Planned** | Not built |
+| MDBList | Done | **Planned** | Not built |
+| Notifications | Done | **Planned** | No notification service |
+| Discord rich presence | Done | **Planned** | Not built |
+| JS plugin runtime | Done (QuickJS) | **Planned** | Addon protocol only |
+| Auto-updater | Done | **Planned** | No updater |
 
 ## Platform
 
-| Capability | Upstream | BetterNuvio v0.1 |
+| Capability | Upstream | BetterNuvio |
 | --- | --- | --- |
-| Windows | MSI | **Done** (dev; MSI build configured) |
-| macOS / Linux | DMG, DEB/RPM/Flatpak | Code is cross-platform; packaging untested |
+| Windows | MSI | **Done** in development; MSI and NSIS configured, not built by CI |
+| macOS / Linux | DMG, DEB/RPM/Flatpak | Untested; separate mpv window fallback, no packaging support |
 | Android / iOS / TV | Yes (KMP) | Out of scope |
 
 ## Deliberate differences
 
-- **No account, no telemetry, no bundled content.** Everything lives in one local SQLite file.
-- **Rust owns I/O.** Addon fan-out runs in parallel Tokio tasks; the UI never parses stream strings.
+- **No account required, no telemetry, no bundled content.** Nuvio Cloud, Trakt, debrid and media
+  servers are optional and use credentials the user supplies.
+- **Rust owns I/O.** Addon fan-out runs in parallel Tokio tasks; the UI never parses stream
+  strings.
 - **mpv is a separate process, visually embedded.** It decodes in its own process and paints into
-  the app window's client area while the web layer above it renders transparent, so the HTML player
-  overlay acts as the chrome. The UI stays responsive on 4K remuxes and video never travels through
-  the WebView.
-- **No scrapers.** Only the open addon protocol; the user supplies every source URL.
+  the app window's client area while the web layer above it renders transparent. The UI stays
+  responsive on large remuxes and video never travels through the WebView.
+- **No scrapers.** Only the open addon protocol and user-configured servers; the user supplies
+  every source.
+- **P2P is opt-in.** Torrent sources stay disabled until consent is given, because peers see the
+  user's IP address.
 
-## Suggested order for v0.2
+## Suggested order for the next release
 
-1. P2P streaming with a consent gate and buffer indicator (closes the largest gap).
-2. Debrid resolver + API key storage.
-3. Jellyfin/Emby providers (library + playback).
-4. Trakt/Simkl scrobbling and library sync.
-6. Profiles, then cloud sync.
+1. Downloads and offline playback.
+2. Local profiles with PIN protection.
+3. Auto-updater and signed release builds.
+4. Subtitle delay, auto-sync and a fuller style editor.
+5. Translations.
+6. Simkl and MDBList.
