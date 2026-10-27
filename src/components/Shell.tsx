@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
+import { api, isTauri } from "../lib/bridge";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import { Icon, IconButton, type IconName } from "./ui";
 
@@ -21,6 +22,27 @@ function isActive(route: Route, target: Route) {
 export function TopBar() {
   const { appInfo, navigate, back, route, addons } = useApp();
   const player = usePlayer();
+  const [fullscreen, setFullscreen] = useState(
+    () => document.documentElement.dataset.fullscreen === "on",
+  );
+
+  const toggleFullscreen = useCallback(() => {
+    const next = !fullscreen;
+    setFullscreen(next);
+    // Fullscreen drops the floating window buttons along with the frame.
+    if (next) document.documentElement.dataset.fullscreen = "on";
+    else delete document.documentElement.dataset.fullscreen;
+    void api.window.fullscreen(next);
+  }, [fullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") toggleFullscreen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, toggleFullscreen]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -40,7 +62,7 @@ export function TopBar() {
   }, [navigate]);
 
   return (
-    <header className="topbar">
+    <header className="topbar" data-tauri-drag-region>
       <div className="topbar-left">
         {route.name !== "home" ? <IconButton icon="back" label="Back" onClick={back} /> : null}
         <button
@@ -112,6 +134,18 @@ export function TopBar() {
         >
           <Icon name="settings" size={19} />
         </button>
+
+        {isTauri() ? (
+          <button
+            type="button"
+            className="profile-btn"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            <Icon name={fullscreen ? "compress" : "expand"} size={19} />
+          </button>
+        ) : null}
       </div>
     </header>
   );

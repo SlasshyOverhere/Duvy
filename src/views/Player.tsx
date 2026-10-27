@@ -277,6 +277,7 @@ export function PlayerView() {
     if (!fsNow.current) return;
     fsNow.current = false;
     setFullscreen(false);
+    delete document.documentElement.dataset.fullscreen;
     void api.window.fullscreen(false);
   }, []);
 
@@ -898,40 +899,65 @@ export function PlayerView() {
       <div className="pv-shade" aria-hidden="true" />
 
       <header className="pv-top">
-        {isTauri() && !fullscreen ? (
-          <div className="pv-window">
-            <button
-              type="button"
-              className="pv-round"
-              onClick={() => void getCurrentWindow().minimize()}
-              aria-label="Minimise window"
-              title="Minimise"
-            >
-              <svg viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M1 5h8" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="pv-round pv-round--close"
-              onClick={() => void getCurrentWindow().close()}
-              aria-label="Close window"
-              title="Close window"
-            >
-              <svg viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
-              </svg>
-            </button>
+        <div className="pv-top-left">
+          <button
+            type="button"
+            className="pv-round"
+            onClick={() => void stop()}
+            aria-label="Close player"
+          >
+            <Icon name="back" size={19} />
+          </button>
+          <div className="pv-top-text">
+            <p className="pv-top-title" title={title}>
+              {title}
+            </p>
+            {session?.season != null ? (
+              <p className="pv-top-sub">
+                {episodeCode({ season: session.season, episode: session.episode })}
+                {session.episodeTitle ? ` · ${session.episodeTitle}` : ""}
+              </p>
+            ) : null}
           </div>
-        ) : null}
-        <button
-          type="button"
-          className="pv-round"
-          onClick={() => void stop()}
-          aria-label="Close player"
-        >
-          <Icon name="back" size={19} />
-        </button>
+        </div>
+
+        <div className="pv-top-right">
+          {isTauri() && !fullscreen ? (
+            <div className="pv-window">
+              <button
+                type="button"
+                className="pv-round"
+                onClick={() => void getCurrentWindow().minimize()}
+                aria-label="Minimise window"
+                title="Minimise"
+              >
+                <svg viewBox="0 0 10 10" aria-hidden="true">
+                  <path d="M1 5h8" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="pv-round pv-round--close"
+                onClick={() => void getCurrentWindow().close()}
+                aria-label="Close window"
+                title="Close window"
+              >
+                <svg viewBox="0 0 10 10" aria-hidden="true">
+                  <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+                </svg>
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="pv-round"
+            onClick={() => void toggleFullscreen()}
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            <Icon name={fullscreen ? "compress" : "expand"} size={19} />
+          </button>
+        </div>
       </header>
 
       {failed ? (
@@ -1316,18 +1342,6 @@ export function PlayerView() {
       ) : null}
 
       <footer className="pv-deck">
-        <div className="pv-details">
-          <h1 className="pv-title" title={title}>
-            {title}
-          </h1>
-          {session?.season != null ? (
-            <p className="pv-subtitle">
-              {episodeCode({ season: session.season, episode: session.episode })}
-              {session.episodeTitle ? ` · ${session.episodeTitle}` : ""}
-            </p>
-          ) : null}
-        </div>
-
         <div
           className="pv-track"
           role="slider"
@@ -1478,15 +1492,6 @@ export function PlayerView() {
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
             </div>
-
-            <button
-              type="button"
-              className="pv-action"
-              onClick={() => void toggleFullscreen()}
-              aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            >
-              <Icon name={fullscreen ? "compress" : "expand"} size={22} />
-            </button>
 
             <button
               type="button"

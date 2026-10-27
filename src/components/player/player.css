@@ -17,8 +17,52 @@
 }
 
 .pv .pv-top {
-  justify-content: flex-end;
-  padding: 20px 24px 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px 0;
+}
+
+/* Title at the left, exactly where Stremio keeps it; the deck stays transport. */
+.pv .pv-top-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pv .pv-top-text {
+  min-width: 0;
+}
+
+.pv .pv-top-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.005em;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.55);
+}
+
+.pv .pv-top-sub {
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
 }
 
 .pv .pv-round {
@@ -117,32 +161,6 @@
 .pv .pv-deck {
   padding: 0 28px 18px;
   background: none;
-}
-
-.pv .pv-details {
-  padding: 0 2px;
-}
-
-.pv .pv-title {
-  font-family: var(--display);
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.16;
-  letter-spacing: -0.015em;
-  color: #fff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv .pv-subtitle {
-  margin-top: 3px;
-  font-size: 15px;
-  line-height: 1.3;
-  color: rgba(255, 255, 255, 0.9);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* timeline: 6px at rest, 10px under the pointer, rounded caps, no thumb */
@@ -319,14 +337,6 @@
 @media (max-width: 720px) {
   .pv .pv-deck {
     padding: 0 18px 14px;
-  }
-
-  .pv .pv-title {
-    font-size: 20px;
-  }
-
-  .pv .pv-subtitle {
-    font-size: 13.5px;
   }
 
   .pv .pv-center {
