@@ -95,32 +95,37 @@ pub fn raise_webview(_host: isize) {}
 fn set_window_frame(hwnd: isize, borderless: bool) {
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
-        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
+        DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
     };
+    /// COLORREF for the app's own background, so the frame stops standing out.
+    const BLACK: u32 = 0x0000_0000;
+    const WHITE: u32 = 0x00FF_FFFF;
     const COLOR_DEFAULT: u32 = 0xFFFF_FFFF;
     const CORNER_DEFAULT: u32 = 0;
-    let color: u32 = if borderless { DWMWA_COLOR_NONE } else { COLOR_DEFAULT };
-    let corner: u32 = if borderless {
-        DWMWCP_DONOTROUND as u32
-    } else {
-        CORNER_DEFAULT
+    let black = borderless;
+    let set = |attribute: u32, value: u32, size: u32| unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd as HWND,
+            attribute,
+            &value as *const u32 as *const _,
+            size,
+        );
     };
-    let size = std::mem::size_of::<u32>() as u32;
-    unsafe {
-        let _ = DwmSetWindowAttribute(
-            hwnd as HWND,
-            DWMWA_BORDER_COLOR as u32,
-            &color as *const u32 as *const _,
-            size,
-        );
-        let _ = DwmSetWindowAttribute(
-            hwnd as HWND,
-            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-            &corner as *const u32 as *const _,
-            size,
-        );
-    }
+    let word = std::mem::size_of::<u32>() as u32;
+    set(
+        DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+        black as u32,
+        std::mem::size_of::<i32>() as u32,
+    );
+    set(DWMWA_CAPTION_COLOR as u32, if black { BLACK } else { COLOR_DEFAULT }, word);
+    set(DWMWA_BORDER_COLOR as u32, if black { BLACK } else { COLOR_DEFAULT }, word);
+    set(DWMWA_TEXT_COLOR as u32, if black { WHITE } else { COLOR_DEFAULT }, word);
+    set(
+        DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+        if black { DWMWCP_DONOTROUND as u32 } else { CORNER_DEFAULT },
+        word,
+    );
 }
 
 #[cfg(not(windows))]
@@ -133,21 +138,31 @@ fn set_window_frame(_hwnd: isize, _borderless: bool) {}
 /// wedge the UI thread. Doing the style swap here keeps the whole change to one
 /// placement call, and the exact previous style and position are restored on
 /// the way back out.
+///
+/// Removing the caption changes the client insets without changing the outer
+/// rect, so the host keeps the framed client size and leaves the last rows of
+/// the window uncovered. Nudging the height by a pixel and back forces that
+/// recalculation, and the transition is painted once at the end.
 #[cfg(windows)]
 pub fn set_fullscreen(host: isize, on: bool) -> bool {
     use std::sync::Mutex;
     use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        GetMonitorInfoW, GetStockObject, MonitorFromWindow, RedrawWindow, BLACK_BRUSH,
+        MONITORINFO, MONITOR_DEFAULTTONEAREST, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME,
+        RDW_INVALIDATE, RDW_UPDATENOW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GetWindowPlacement, IsWindow, SetWindowLongPtrW, SetWindowPlacement,
-        SetWindowPos, GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_NOZORDER, SWP_SHOWWINDOW, WINDOWPLACEMENT, WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+        GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsWindow, IsZoomed, SendMessageW,
+        SetClassLongPtrW, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE,
+        SWP_NOZORDER, SW_RESTORE, WM_SETREDRAW, WINDOWPLACEMENT, WS_CAPTION, WS_EX_CLIENTEDGE,
+        WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
         WS_SYSMENU, WS_THICKFRAME,
     };
 
-    static SAVED: Mutex<Option<(isize, isize, WINDOWPLACEMENT)>> = Mutex::new(None);
+    static SAVED: Mutex<Option<(isize, isize, isize, WINDOWPLACEMENT)>> = Mutex::new(None);
 
     let hwnd = host as HWND;
     unsafe {
@@ -171,6 +186,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             if style == 0 {
                 return false;
             }
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
 
             let mut info: MONITORINFO = std::mem::zeroed();
             info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -180,7 +196,15 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             }
 
             if let Ok(mut saved) = SAVED.lock() {
-                *saved = Some((hwnd as isize, style, placement));
+                *saved = Some((hwnd as isize, style, ex_style, placement));
+            }
+
+            // Anything the webview does not cover is erased with the class
+            // brush, which is white by default and stays white on screen.
+            SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, GetStockObject(BLACK_BRUSH) as isize);
+
+            if IsIconic(hwnd) != 0 || IsZoomed(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
             }
 
             let RECT {
@@ -189,43 +213,114 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 right,
                 bottom,
             } = info.rcMonitor;
+            let (width, height) = (right - left, bottom - top);
+
+            SendMessageW(hwnd, WM_SETREDRAW, 0, 0);
+
             let chrome = (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
                 as isize;
+            let edges = (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE)
+                as isize;
             SetWindowLongPtrW(hwnd, GWL_STYLE, style & !chrome);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !edges);
+
+            // Topmost matters: an auto-hidden taskbar keeps a light peek strip
+            // over a merely top-of-z-order window, right where the picture ends.
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                left,
+                top,
+                width,
+                height,
+                SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOREDRAW,
+            );
             SetWindowPos(
                 hwnd,
                 std::ptr::null_mut(),
-                left,
-                top,
-                right - left,
-                bottom - top,
-                SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                0,
+                0,
+                width,
+                height - 1,
+                SWP_NOMOVE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_FRAMECHANGED
+                    | SWP_NOREDRAW,
+            );
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                width,
+                height,
+                SWP_NOMOVE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_FRAMECHANGED
+                    | SWP_NOREDRAW,
+            );
+
+            SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                RDW_FRAME | RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
             );
             set_window_frame(host, true);
             true
         } else {
             let saved = SAVED.lock().ok().and_then(|mut guard| guard.take());
-            let Some((saved_hwnd, style, placement)) = saved else {
+            let Some((saved_hwnd, style, ex_style, placement)) = saved else {
                 return false;
             };
             if IsWindow(saved_hwnd as HWND) == 0 {
                 return false;
             }
-            let saved_hwnd = saved_hwnd as HWND;
-            SetWindowLongPtrW(saved_hwnd, GWL_STYLE, style);
-            SetWindowPlacement(saved_hwnd, &placement);
+            let hwnd = saved_hwnd as HWND;
+
+            SendMessageW(hwnd, WM_SETREDRAW, 0, 0);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
+            SetWindowPlacement(hwnd, &placement);
             // A style change only takes effect once the frame is recomputed,
             // otherwise the window comes back still looking borderless.
             SetWindowPos(
-                saved_hwnd,
+                hwnd,
                 std::ptr::null_mut(),
                 0,
                 0,
                 0,
                 0,
-                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                SWP_FRAMECHANGED
+                    | SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_NOREDRAW,
             );
-            set_window_frame(saved_hwnd as isize, false);
+            SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
+            set_window_frame(saved_hwnd, false);
+            SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                RDW_FRAME | RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
+            );
             true
         }
     }
