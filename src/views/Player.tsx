@@ -913,17 +913,6 @@ export function PlayerView() {
             </button>
             <button
               type="button"
-              className="pv-round"
-              onClick={() => void getCurrentWindow().toggleMaximize()}
-              aria-label="Maximise window"
-              title="Maximise"
-            >
-              <svg viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M1.5 1.5h7v7h-7z" />
-              </svg>
-            </button>
-            <button
-              type="button"
               className="pv-round pv-round--close"
               onClick={() => void getCurrentWindow().close()}
               aria-label="Close window"
