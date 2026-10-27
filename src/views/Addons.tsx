@@ -107,8 +107,8 @@ export function AddonsView() {
           <p className="kicker">Addons</p>
           <h1>Bring your own sources</h1>
           <p className="page-sub">
-            BetterNuvio speaks the open Stremio addon protocol. Nothing is bundled and nothing is scraped —
-            every catalog, metadata record and stream comes from a URL you add.
+            BetterNuvio speaks the open Stremio addon protocol. Nothing is bundled and nothing is
+            scraped. Every catalog, metadata record and stream comes from a URL you add.
           </p>
         </div>
       </header>
