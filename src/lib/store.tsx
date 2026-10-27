@@ -114,6 +114,17 @@ function errorMessage(error: unknown): string {
   return "Something went wrong";
 }
 
+/** The preferred quality when one matches, otherwise the best source offered. */
+function pickSource(options: StreamOption[], quality: string): StreamOption | undefined {
+  const playable = options.filter((stream) => stream.playable);
+  if (quality && quality !== "auto") {
+    const wanted = quality.toLowerCase();
+    const match = playable.find((stream) => stream.quality.toLowerCase().includes(wanted));
+    if (match) return match;
+  }
+  return playable[0];
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>({ name: "home" });
   const [booting, setBooting] = useState(true);
@@ -406,7 +417,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: session.episode,
           imdbId: details.imdbId,
         });
-        const source = options.find((stream) => stream.playable);
+        const source = pickSource(options, settings?.preferredQuality ?? "auto");
         if (!source) {
           throw new Error("No source came back for this title. Check that your addons have one.");
         }
@@ -419,7 +430,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         notify(errorMessage(error), "error");
       }
     },
-    [notify, playRequest, progress, progressFor, resolveStream, settings?.autoResume],
+    [
+      notify,
+      playRequest,
+      progress,
+      progressFor,
+      resolveStream,
+      settings?.autoResume,
+      settings?.preferredQuality,
+    ],
   );
 
   /** Resume a specific Continue Watching entry (exact episode, exact position). */
@@ -459,11 +478,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode,
           imdbId: details.imdbId,
         });
-        const source = sources.find((stream) => stream.playable && stream.url);
-        if (!source?.url) throw new Error("No playable source found for this title.");
+        const source = pickSource(sources, settings?.preferredQuality ?? "auto");
+        if (!source) throw new Error("No playable source found for this title.");
+        const url = await resolveStream(source);
         notify("Resuming…");
         await playRequest({
-          url: source.url,
+          url,
           title: video
             ? `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`
             : details.name,
@@ -474,7 +494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         notify(errorMessage(error), "error");
       }
     },
-    [navigate, notify, playRequest],
+    [navigate, notify, playRequest, resolveStream, settings?.preferredQuality],
   );
 
   const value = useMemo<Store>(

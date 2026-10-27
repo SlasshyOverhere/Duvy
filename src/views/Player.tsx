@@ -68,7 +68,8 @@ function readSubtitleStyle(): SubtitleStyle {
  * top of them are visible; everything else is the video.
  */
 export function PlayerView() {
-  const { settings, notify, navigate, playRequest, buildSession, appInfo } = useApp();
+  const { settings, notify, navigate, playRequest, buildSession, appInfo, resolveStream } =
+    useApp();
   const player = usePlayer();
   const [local, setLocal] = useState<PlayerSnapshot | null>(player);
   const [surface, setSurface] = useState<Surface>(null);
@@ -210,10 +211,11 @@ export function PlayerView() {
           episode: video.episode ?? video.number,
           imdbId: details.imdbId,
         });
-        const source = sources.find((stream) => stream.playable && stream.url);
-        if (!source?.url) throw new Error("No playable source for that episode.");
+        const source = sources.find((stream) => stream.playable);
+        if (!source) throw new Error("No playable source for that episode.");
+        const url = await resolveStream(source);
         await playRequest({
-          url: source.url,
+          url,
           title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
           startAt: 0,
           session: nextSession,
@@ -224,7 +226,7 @@ export function PlayerView() {
         setBusy(false);
       }
     },
-    [buildSession, details, notify, playRequest],
+    [buildSession, details, notify, playRequest, resolveStream],
   );
 
   const leaveFullscreen = useCallback(() => {
