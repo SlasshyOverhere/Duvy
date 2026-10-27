@@ -240,6 +240,23 @@ fn send(writer: &mut Box<dyn Duplex>, command: Value) -> Result<(), String> {
         .map_err(|e| format!("mpv IPC write failed: {e}"))
 }
 
+fn number_value(value: Option<&Value>, what: &str) -> Result<f64, String> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|number| number.is_finite())
+        .ok_or_else(|| format!("{what} must be a number"))
+}
+
+/// mpv colours are `#RRGGBB` or `#AARRGGBB`.
+fn color_value<'a>(value: Option<&'a Value>, what: &str) -> Result<&'a str, String> {
+    let text = value.and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    let digits = text.strip_prefix('#').unwrap_or_default();
+    if matches!(digits.len(), 6 | 8) && digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(text);
+    }
+    Err(format!("{what} must be a #RRGGBB or #AARRGGBB colour"))
+}
+
 fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i64>) {
     let mut audio = Vec::new();
     let mut subs = Vec::new();
@@ -568,6 +585,37 @@ impl Player {
                     json!({"command": ["set_property", "sid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
                 )
             }
+            "sub-font-size" => {
+                let size = number_value(value.as_ref(), "Subtitle font size")?;
+                if !(10.0..=200.0).contains(&size) {
+                    return Err("Subtitle font size must be between 10 and 200".into());
+                }
+                send(
+                    &mut self.writer,
+                    json!({"command": ["set_property", "sub-font-size", size]}),
+                )
+            }
+            "sub-color" => {
+                let color = color_value(value.as_ref(), "Subtitle colour")?;
+                send(
+                    &mut self.writer,
+                    json!({"command": ["set_property", "sub-color", color]}),
+                )
+            }
+            "sub-back-color" => {
+                let color = color_value(value.as_ref(), "Subtitle background")?;
+                send(
+                    &mut self.writer,
+                    json!({"command": ["set_property", "sub-back-color", color]}),
+                )
+            }
+            "sub-delay" => {
+                let delay = number_value(value.as_ref(), "Subtitle delay")?;
+                send(
+                    &mut self.writer,
+                    json!({"command": ["set_property", "sub-delay", delay]}),
+                )
+            }
             "sub-add" => {
                 let url = value
                     .as_ref()
@@ -804,4 +852,25 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
         updated_at: db::now(),
     };
     let _ = db::save_progress(&conn, &item);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{color_value, number_value};
+    use serde_json::json;
+
+    #[test]
+    fn subtitle_values_are_validated() {
+        let color = json!("#a1b2c3");
+        assert_eq!(color_value(Some(&color), "c").unwrap(), "#a1b2c3");
+        let with_alpha = json!("#80000000");
+        assert!(color_value(Some(&with_alpha), "c").is_ok());
+        assert!(color_value(Some(&json!("red")), "c").is_err());
+        assert!(color_value(None, "c").is_err());
+
+        let delay = json!(-0.4);
+        assert_eq!(number_value(Some(&delay), "d").unwrap(), -0.4);
+        assert!(number_value(Some(&json!("0.4")), "d").is_err());
+        assert!(number_value(None, "d").is_err());
+    }
 }

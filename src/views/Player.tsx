@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { useApp, usePlayer } from "../lib/store";
-import type { Details, PlayerSnapshot, Settings, SubtitleTrack, Video } from "../lib/types";
+import type { Details, PlayerSnapshot, SubtitleTrack, Video } from "../lib/types";
 import { Icon, Spinner } from "../components/ui";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -26,6 +26,7 @@ interface SubtitleStyle {
   size: number;
   color: string;
   background: number;
+  delay: number;
 }
 
 interface Hud {
@@ -34,12 +35,30 @@ interface Hud {
   out: boolean;
 }
 
-const DEFAULT_SUB_STYLE: SubtitleStyle = { size: 46, color: "#ffffff", background: 55 };
+const DEFAULT_SUB_STYLE: SubtitleStyle = { size: 46, color: "#ffffff", background: 55, delay: 0 };
+const MAX_DELAY = 10;
 
 function whole(value: unknown, min: number, max: number, fallback: number): number {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, Math.round(number)));
+}
+
+function tenths(value: unknown, fallback: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(MAX_DELAY, Math.max(-MAX_DELAY, Math.round(number * 10) / 10));
+}
+
+/** mpv takes #AARRGGBB, so the 0-100 box opacity becomes the alpha byte. */
+function mpvBackground(percent: number): string {
+  const alpha = Math.round((Math.min(100, Math.max(0, percent)) / 100) * 255);
+  return `#${alpha.toString(16).padStart(2, "0")}000000`;
+}
+
+function delayLabel(delay: number): string {
+  if (delay === 0) return "0.0s";
+  return `${delay > 0 ? "+" : "−"}${Math.abs(delay).toFixed(1)}s`;
 }
 
 function readSubtitleStyle(): SubtitleStyle {
@@ -54,6 +73,7 @@ function readSubtitleStyle(): SubtitleStyle {
         ? String(stored.color)
         : DEFAULT_SUB_STYLE.color,
       background: whole(stored.background, 0, 100, DEFAULT_SUB_STYLE.background),
+      delay: tenths(stored.delay, DEFAULT_SUB_STYLE.delay),
     };
   } catch {
     return DEFAULT_SUB_STYLE;
@@ -574,30 +594,43 @@ export function PlayerView() {
     seekTo(segment.at);
   }, [markers, position, duration, loading, scrub, seekTo]);
 
-  // Styles live in the settings blob and in local storage: the stored settings
-  // blob is the canonical home, local storage keeps the panel usable on builds
-  // whose settings model has not learned the key yet.
-  const styleLoaded = useRef(false);
+  // The preview above is only a preview: mpv draws the real subtitles, so the
+  // same values are pushed to it, debounced so dragging a slider stays cheap.
   useEffect(() => {
-    if (!styleLoaded.current) {
-      styleLoaded.current = true;
+    const timer = window.setTimeout(() => {
+      send("sub-font-size", subStyle.size);
+      send("sub-color", subStyle.color);
+      send("sub-back-color", mpvBackground(subStyle.background));
+      send("sub-delay", subStyle.delay);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [send, session?.key, subStyle]);
+
+  // Delay survives a restart, but the next episode starts on its own timing.
+  const delaySession = useRef(false);
+  useEffect(() => {
+    if (!delaySession.current) {
+      delaySession.current = true;
       return;
     }
+    setSubStyle((current) => (current.delay === 0 ? current : { ...current, delay: 0 }));
+  }, [session?.key]);
+
+  // Local storage is the persistence layer; the settings blob has no key for this.
+  useEffect(() => {
     try {
       window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
     } catch {
       // Storage can be full or blocked; the panel still works for this session.
     }
-    const timer = window.setTimeout(() => {
-      void api.settings
-        .set({ subtitleStyle: subStyle } as unknown as Partial<Settings>)
-        .catch(() => undefined);
-    }, 450);
-    return () => window.clearTimeout(timer);
   }, [subStyle]);
 
   const patchSubStyle = (patch: Partial<SubtitleStyle>) => {
     setSubStyle((current) => ({ ...current, ...patch }));
+  };
+
+  const nudgeDelay = (delta: number) => {
+    setSubStyle((current) => ({ ...current, delay: tenths(current.delay + delta, current.delay) }));
   };
 
   const saveMarker = useCallback(
@@ -1097,8 +1130,25 @@ export function PlayerView() {
                 onChange={(event) => patchSubStyle({ background: Number(event.target.value) })}
               />
             </label>
+            <p className="pv-hint">Saved on this device and applied to the picture.</p>
+          </div>
+
+          <div className="pv-style">
+            <p className="pv-field-label">Subtitle delay</p>
+            <div className="pv-row">
+              <button type="button" className="pv-file" onClick={() => nudgeDelay(-0.1)}>
+                −0.1s
+              </button>
+              <button type="button" className="pv-file" onClick={() => patchSubStyle({ delay: 0 })}>
+                Reset
+              </button>
+              <button type="button" className="pv-file" onClick={() => nudgeDelay(0.1)}>
+                +0.1s
+              </button>
+            </div>
             <p className="pv-hint">
-              Saved with your settings. This engine build does not apply styling to the picture yet.
+              {delayLabel(subStyle.delay)} · positive shows subtitles later, and each episode starts
+              at zero.
             </p>
           </div>
 

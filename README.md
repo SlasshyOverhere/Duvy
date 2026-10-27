@@ -44,8 +44,8 @@ touches a video frame:
   - debrid resolution through Real-Debrid, AllDebrid, Premiumize or TorBox keys you provide;
   - Jellyfin and Emby libraries and direct playback.
 - Playback: embedded mpv, hardware decoding toggle, resume per episode, seeking, speed, volume,
-  audio/subtitle track switching, addon subtitles, local subtitle files and basic subtitle
-  styling, auto-advance, and watched-at-92% bookkeeping.
+  audio/subtitle track switching, addon subtitles, local subtitle files, subtitle styling (size,
+  colour, background) and delay, auto-advance, and watched-at-92% bookkeeping.
 - Manual per-show intro/outro markers that auto-skip while playing.
 - Library, Continue Watching, Watched, four accent themes, custom title bar.
 - Optional TMDB enrichment, Trakt device-code sync and scrobbling, and unofficial Nuvio Cloud
@@ -53,7 +53,7 @@ touches a video frame:
 
 Not built yet: downloads/offline library, local profiles or PIN-protected profile switching
 (only Nuvio account profile selection exists), app icon packs, translations, an auto-updater,
-Simkl, MDBList, watch party, JS plugins, hover previews, subtitle delay/auto-sync, and subtitle
+Simkl, MDBList, watch party, JS plugins, hover previews, subtitle auto-sync, and subtitle
 folder scanning. See
 [docs/FEATURE-PARITY.md](docs/FEATURE-PARITY.md) for the per-feature status.
 
