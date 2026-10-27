@@ -88,6 +88,50 @@ pub fn raise_webview(host: isize) {
 #[cfg(not(windows))]
 pub fn raise_webview(_host: isize) {}
 
+/// Re-fit the web layer to the client rect.
+///
+/// A frame change that leaves the outer size alone (turning off the window
+/// shadow, adding or dropping the caption) moves the client rect without a
+/// size message, so the host keeps the old bounds and the band between the two
+/// is painted with the window background. A synthetic size message re-runs the
+/// host's own fit.
+#[cfg(windows)]
+pub fn refit_webview(host: isize) {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClientRect, SendMessageW, SetWindowPos, SIZE_RESTORED, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_SIZE,
+    };
+    let hwnd = host as HWND;
+    let mut rect: RECT = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    unsafe {
+        // Recompute the non-client area so the frame flags just changed take
+        // effect, then force the host's own fit for the new client rect.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        if GetClientRect(hwnd, &mut rect) == 0 {
+            return;
+        }
+        let packed = (rect.right as isize & 0xFFFF) | ((rect.bottom as isize & 0xFFFF) << 16);
+        SendMessageW(hwnd, WM_SIZE, SIZE_RESTORED as usize, packed);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn refit_webview(_host: isize) {}
+
 /// Remove the accent frame Windows 11 paints around a window. A borderless
 /// window stretched over the whole monitor otherwise keeps a light edge along
 /// the bottom that reads as a strip in fullscreen.
@@ -155,7 +199,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsWindow, IsZoomed, SendMessageW,
         SetClassLongPtrW, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
-        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE,
         SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE,
         SWP_NOZORDER, SW_RESTORE, WM_SETREDRAW, WINDOWPLACEMENT, WS_CAPTION, WS_EX_CLIENTEDGE,
         WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
@@ -224,16 +268,14 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             SetWindowLongPtrW(hwnd, GWL_STYLE, style & !chrome);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !edges);
 
-            // Topmost matters: an auto-hidden taskbar keeps a light peek strip
-            // over a merely top-of-z-order window, right where the picture ends.
             SetWindowPos(
                 hwnd,
-                HWND_TOPMOST,
+                std::ptr::null_mut(),
                 left,
                 top,
                 width,
                 height,
-                SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOREDRAW,
+                SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOREDRAW,
             );
             SetWindowPos(
                 hwnd,
@@ -264,6 +306,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                     | SWP_NOREDRAW,
             );
 
+
             SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
             RedrawWindow(
                 hwnd,
@@ -272,6 +315,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 RDW_FRAME | RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
             );
             set_window_frame(host, true);
+            refit_webview(host);
             true
         } else {
             let saved = SAVED.lock().ok().and_then(|mut guard| guard.take());
@@ -306,21 +350,13 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             );
             SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
             set_window_frame(saved_hwnd, false);
-            SetWindowPos(
-                hwnd,
-                HWND_NOTOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
             RedrawWindow(
                 hwnd,
                 std::ptr::null(),
                 std::ptr::null_mut(),
                 RDW_FRAME | RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
             );
+            refit_webview(saved_hwnd);
             true
         }
     }
@@ -346,6 +382,18 @@ pub fn video_host(app: &tauri::AppHandle) -> Option<isize> {
         let _ = window;
         None
     }
+}
+
+/// Whether an mpv surface is currently attached to the window.
+fn player_is_live(app: &tauri::AppHandle) -> bool {
+    let Some(state) = app.try_state::<AppState>() else {
+        return false;
+    };
+    state
+        .player
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false)
 }
 
 /// One client for every outbound request: the same user agent Cinemeta expects,
@@ -474,12 +522,27 @@ pub fn run() {
         .expect("error while building BetterNuvio");
 
     app.run(|handle, event| {
-        if let tauri::RunEvent::Exit = event {
-            if let Some(state) = handle.try_state::<AppState>() {
-                if let Ok(mut guard) = state.player.lock() {
-                    *guard = None;
+        match event {
+            tauri::RunEvent::Exit => {
+                if let Some(state) = handle.try_state::<AppState>() {
+                    if let Ok(mut guard) = state.player.lock() {
+                        *guard = None;
+                    }
                 }
             }
+            // mpv's render window is created after the web layer, so any event
+            // that rebuilds the child tree can put it back on top and swallow
+            // every click. Re-raise the web layer while something is playing.
+            tauri::RunEvent::WindowEvent { event, .. } => {
+                let resized = matches!(event, tauri::WindowEvent::Resized(_));
+                let focused = matches!(event, tauri::WindowEvent::Focused(true));
+                if (resized || focused) && player_is_live(&handle) {
+                    if let Some(host) = video_host(&handle) {
+                        raise_webview(host);
+                    }
+                }
+            }
+            _ => {}
         }
     });
 }

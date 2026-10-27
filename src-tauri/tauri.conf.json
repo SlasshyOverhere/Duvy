@@ -22,7 +22,7 @@
         "theme": "Dark",
         "decorations": false,
         "transparent": false,
-        "backgroundColor": "#08090c",
+        "backgroundColor": "#000000",
         "dragDropEnabled": false
       }
     ],

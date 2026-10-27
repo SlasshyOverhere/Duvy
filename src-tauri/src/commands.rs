@@ -1146,6 +1146,13 @@ pub async fn player_open(
         std::thread::spawn(move || drop(previous));
     }
     crate::playback_log::mark("starting mpv");
+    // The picture owns the whole window. tao leaves the undecorated shadow on,
+    // and that makes the host inset the client rect by the resize frame, so the
+    // shadow goes before mpv measures the client it draws into.
+    set_window_shadow(&app, false);
+    if let Some(host) = host {
+        crate::refit_webview(host);
+    }
     let player = Player::spawn(
         app.clone(),
         &settings,
@@ -1158,6 +1165,14 @@ pub async fn player_open(
     Ok(snapshot)
 }
 
+/// Toggle the window's own drop shadow, which also decides whether the host
+/// insets the client rect for it.
+fn set_window_shadow(app: &AppHandle, on: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_shadow(on);
+    }
+}
+
 #[tauri::command]
 pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>, String> {
     let guard = state.player.lock().map_err(|_| "player is busy")?;
@@ -1168,10 +1183,11 @@ pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>
 pub async fn player_control(
     action: String,
     value: Option<Value>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if action == "stop" {
-        return player_stop(state).await;
+        return player_stop(app, state).await;
     }
     // Never hold the player slot across an IPC write: mpv's pipe can wedge
     // after a source dies, and that blocked the next play for good.
@@ -1187,7 +1203,7 @@ pub async fn player_control(
 }
 
 #[tauri::command]
-pub async fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Kill the player first so a slow P2P teardown can never leave mpv running
     // behind the menu. Reaping happens off-thread: Drop waits on the process.
     let player = {
@@ -1199,6 +1215,10 @@ pub async fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
         std::thread::spawn(move || drop(player));
     }
     let _ = crate::torrent::shutdown().await;
+    set_window_shadow(&app, true);
+    if let Some(host) = crate::video_host(&app) {
+        crate::refit_webview(host);
+    }
     Ok(())
 }
 
