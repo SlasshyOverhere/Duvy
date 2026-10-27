@@ -32,9 +32,60 @@ export type IconName =
   | "info"
   | "download"
   | "expand"
-  | "compress";
+  | "compress"
+  | "replay10"
+  | "forward10"
+  | "speed"
+  | "next";
 
 const STROKE: Partial<Record<IconName, ReactNode>> = {
+  replay10: (
+    <>
+      <path d="M4.6 12a7.4 7.4 0 1 0 2.3-5.3" />
+      <path d="M4 4.4v3.8h3.8" />
+      <text
+        x="12.4"
+        y="15.1"
+        textAnchor="middle"
+        fontSize="7.2"
+        fontWeight="600"
+        fill="currentColor"
+        stroke="none"
+      >
+        10
+      </text>
+    </>
+  ),
+  forward10: (
+    <>
+      <path d="M19.4 12a7.4 7.4 0 1 1-2.3-5.3" />
+      <path d="M20 4.4v3.8h-3.8" />
+      <text
+        x="11.6"
+        y="15.1"
+        textAnchor="middle"
+        fontSize="7.2"
+        fontWeight="600"
+        fill="currentColor"
+        stroke="none"
+      >
+        10
+      </text>
+    </>
+  ),
+  speed: (
+    <>
+      <path d="M4.2 17.5a8.4 8.4 0 1 1 15.6 0" />
+      <path d="m12 13.6 4.1-4.2" />
+      <circle cx="12" cy="14.4" r="1.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  next: (
+    <>
+      <path d="M6.5 5.6 15 12l-8.5 6.4z" />
+      <path d="M18.6 5.4v13.2" />
+    </>
+  ),
   expand: (
     <>
       <path d="M4 9V4h5" />

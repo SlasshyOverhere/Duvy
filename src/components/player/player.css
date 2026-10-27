@@ -4,6 +4,341 @@
    their established shapes and type.
    --------------------------------------------------------------------------- */
 
+/* ---- HUD ---------------------------------------------------------------
+   Mirrors Nuvio Desktop's controls: a 160px top gradient, a 280px bottom one,
+   the title block above the timeline, a hairline seek bar with no thumb, and
+   one icon row with the runtime pinned to the right.
+   ------------------------------------------------------------------------- */
+
+.pv .pv-shade {
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0) 160px),
+    linear-gradient(to top, rgba(0, 0, 0, 0.84), rgba(0, 0, 0, 0) 280px);
+}
+
+.pv .pv-top {
+  justify-content: flex-end;
+  padding: 20px 24px 0;
+}
+
+.pv .pv-round {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  transition: background 0.14s ease;
+}
+
+.pv .pv-round:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.pv .pv-round:focus-visible,
+.pv .pv-center-btn:focus-visible,
+.pv .pv-action:focus-visible,
+.pv .pv-runtime:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* transport, centered over the picture */
+.pv .pv-center {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 92px;
+  padding-bottom: 34px;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.pv:not(.pv--awake) .pv-center {
+  opacity: 0;
+}
+
+.pv .pv-center-btn {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  opacity: 0.94;
+  transition: opacity 0.14s ease, background 0.14s ease;
+}
+
+.pv .pv-center-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pv:not(.pv--awake) .pv-center-btn {
+  pointer-events: none;
+}
+
+/* bottom deck */
+.pv .pv-deck {
+  padding: 0 28px 18px;
+  background: none;
+}
+
+.pv .pv-details {
+  padding: 0 2px;
+}
+
+.pv .pv-title {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: -0.015em;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-subtitle {
+  margin-top: 3px;
+  font-size: 15px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* timeline: 6px at rest, 10px under the pointer, rounded caps, no thumb */
+.pv .pv-track {
+  height: 30px;
+  margin: 6px 0 2px;
+}
+
+.pv .pv-track::before,
+.pv .pv-buffer,
+.pv .pv-played {
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 999px;
+  transform: none;
+  transition: height 0.16s ease, margin-top 0.16s ease;
+}
+
+.pv .pv-track::before {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.pv .pv-buffer {
+  right: auto;
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.pv .pv-played {
+  right: auto;
+  background: var(--accent);
+}
+
+.pv .pv-track:hover::before,
+.pv .pv-track:hover .pv-buffer,
+.pv .pv-track:hover .pv-played,
+.pv .pv-track:focus-visible::before,
+.pv .pv-track:focus-visible .pv-buffer,
+.pv .pv-track:focus-visible .pv-played {
+  height: 10px;
+  margin-top: -5px;
+}
+
+.pv .pv-head {
+  display: none;
+}
+
+/* action row */
+.pv .pv-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pv .pv-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pv .pv-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.pv .pv-action {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  transition: color 0.14s ease, background 0.14s ease;
+}
+
+.pv .pv-action:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pv .pv-action.is-on {
+  color: var(--accent);
+}
+
+.pv .pv-action:disabled {
+  opacity: 0.4;
+}
+
+.pv .pv-action--flip svg {
+  transform: rotate(180deg);
+}
+
+/* speed menu */
+.pv .pv-speed {
+  position: relative;
+}
+
+.pv .pv-menu {
+  position: absolute;
+  left: 50%;
+  bottom: 52px;
+  z-index: 4;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 86px;
+  padding: 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.94);
+}
+
+.pv .pv-menu-item {
+  border: 0;
+  padding: 7px 10px;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.pv .pv-menu-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pv .pv-menu-item.is-on {
+  color: var(--accent);
+}
+
+/* volume: the slider unfolds out of the speaker */
+.pv .pv-vol {
+  gap: 0;
+  padding-right: 0;
+}
+
+.pv .pv-vol input[type="range"] {
+  width: 0;
+  opacity: 0;
+  margin: 0;
+  transition: width 0.18s ease, opacity 0.18s ease;
+}
+
+.pv .pv-vol:hover input[type="range"],
+.pv .pv-vol:focus-within input[type="range"] {
+  width: 84px;
+  opacity: 1;
+}
+
+.pv .pv-runtime {
+  border: 0;
+  background: none;
+  padding: 8px 2px 8px 10px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  transition: color 0.14s ease;
+}
+
+.pv .pv-runtime:hover {
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .pv .pv-deck {
+    padding: 0 18px 14px;
+  }
+
+  .pv .pv-title {
+    font-size: 20px;
+  }
+
+  .pv .pv-subtitle {
+    font-size: 13.5px;
+  }
+
+  .pv .pv-center {
+    gap: 52px;
+  }
+
+  .pv .pv-vol:hover input[type="range"],
+  .pv .pv-vol:focus-within input[type="range"] {
+    width: 60px;
+  }
+}
+
+/* The tracks sheet floats over the picture instead of owning the whole right
+   edge: Nuvio opens its subtitle and audio controls as a card above the bar. */
+.pv .pv-panel {
+  top: auto;
+  right: auto;
+  bottom: 160px;
+  left: 28px;
+  width: min(364px, calc(100vw - 56px));
+  max-height: min(62vh, 540px);
+  padding: 16px;
+  border-radius: 6px;
+  background: rgba(8, 8, 8, 0.96);
+  animation: pv-card 0.16s var(--ease);
+}
+
+@keyframes pv-card {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Keyboard sheet: the base panel lives in styles.css, this gives it a title
    row and keeps a long list inside the viewport. */
 .pv .pv-help {
@@ -242,7 +577,7 @@
 .pv-hud {
   position: absolute;
   left: 50%;
-  bottom: 128px;
+  bottom: 176px;
   z-index: 5;
   transform: translateX(-50%);
   display: flex;

@@ -7,7 +7,7 @@ import { useApp, usePlayer } from "../lib/store";
 import type { Details, PlayerSnapshot, Settings, SubtitleTrack, Video } from "../lib/types";
 import { Icon, Spinner } from "../components/ui";
 import { findSkip, type SkipEntry } from "../components/player/skip";
-import { formatTime, progressPercent, seasonLabel } from "../lib/format";
+import { episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -84,6 +84,8 @@ export function PlayerView() {
   const [hud, setHud] = useState<Hud | null>(null);
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
+  const [speedOpen, setSpeedOpen] = useState(false);
+  const [showRemaining, setShowRemaining] = useState(false);
   // Stored position offered by the resume prompt, and the seconds left before
   // it settles on Resume by itself.
   const [resumeAt, setResumeAt] = useState<number | null>(null);
@@ -380,6 +382,11 @@ export function PlayerView() {
     };
   }, [bump]);
 
+  // The speed menu is part of the chrome, so it leaves with it.
+  useEffect(() => {
+    if (!chrome) setSpeedOpen(false);
+  }, [chrome]);
+
   const dismissNext = useCallback(() => {
     setNextOff(true);
     // Keep the end-of-file handler from starting the episode the viewer
@@ -629,7 +636,8 @@ export function PlayerView() {
           toggleSurface("keys");
           break;
         case "Escape":
-          if (surface) setSurface(null);
+          if (speedOpen) setSpeedOpen(false);
+          else if (surface) setSurface(null);
           else if (resumeAt != null) setResumeAt(null);
           else if (showNext) dismissNext();
           else if (fsNow.current) void toggleFullscreen();
@@ -655,6 +663,7 @@ export function PlayerView() {
     resumeAt,
     seekRel,
     showNext,
+    speedOpen,
     step,
     stop,
     surface,
@@ -762,33 +771,24 @@ export function PlayerView() {
           bump();
           return;
         }
+        if (surface || speedOpen) {
+          setSurface(null);
+          setSpeedOpen(false);
+          return;
+        }
         togglePause();
       }}
     >
       <div className="pv-shade" aria-hidden="true" />
 
       <header className="pv-top">
-        <button type="button" className="pv-icon" onClick={() => void stop()} aria-label="Back to title">
-          <Icon name="back" size={18} />
-        </button>
-        <div className="pv-id">
-          <p className="pv-index">
-            {session?.season != null ? seasonLabel(session.season, session.episode) : "Feature"}
-            {local.ended ? " · finished" : local.paused ? " · paused" : ""}
-          </p>
-          <h1 className="pv-name" title={title}>
-            {title}
-          </h1>
-          {session?.episodeTitle ? <p className="pv-ep">{session.episodeTitle}</p> : null}
-        </div>
         <button
           type="button"
-          className={`pv-icon${surface === "keys" ? " is-on" : ""}`}
-          onClick={() => toggleSurface("keys")}
-          aria-label="Keyboard shortcuts"
-          aria-expanded={surface === "keys"}
+          className="pv-round"
+          onClick={() => void stop()}
+          aria-label="Close player"
         >
-          <Icon name="key" size={17} />
+          <Icon name="back" size={19} />
         </button>
       </header>
 
@@ -984,20 +984,6 @@ export function PlayerView() {
             </select>
           </label>
 
-          <label className="pv-field">
-            <span>Speed</span>
-            <select
-              value={String(local.speed)}
-              onChange={(event) => send("speed", Number(event.target.value))}
-            >
-              {SPEEDS.map((speed) => (
-                <option key={speed} value={speed}>
-                  {speed}×
-                </option>
-              ))}
-            </select>
-          </label>
-
           <div className="pv-style">
             <p className="pv-field-label">Subtitle style</p>
             <div className="pv-subpreview">
@@ -1110,7 +1096,48 @@ export function PlayerView() {
         </aside>
       ) : null}
 
+      {!loading ? (
+        <div className="pv-center">
+          <button
+            type="button"
+            className="pv-center-btn"
+            onClick={() => seekRel(-10)}
+            aria-label="Back 10 seconds"
+          >
+            <Icon name="replay10" size={32} />
+          </button>
+          <button
+            type="button"
+            className="pv-center-btn pv-center-btn--play"
+            onClick={togglePause}
+            aria-label={local.paused ? "Play" : "Pause"}
+          >
+            <Icon name={local.paused ? "play" : "pause"} size={42} />
+          </button>
+          <button
+            type="button"
+            className="pv-center-btn"
+            onClick={() => seekRel(10)}
+            aria-label="Forward 10 seconds"
+          >
+            <Icon name="forward10" size={32} />
+          </button>
+        </div>
+      ) : null}
+
       <footer className="pv-deck">
+        <div className="pv-details">
+          <h1 className="pv-title" title={title}>
+            {title}
+          </h1>
+          {session?.season != null ? (
+            <p className="pv-subtitle">
+              {episodeCode({ season: session.season, episode: session.episode })}
+              {session.episodeTitle ? ` · ${session.episodeTitle}` : ""}
+            </p>
+          ) : null}
+        </div>
+
         <div
           className="pv-track"
           role="slider"
@@ -1148,84 +1175,109 @@ export function PlayerView() {
         >
           <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
           <span className="pv-played" style={{ width: `${percent}%` }} />
-          <i className="pv-head" style={{ left: `${percent}%` }} />
         </div>
 
-        <div className="pv-row">
-          <button
-            type="button"
-            className="pv-play"
-            aria-label={local.paused ? "Play" : "Pause"}
-            onClick={togglePause}
-          >
-            <Icon name={local.paused ? "play" : "pause"} size={26} />
-          </button>
+        <div className="pv-bar">
+          <div className="pv-actions">
+            {prevEpisode ? (
+              <button
+                type="button"
+                className="pv-action pv-action--flip"
+                disabled={busy}
+                onClick={() => void playVideo(prevEpisode)}
+                aria-label="Previous episode"
+              >
+                <Icon name="next" size={22} />
+              </button>
+            ) : null}
+            {nextEpisode ? (
+              <button
+                type="button"
+                className="pv-action"
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+                aria-label="Next episode"
+              >
+                <Icon name="next" size={22} />
+              </button>
+            ) : null}
 
-          <p className="pv-clock">
-            <span>{formatTime(shownPosition)}</span>
-            <span className="pv-clock-sep">/</span>
-            <span className="pv-clock-total">{formatTime(duration)}</span>
-            <span className="pv-clock-left">−{formatTime(remaining)}</span>
-          </p>
-
-          <div className="pv-steps">
             <button
               type="button"
-              className="pv-step"
-              onClick={() => seekRel(-step)}
-              aria-label={`Back ${step} seconds`}
+              className={`pv-action${surface === "tracks" ? " is-on" : ""}`}
+              onClick={() => {
+                toggleSurface("tracks");
+                void loadSubtitles();
+              }}
+              aria-label="Audio and subtitles"
+              aria-expanded={surface === "tracks"}
             >
-              −{step}
+              <Icon name="subtitle" size={22} />
             </button>
+
+            <div className="pv-speed">
+              <button
+                type="button"
+                className={`pv-action${speedOpen ? " is-on" : ""}`}
+                onClick={() => setSpeedOpen((current) => !current)}
+                aria-label={`Playback speed ${local.speed} times`}
+                aria-haspopup="menu"
+                aria-expanded={speedOpen}
+              >
+                <Icon name="speed" size={22} />
+              </button>
+              {speedOpen ? (
+                <div className="pv-menu" role="menu" aria-label="Playback speed">
+                  {SPEEDS.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={Math.abs(local.speed - value) < 0.01}
+                      className={`pv-menu-item${Math.abs(local.speed - value) < 0.01 ? " is-on" : ""}`}
+                      onClick={() => {
+                        speedRef.current = value;
+                        send("speed", value);
+                        setSpeedOpen(false);
+                      }}
+                    >
+                      {value}×
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
             <button
               type="button"
-              className="pv-step"
-              onClick={() => seekRel(step)}
-              aria-label={`Forward ${step} seconds`}
+              className={`pv-action${surface === "stats" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("stats")}
+              aria-label="Playback statistics"
+              aria-expanded={surface === "stats"}
             >
-              +{step}
+              <Icon name="info" size={22} />
+            </button>
+
+            <button
+              type="button"
+              className={`pv-action${surface === "keys" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("keys")}
+              aria-label="Keyboard shortcuts"
+              aria-expanded={surface === "keys"}
+            >
+              <Icon name="key" size={22} />
             </button>
           </div>
 
-          <button
-            type="button"
-            className="pv-text pv-keys"
-            onClick={() => toggleSurface("keys")}
-            aria-expanded={surface === "keys"}
-          >
-            Keys
-          </button>
-
-          {prevEpisode ? (
-            <button
-              type="button"
-              className="pv-text"
-              disabled={busy}
-              onClick={() => void playVideo(prevEpisode)}
-            >
-              Previous
-            </button>
-          ) : null}
-          {nextEpisode ? (
-            <button
-              type="button"
-              className="pv-text"
-              disabled={busy}
-              onClick={() => void playVideo(nextEpisode)}
-            >
-              Next
-            </button>
-          ) : null}
-
-          <div className="pv-right">
+          <div className="pv-bar-right">
             <div className="pv-vol">
               <button
                 type="button"
-                className="pv-icon"
+                className="pv-action"
                 aria-label={local.muted ? "Unmute" : "Mute"}
                 onClick={toggleMute}
               >
-                <Icon name={local.muted ? "mute" : "volume"} size={18} />
+                <Icon name={local.muted ? "mute" : "volume"} size={22} />
               </button>
               <input
                 type="range"
@@ -1239,50 +1291,22 @@ export function PlayerView() {
 
             <button
               type="button"
-              className={`pv-text${activeSub ? " is-set" : ""}`}
-              onClick={() => {
-                toggleSurface("tracks");
-                void loadSubtitles();
-              }}
-              aria-expanded={surface === "tracks"}
-            >
-              {activeSub?.label ?? "Subs"}
-            </button>
-
-            <button
-              type="button"
-              className={`pv-icon${surface === "tracks" ? " is-on" : ""}`}
-              onClick={() => {
-                toggleSurface("tracks");
-                void loadSubtitles();
-              }}
-              aria-label="Tracks"
-              aria-expanded={surface === "tracks"}
-            >
-              <Icon name="sliders" size={18} />
-            </button>
-
-            <button
-              type="button"
-              className={`pv-icon${surface === "stats" ? " is-on" : ""}`}
-              onClick={() => toggleSurface("stats")}
-              aria-label="Playback stats"
-              aria-expanded={surface === "stats"}
-            >
-              <Icon name="info" size={18} />
-            </button>
-
-            <button
-              type="button"
-              className="pv-icon"
+              className="pv-action"
               onClick={() => void toggleFullscreen()}
               aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
-              <Icon name={fullscreen ? "compress" : "expand"} size={18} />
+              <Icon name={fullscreen ? "compress" : "expand"} size={22} />
             </button>
 
-            <button type="button" className="pv-icon pv-close" onClick={() => void stop()} aria-label="Stop playback">
-              <Icon name="stop" size={14} />
+            <button
+              type="button"
+              className="pv-runtime"
+              onClick={() => setShowRemaining((current) => !current)}
+              aria-label="Switch between elapsed and remaining time"
+            >
+              {showRemaining
+                ? `−${formatTime(remaining)}`
+                : `${formatTime(shownPosition)} / ${formatTime(duration)}`}
             </button>
           </div>
         </div>

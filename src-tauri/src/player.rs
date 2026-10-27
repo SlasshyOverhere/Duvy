@@ -380,6 +380,13 @@ impl Player {
                 None => Stdio::null(),
             });
 
+        // Resume is a launch option, not a loadfile one: mpv answers
+        // `loadfile url replace "start=..."` with "invalid parameter", which
+        // aborted the whole open whenever a saved position existed.
+        if let Some(start) = request.start_at.filter(|value| *value > 5.0) {
+            command.arg(format!("--start={start:.3}"));
+        }
+
         match host {
             Some(wid) => {
                 // mpv paints straight into the app window's client area, and the
@@ -470,11 +477,7 @@ impl Player {
         }
 
         let start = request.start_at.unwrap_or(0.0);
-        let load = if start > 5.0 {
-            json!({"command": ["loadfile", request.url, "replace", format!("start={start:.3}")]})
-        } else {
-            json!({"command": ["loadfile", request.url, "replace"]})
-        };
+        let load = json!({"command": ["loadfile", request.url, "replace"]});
         crate::playback_log::mark(format!("handing the URL to mpv (start at {start:.1}s)"));
         if let Err(error) = send(&mut writer, load) {
             give_up!(error);
