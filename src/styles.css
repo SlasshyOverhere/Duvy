@@ -37,6 +37,7 @@
   --display: var(--sans);
   --pad: clamp(24px, 5vw, 88px);
   --nav-h: 88px;
+  --titlebar-h: 34px;
 }
 
 :root[data-accent="violet"] {
@@ -223,36 +224,29 @@ select {
   overflow: hidden;
 }
 
-/* The frameless window's controls float over the content: no chrome row. */
 .titlebar {
-  position: fixed;
-  top: 0;
-  right: 4px;
-  z-index: 60;
+  flex: none;
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--titlebar-h);
+  background: var(--bg-2);
   user-select: none;
-}
-
-:root[data-fullscreen="on"] .titlebar,
-:root[data-fullscreen="on"] .resize-edge {
-  display: none;
 }
 
 .titlebar-controls {
   display: flex;
-  gap: 2px;
+  height: 100%;
 }
 
 .titlebar-button {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 24px;
-  padding: 0;
+  width: 46px;
+  height: 100%;
   border: 0;
-  border-radius: 6px;
   background: none;
-  color: var(--faint);
+  color: var(--muted);
   transition: background 0.12s linear, color 0.12s linear;
 }
 
@@ -272,6 +266,12 @@ select {
 .titlebar-button.is-close:hover {
   background: var(--danger);
   color: #ffffff;
+}
+
+/* Fullscreen owns the screen: no title row, no resize grips. */
+:root[data-fullscreen="on"] .titlebar,
+:root[data-fullscreen="on"] .resize-edge {
+  display: none;
 }
 
 /* Four edges, four corners, four pixels of grab each. */
@@ -548,7 +548,7 @@ button.pill:hover {
 }
 
 .page {
-  padding: calc(var(--nav-h) + 18px) var(--pad) 96px;
+  padding: calc(var(--nav-h) + 34px) var(--pad) 96px;
 }
 
 .page-head {
@@ -1177,7 +1177,7 @@ button.pill:hover {
   align-items: flex-end;
   justify-content: center;
   min-height: clamp(500px, 72vh, 760px);
-  margin: 10px var(--pad) 0;
+  margin: calc(var(--nav-h) - 6px) var(--pad) 0;
   border-radius: 30px;
   overflow: hidden;
   isolation: isolate;
@@ -3583,7 +3583,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
-  margin: 10px var(--pad) 0;
+  margin: calc(var(--nav-h) - 6px) var(--pad) 0;
   border-radius: 30px;
   background: #0f0f0f;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);

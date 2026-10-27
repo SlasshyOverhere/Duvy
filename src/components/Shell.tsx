@@ -62,7 +62,7 @@ export function TopBar() {
   }, [navigate]);
 
   return (
-    <header className="topbar" data-tauri-drag-region>
+    <header className="topbar">
       <div className="topbar-left">
         {route.name !== "home" ? <IconButton icon="back" label="Back" onClick={back} /> : null}
         <button
@@ -125,16 +125,6 @@ export function TopBar() {
           </button>
         ) : null}
 
-        <button
-          type="button"
-          className="profile-btn"
-          onClick={() => navigate({ name: "settings" })}
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Icon name="settings" size={19} />
-        </button>
-
         {isTauri() ? (
           <button
             type="button"
@@ -146,6 +136,16 @@ export function TopBar() {
             <Icon name={fullscreen ? "compress" : "expand"} size={19} />
           </button>
         ) : null}
+
+        <button
+          type="button"
+          className="profile-btn"
+          onClick={() => navigate({ name: "settings" })}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Icon name="settings" size={19} />
+        </button>
       </div>
     </header>
   );
