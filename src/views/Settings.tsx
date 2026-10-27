@@ -60,10 +60,14 @@ export function SettingsView({ section }: { section?: string }) {
 
   if (!settings) return null;
 
-  const update = (patch: Parameters<typeof saveSettings>[0]) => {
-    void saveSettings(patch).catch((e: unknown) =>
-      notify(e instanceof Error ? e.message : String(e), "error"),
-    );
+  const update = async (patch: Parameters<typeof saveSettings>[0]) => {
+    try {
+      await saveSettings(patch);
+      return true;
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+      return false;
+    }
   };
 
   const locateMpv = async () => {
@@ -364,8 +368,8 @@ export function SettingsView({ section }: { section?: string }) {
                         <p className="settings-hint">
                           <strong>Pieces are cached on disk.</strong> The parts being streamed are
                           written to a local torrent cache, capped at {settings.p2pCacheMb} MB. That
-                          cache is deleted when the torrent session stops; if a deletion fails,
-                          leftovers above the cap are wiped before the next torrent starts.
+                          cache is deleted when the torrent session stops. If a file is still locked
+                          and the wipe cannot finish, the next start tries again before streaming.
                         </p>
                         <p className="settings-hint">
                           <strong>It is easy to undo.</strong> Switch P2P playback off on this tab
@@ -395,8 +399,8 @@ export function SettingsView({ section }: { section?: string }) {
                           <Button
                             variant="primary"
                             disabled={!p2pAck}
-                            onClick={() => {
-                              update({ p2pConsent: true });
+                            onClick={async () => {
+                              if (!(await update({ p2pConsent: true }))) return;
                               setP2pAck(false);
                               setP2pReview(false);
                               notify("P2P playback enabled", "success");
@@ -413,8 +417,8 @@ export function SettingsView({ section }: { section?: string }) {
                   <div>
                     <h3>Disk cache</h3>
                     <p className="settings-hint">
-                      Maximum size of the torrent cache. Leftovers above it are wiped before each
-                      start.
+                      The torrent cache is wiped when a session stops and before the next start.
+                      This cap bounds anything the system still has open if a wipe cannot finish.
                     </p>
                   </div>
                   <span className="settings-value">{settings.p2pCacheMb} MB</span>
