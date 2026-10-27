@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import type { MetaPreview } from "../lib/types";
+import { api } from "../lib/bridge";
+import { useApp } from "../lib/store";
+import type { MetaPreview, ProgressItem } from "../lib/types";
 import { placeholderGradient, progressPercent } from "../lib/format";
-import { Icon, IconButton, Badge } from "./ui";
+import { ContextMenu, Icon, IconButton, Badge, type ContextAction } from "./ui";
 
 function initials(name: string) {
   return name
@@ -29,7 +31,46 @@ export function PosterCard({
   wide?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const { playItem, progress: history, refreshProgress, notify } = useApp();
+  const entry = history.find((row) => row.metaId === item.id);
   const gradient = placeholderGradient(item.name);
+
+  const actions: ContextAction[] = [
+    {
+      label: entry ? "Resume" : "Play",
+      icon: "play",
+      onSelect: () => (onPlay ? onPlay() : void playItem(item)),
+    },
+    { label: "Start from beginning", icon: "replay10", onSelect: () => void playItem(item, true) },
+    {
+      label: "Mark as watched",
+      icon: "check",
+      onSelect: () => {
+        void api.progress
+          .setWatched(entry?.key ?? item.id, item.id, true)
+          .then(() => {
+            notify(`${item.name} marked as watched`);
+            return refreshProgress();
+          })
+          .catch(() => notify("Could not mark that as watched", "error"));
+      },
+    },
+    {
+      label: "Remove from continue watching",
+      icon: "trash",
+      disabled: !entry,
+      onSelect: () => {
+        const rows = history.filter((row) => row.metaId === item.id);
+        void Promise.all(rows.map((row) => api.progress.clear(row.key)))
+          .then(() => {
+            notify(`Removed ${item.name} from continue watching`);
+            return refreshProgress();
+          })
+          .catch(() => notify("Could not clear that progress", "error"));
+      },
+    },
+  ];
 
   return (
     <article className={`poster-card${wide ? " is-wide" : ""}`}>
@@ -40,6 +81,10 @@ export function PosterCard({
         aria-label={item.name}
         style={{ background: gradient } as CSSProperties}
         onClick={onOpen}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({ x: event.clientX, y: event.clientY });
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -89,6 +134,15 @@ export function PosterCard({
           </span>
         </div>
       ) : null}
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          title={item.name}
+          actions={actions}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </article>
   );
 }
@@ -130,6 +184,7 @@ export function Row({
 }
 
 export function ContinueCard({
+  entry,
   poster,
   background,
   name,
@@ -138,6 +193,7 @@ export function ContinueCard({
   duration,
   onOpen,
 }: {
+  entry: ProgressItem;
   poster?: string | null;
   background?: string | null;
   name: string;
@@ -147,12 +203,62 @@ export function ContinueCard({
   onOpen: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const [gone, setGone] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const { playItem, progress: history, refreshProgress, notify } = useApp();
   const percent = progressPercent(position, duration);
+
+  const drop = (label: string, task: Promise<unknown>) => {
+    void task
+      .then(() => {
+        setGone(true);
+        notify(label);
+        return refreshProgress();
+      })
+      .catch(() => notify("That did not stick. Try again.", "error"));
+  };
+
+  const actions: ContextAction[] = [
+    { label: "Resume", icon: "play", onSelect: onOpen },
+    {
+      label: "Start from beginning",
+      icon: "replay10",
+      onSelect: () =>
+        void playItem(
+          { id: entry.metaId, type: entry.type, name: entry.name, poster: entry.poster },
+          true,
+        ),
+    },
+    {
+      label: "Mark as watched",
+      icon: "check",
+      onSelect: () =>
+        drop(`Marked ${name} as watched`, api.progress.setWatched(entry.key, entry.metaId, true)),
+    },
+    {
+      label: "Remove from continue watching",
+      icon: "trash",
+      onSelect: () => {
+        const keys = history.filter((row) => row.metaId === entry.metaId).map((row) => row.key);
+        drop(
+          `Removed ${name} from continue watching`,
+          Promise.all((keys.length ? keys : [entry.key]).map((key) => api.progress.clear(key))),
+        );
+      },
+    },
+  ];
+
+  if (gone) return null;
+
   return (
     <button
       type="button"
       className="continue-card"
       onClick={onOpen}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenu({ x: event.clientX, y: event.clientY });
+      }}
       style={{ background: placeholderGradient(name) } as CSSProperties}
     >
       {(background || poster) && !failed ? (
@@ -169,6 +275,15 @@ export function ContinueCard({
       <span className="continue-progress">
         <span style={{ width: `${Math.max(2, percent)}%` }} />
       </span>
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          title={name}
+          actions={actions}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </button>
   );
 }

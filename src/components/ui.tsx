@@ -1,4 +1,12 @@
-import type { CSSProperties, ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 
 export type IconName =
   | "home"
@@ -337,6 +345,104 @@ export function IconButton({
     >
       <Icon name={icon} size={size} />
     </button>
+  );
+}
+
+export interface ContextAction {
+  label: string;
+  icon?: IconName;
+  disabled?: boolean;
+  onSelect: () => void;
+}
+
+// Right-click menu, portalled so scrollers cannot clip it.
+export function ContextMenu({
+  x,
+  y,
+  title,
+  actions,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  title: string;
+  actions: ContextAction[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const box = node.getBoundingClientRect();
+    setAt({
+      left: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - box.height - 8)),
+    });
+    node.querySelector<HTMLButtonElement>(".ctx-item:not(:disabled)")?.focus();
+  }, [x, y]);
+
+  useEffect(() => {
+    const onPointer = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={title}
+      className="ctx"
+      style={{ left: at.left, top: at.top }}
+      onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        event.preventDefault();
+        const items = Array.from(
+          ref.current?.querySelectorAll<HTMLButtonElement>(".ctx-item:not(:disabled)") ?? [],
+        );
+        if (!items.length) return;
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        items[(index + step + items.length) % items.length]?.focus();
+      }}
+    >
+      <p className="ctx-title">{title}</p>
+      {actions.map((action) => (
+        <button
+          key={action.label}
+          type="button"
+          role="menuitem"
+          className="ctx-item"
+          disabled={action.disabled}
+          onClick={() => {
+            onClose();
+            action.onSelect();
+          }}
+        >
+          {action.icon ? <Icon name={action.icon} size={15} /> : <span className="ctx-gap" />}
+          <span>{action.label}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
   );
 }
 

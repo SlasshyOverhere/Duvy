@@ -129,6 +129,7 @@ export function LibraryView() {
           {continuing.map((entry) => (
             <ContinueCard
               key={entry.key}
+              entry={entry}
               name={entry.name}
               poster={entry.poster}
               background={entry.background}

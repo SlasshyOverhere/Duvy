@@ -141,6 +141,7 @@ export function HomeView() {
             {feed.continueWatching.map((entry) => (
               <ContinueCard
                 key={entry.key}
+                entry={entry}
                 name={entry.name}
                 poster={entry.poster}
                 background={entry.background}

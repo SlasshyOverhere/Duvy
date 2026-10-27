@@ -66,7 +66,7 @@ interface Store {
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   playRequest: (request: PlayRequest) => Promise<void>;
-  playItem: (item: MetaPreview) => Promise<void>;
+  playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
   buildSession: (details: Details, video: Video | null) => PlaybackSession;
   resolveStream: (stream: StreamOption) => Promise<string>;
@@ -403,7 +403,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Resolve metadata, resume point, and the best playable source in one go. */
   const playItem = useCallback(
-    async (item: MetaPreview) => {
+    async (item: MetaPreview, fromStart = false) => {
       try {
         notify(`Finding a source for ${item.name}…`);
         const details = await api.details(item.id, item.type);
@@ -425,7 +425,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
-        const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;
+        const resume = settings?.autoResume && !fromStart ? progressFor(session.key)?.position ?? 0 : 0;
         const options = await api.streams({
           id: details.imdbId ?? details.id,
           mediaType: details.type,
