@@ -144,6 +144,62 @@ fn progress_tracks_and_clears() {
 }
 
 #[test]
+fn clear_history_keeps_library_addons_settings_and_people() {
+    let (conn, path) = temp_database();
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt7".into(),
+            meta_id: "tt7".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            poster: None,
+            background: None,
+            season: None,
+            episode: None,
+            episode_title: None,
+            position: 10.0,
+            duration: 100.0,
+            updated_at: 0,
+        },
+    )
+    .expect("progress");
+    db::set_watched(&conn, "tt7", "tt7", true).expect("watched");
+    db::add_to_library(
+        &conn,
+        &db::LibraryItem {
+            id: "tt7".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            poster: None,
+            background: None,
+            added_at: 0,
+            meta: None,
+        },
+    )
+    .expect("library");
+    let manifest = json!({ "id": "com.example.keep", "name": "Keep", "version": "1.0.0" });
+    db::upsert_addon(&conn, "https://example.test", "com.example.keep", "Keep", &manifest)
+        .expect("addon");
+    db::set_people_photo(&conn, "tt7:Jane", "https://example.test/j.jpg").expect("people");
+    db::write_settings(&conn, &json!({ "accent": "kept" })).expect("settings");
+
+    db::clear_history(&conn).expect("clear");
+
+    assert!(db::list_progress(&conn).unwrap().is_empty());
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    assert_eq!(db::list_library(&conn).unwrap().len(), 1);
+    assert_eq!(db::list_addons(&conn).unwrap().len(), 1);
+    assert_eq!(
+        db::people_photo(&conn, "tt7:Jane").unwrap().as_deref(),
+        Some("https://example.test/j.jpg")
+    );
+    assert_eq!(db::read_settings(&conn).unwrap()["accent"], json!("kept"));
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn library_and_watched_roundtrip() {
     let (conn, path) = temp_database();
     let item = db::LibraryItem {

@@ -366,6 +366,15 @@ pub fn clear_progress(conn: &Connection, key: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Drops watching history only. Library, addons, settings and people stay, so
+/// switching Nuvio profile or account starts from a clean slate.
+pub fn clear_history(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM progress", [])?;
+    tx.execute("DELETE FROM watched", [])?;
+    tx.commit()
+}
+
 /// Progress rows that arrived from the account with nothing but an id, one
 /// entry per title so a 40-episode show costs one lookup instead of forty.
 pub fn progress_missing_meta(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {

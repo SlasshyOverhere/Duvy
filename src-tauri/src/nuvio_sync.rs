@@ -67,6 +67,19 @@ impl Session {
     }
 }
 
+/// Stable account identity: the GoTrue user id when present, else the email.
+fn account_identity(user_id: &str, email: &str) -> Option<String> {
+    if !user_id.is_empty() {
+        return Some(format!("id:{user_id}"));
+    }
+    let email = email.trim().to_lowercase();
+    if email.is_empty() {
+        None
+    } else {
+        Some(format!("email:{email}"))
+    }
+}
+
 /// Everything the Settings screen needs, without leaking the tokens.
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -319,25 +332,100 @@ pub async fn sign_in(
     }
     let mut session = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        let mut s = load_session(&conn);
-        s.email = email.to_string();
-        s
+        load_session(&conn)
     };
+    let previous = account_identity(&session.user_id, &session.email);
+    let user = value.get("user");
+    let current = account_identity(
+        user.and_then(|u| u.get("id")).and_then(Value::as_str).unwrap_or_default(),
+        user.and_then(|u| u.get("email"))
+            .and_then(Value::as_str)
+            .unwrap_or(email),
+    );
+    session.email = email.to_string();
     apply_session(&mut session, &value)?;
+
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    match (previous, current) {
+        (Some(previous), Some(current)) if previous != current => {
+            // These rows belong to the account that was signed in before.
+            db::clear_history(&conn).map_err(|e| e.to_string())?;
+            session.last_sync = 0;
+        }
+        (None, _) if !db::touched_ids(&conn).map_err(|e| e.to_string())?.is_empty() => {
+            eprintln!("nuvio: no stored account identity, keeping local history as-is");
+        }
+        _ => {}
+    }
     save_session(&conn, &session)?;
     Ok(status(&conn, &settings))
 }
 
 pub fn sign_out(state: &AppState) -> Result<(), String> {
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-    db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
+    let mut session = load_session(&conn);
+    if session.signed_in() {
+        // Keep the account identity so the next sign-in can tell accounts apart.
+        session.access_token.clear();
+        session.refresh_token.clear();
+        session.expires_at = 0;
+        session.last_sync = 0;
+        save_session(&conn, &session)
+    } else {
+        db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
+    }
 }
 
-pub fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
+/// Switches the active profile. The current profile's history is pushed first,
+/// so a failed push aborts the switch and leaves local rows alone.
+pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
+    let target = index.max(1);
+    let (settings, mut session) = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        (Settings::load(&conn), load_session(&conn))
+    };
+    if target == session.profile {
+        return Ok(());
+    }
+    if !session.signed_in() {
+        session.profile = target;
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        return save_session(&conn, &session);
+    }
+
+    let from = session.profile;
+    let token = ensure_token(&state.http, &settings, &mut session)
+        .await
+        .map_err(|e| format!("Could not reach Nuvio to save profile {from}: {e}"))?;
+    // Keep a rotated refresh token even if the push below fails.
+    {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        save_session(&conn, &session)?;
+    }
+    push_watching(&state.http, &settings, &token, from, local_history(state)?)
+        .await
+        .map_err(|e| format!("Could not save profile {from} before switching: {e}"))?;
+
+    session.profile = target;
+    {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        db::clear_history(&conn).map_err(|e| e.to_string())?;
+        save_session(&conn, &session)?;
+    }
+
+    let pulled = pull(&state.http, &settings, &token, target)
+        .await
+        .map_err(|e| {
+            format!("Switched to profile {target}, but loading its history failed: {e}")
+        })?;
+    {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        merge_pulled(&conn, &pulled)?;
+    }
+    enrich(state).await?;
+
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-    let mut session = load_session(&conn);
-    session.profile = index.max(1);
+    session.last_sync = db::now();
     save_session(&conn, &session)
 }
 
@@ -413,123 +501,164 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     let token = ensure_token(&state.http, &settings, &mut session).await?;
     let pid = session.profile;
 
-    // ---- pull -------------------------------------------------------------
-    let progress_rows = as_rows(
+    let pulled = pull(&state.http, &settings, &token, pid).await?;
+    let mut report = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        merge_pulled(&conn, &pulled)?
+    };
+
+    // ---- push -------------------------------------------------------------
+    let history = local_history(state)?;
+    push_watching(&state.http, &settings, &token, pid, history).await?;
+    let library = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        local_library(&conn)?
+    };
+    if !library.is_empty() {
         rpc(
             &state.http,
             &settings,
             &token,
+            "sync_push_library_items",
+            json!({ "p_profile_id": pid, "p_items": library }),
+        )
+        .await?;
+    }
+    report.pushed = (report.progress + report.watched + report.library) as i64;
+
+    enrich(state).await?;
+
+    session.last_sync = db::now();
+    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    save_session(&conn, &session)?;
+    Ok(report)
+}
+
+struct Pulled {
+    progress: Vec<Value>,
+    watched: Vec<Value>,
+    library: Vec<Value>,
+}
+
+async fn pull(
+    http: &reqwest::Client,
+    settings: &Settings,
+    token: &str,
+    pid: i64,
+) -> Result<Pulled, String> {
+    let progress = as_rows(
+        rpc(
+            http,
+            settings,
+            token,
             "sync_pull_watch_progress",
             json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": 1000 }),
         )
         .await?,
     );
 
-    let mut watched_rows = Vec::new();
+    let mut watched = Vec::new();
     for page in 1..=10 {
         let batch = as_rows(
             rpc(
-                &state.http,
-                &settings,
-                &token,
+                http,
+                settings,
+                token,
                 "sync_pull_watched_items",
                 json!({ "p_profile_id": pid, "p_page": page, "p_page_size": 500 }),
             )
             .await?,
         );
         let done = batch.len() < 500;
-        watched_rows.extend(batch);
+        watched.extend(batch);
         if done {
             break;
         }
     }
 
-    let mut library_rows = Vec::new();
+    let mut library = Vec::new();
     for page in 0..20 {
         let batch = as_rows(
             rpc(
-                &state.http,
-                &settings,
-                &token,
+                http,
+                settings,
+                token,
                 "sync_pull_library",
                 json!({ "p_profile_id": pid, "p_limit": 500, "p_offset": page * 500 }),
             )
             .await?,
         );
         let done = batch.len() < 500;
-        library_rows.extend(batch);
+        library.extend(batch);
         if done {
             break;
         }
     }
 
-    // ---- merge ------------------------------------------------------------
+    Ok(Pulled { progress, watched, library })
+}
+
+fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
     let mut report = SyncReport::default();
-    let (push_progress, push_watched, push_library) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        report.progress = merge_progress(&conn, &progress_rows)?;
-        report.watched = merge_watched(&conn, &watched_rows)?;
-        report.library = merge_library(&conn, &library_rows)?;
-        // Watched on another device and never played here: no progress row
-        // exists to carry a name. Park a zero-length one so the enrich pass
-        // below can title it. Zero duration keeps it out of every progress and
-        // push query.
-        conn.execute(
-            "INSERT OR IGNORE INTO progress (key, meta_id, media_type, name, poster, background,
-                                   season, episode, episode_title, position, duration, updated_at)
-             SELECT w.key, w.meta_id, COALESCE(l.media_type, 'movie'), '',
-                    l.poster, l.background, NULL, NULL, NULL, 0, 0, w.updated_at
-             FROM watched w
-             LEFT JOIN library l ON l.id = w.meta_id
-             WHERE w.watched = 1
-               AND NOT EXISTS (SELECT 1 FROM progress p WHERE p.meta_id = w.meta_id)",
-            [],
-        )
-        .map_err(|e| e.to_string())?;
-        (
-            local_progress(&conn)?,
-            local_watched(&conn)?,
-            local_library(&conn)?,
-        )
-    };
+    report.progress = merge_progress(conn, &pulled.progress)?;
+    report.watched = merge_watched(conn, &pulled.watched)?;
+    report.library = merge_library(conn, &pulled.library)?;
+    // Watched on another device and never played here: no progress row exists
+    // to carry a name. Park a zero-length one so the enrich pass can title it.
+    // Zero duration keeps it out of every progress and push query.
+    conn.execute(
+        "INSERT OR IGNORE INTO progress (key, meta_id, media_type, name, poster, background,
+                               season, episode, episode_title, position, duration, updated_at)
+         SELECT w.key, w.meta_id, COALESCE(l.media_type, 'movie'), '',
+                l.poster, l.background, NULL, NULL, NULL, 0, 0, w.updated_at
+         FROM watched w
+         LEFT JOIN library l ON l.id = w.meta_id
+         WHERE w.watched = 1
+           AND NOT EXISTS (SELECT 1 FROM progress p WHERE p.meta_id = w.meta_id)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(report)
+}
 
-    // ---- push -------------------------------------------------------------
-    if !push_progress.is_empty() {
+fn local_history(state: &AppState) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    Ok((local_progress(&conn)?, local_watched(&conn)?))
+}
+
+async fn push_watching(
+    http: &reqwest::Client,
+    settings: &Settings,
+    token: &str,
+    pid: i64,
+    history: (Vec<Value>, Vec<Value>),
+) -> Result<(), String> {
+    let (progress, watched) = history;
+    if !progress.is_empty() {
         rpc(
-            &state.http,
-            &settings,
-            &token,
+            http,
+            settings,
+            token,
             "sync_push_watch_progress",
-            json!({ "p_profile_id": pid, "p_entries": push_progress }),
+            json!({ "p_profile_id": pid, "p_entries": progress }),
         )
         .await?;
     }
-    if !push_watched.is_empty() {
+    if !watched.is_empty() {
         rpc(
-            &state.http,
-            &settings,
-            &token,
+            http,
+            settings,
+            token,
             "sync_push_watched_items",
-            json!({ "p_profile_id": pid, "p_items": push_watched }),
+            json!({ "p_profile_id": pid, "p_items": watched }),
         )
         .await?;
     }
-    if !push_library.is_empty() {
-        rpc(
-            &state.http,
-            &settings,
-            &token,
-            "sync_push_library_items",
-            json!({ "p_profile_id": pid, "p_items": push_library }),
-        )
-        .await?;
-    }
+    Ok(())
+}
 
-    report.pushed = (report.progress + report.watched + report.library) as i64;
-
-    // ---- enrich -----------------------------------------------------------
-    // The account carries ids only, so pulled rows arrive with no title or
-    // art. Resolve them here; anything that fails is retried next sync.
+/// Pulled rows carry ids only, so resolve titles and artwork.
+async fn enrich(state: &AppState) -> Result<(), String> {
     let mut missing = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         let mut rows = db::progress_missing_meta(&conn).unwrap_or_default();
@@ -539,33 +668,31 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     // The same title usually lands in both tables; resolve it once.
     missing.sort();
     missing.dedup();
-    if !missing.is_empty() {
-        let filled = crate::meta::fill_missing(&state.http, missing).await;
-        if !filled.is_empty() {
-            let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-            for (meta_id, name, poster, background) in filled {
-                let _ = db::set_progress_meta(
-                    &conn,
-                    &meta_id,
-                    &name,
-                    poster.as_deref(),
-                    background.as_deref(),
-                );
-                let _ = db::set_library_meta(
-                    &conn,
-                    &meta_id,
-                    &name,
-                    poster.as_deref(),
-                    background.as_deref(),
-                );
-            }
-        }
+    if missing.is_empty() {
+        return Ok(());
     }
-
-    session.last_sync = db::now();
+    let filled = crate::meta::fill_missing(&state.http, missing).await;
+    if filled.is_empty() {
+        return Ok(());
+    }
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-    save_session(&conn, &session)?;
-    Ok(report)
+    for (meta_id, name, poster, background) in filled {
+        let _ = db::set_progress_meta(
+            &conn,
+            &meta_id,
+            &name,
+            poster.as_deref(),
+            background.as_deref(),
+        );
+        let _ = db::set_library_meta(
+            &conn,
+            &meta_id,
+            &name,
+            poster.as_deref(),
+            background.as_deref(),
+        );
+    }
+    Ok(())
 }
 
 /// Pulls remote progress into the local table, newest write wins. Returns the

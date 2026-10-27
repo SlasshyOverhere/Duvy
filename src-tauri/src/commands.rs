@@ -1239,8 +1239,8 @@ pub fn nuvio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn nuvio_set_profile(index: i64, state: State<'_, AppState>) -> Result<(), String> {
-    crate::nuvio_sync::set_profile(&state, index)
+pub async fn nuvio_set_profile(index: i64, state: State<'_, AppState>) -> Result<(), String> {
+    crate::nuvio_sync::set_profile(&state, index).await
 }
 
 #[tauri::command]

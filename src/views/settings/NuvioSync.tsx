@@ -21,7 +21,7 @@ export function NuvioSync() {
   const [profiles, setProfiles] = useState<NuvioProfile[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState<"in" | "up" | "sync" | "out" | null>(null);
+  const [busy, setBusy] = useState<"in" | "up" | "sync" | "out" | "switch" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -94,15 +94,21 @@ export function NuvioSync() {
     }
   };
 
-  const pickProfile = async (index: number) => {
+  const pickProfile = async (profile: NuvioProfile) => {
+    if (busy !== null || status?.profile === profile.profileIndex) return;
+    const name = profile.name || `Profile ${profile.profileIndex}`;
+    setBusy("switch");
     setError(null);
     setNote(null);
     try {
-      await api.nuvio.setProfile(index);
-      setStatus((current) => (current ? { ...current, profile: index } : current));
-      await sync();
+      await api.nuvio.setProfile(profile.profileIndex);
+      setNote(`${name} loaded. The previous profile's history was saved to Nuvio first.`);
+      await Promise.all([refreshProgress(), refreshLibrary()]);
+      await refresh();
     } catch (e) {
       setError(message(e));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -189,19 +195,35 @@ export function NuvioSync() {
             <div className="settings-row">
               <div>
                 <h3>Profile</h3>
-                <p>Each Nuvio profile keeps its own history, so pick the one this desktop represents.</p>
+                <p>
+                  Each Nuvio profile keeps its own history. Switching saves this profile's history to
+                  Nuvio first, clears the local copy, then loads the selected profile.
+                </p>
               </div>
-              <div className="field-row" style={{ margin: 0 }}>
-                {profiles.map((profile) => (
-                  <button
-                    key={profile.id || profile.profileIndex}
-                    type="button"
-                    className={`chip${status.profile === profile.profileIndex ? " is-active" : ""}`}
-                    onClick={() => void pickProfile(profile.profileIndex)}
-                  >
-                    {profile.name || `Profile ${profile.profileIndex}`}
-                  </button>
-                ))}
+              <div>
+                <div
+                  className="field-row"
+                  style={{ margin: 0 }}
+                  aria-busy={busy === "switch"}
+                >
+                  {profiles.map((profile) => (
+                    <button
+                      key={profile.id || profile.profileIndex}
+                      type="button"
+                      className={`chip${status.profile === profile.profileIndex ? " is-active" : ""}`}
+                      onClick={() => void pickProfile(profile)}
+                      disabled={busy !== null}
+                      aria-pressed={status.profile === profile.profileIndex}
+                    >
+                      {profile.name || `Profile ${profile.profileIndex}`}
+                    </button>
+                  ))}
+                </div>
+                {busy === "switch" ? (
+                  <p className="settings-hint" style={{ margin: "10px 0 0", textAlign: "right" }}>
+                    Saving this profile, then loading the selected one…
+                  </p>
+                ) : null}
               </div>
             </div>
           ) : null}
