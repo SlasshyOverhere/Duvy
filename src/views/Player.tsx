@@ -89,8 +89,16 @@ function readSubtitleStyle(): SubtitleStyle {
  * top of them are visible; everything else is the video.
  */
 export function PlayerView() {
-  const { settings, notify, navigate, playRequest, buildSession, appInfo, resolveStream } =
-    useApp();
+  const {
+    settings,
+    notify,
+    navigate,
+    playRequest,
+    buildSession,
+    appInfo,
+    resolveStream,
+    playingSource,
+  } = useApp();
   const player = usePlayer();
   const [local, setLocal] = useState<PlayerSnapshot | null>(player);
   const [surface, setSurface] = useState<Surface>(null);
@@ -247,6 +255,7 @@ export function PlayerView() {
           sources,
           settings?.preferredQuality ?? "auto",
           settings?.p2pConsent ?? false,
+          playingSource,
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
@@ -270,6 +279,7 @@ export function PlayerView() {
       resolveStream,
       settings?.p2pConsent,
       settings?.preferredQuality,
+      playingSource,
     ],
   );
 

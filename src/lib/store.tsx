@@ -68,6 +68,8 @@ interface Store {
   resumeEntry: (entry: ProgressItem) => Promise<void>;
   buildSession: (details: Details, video: Video | null) => PlaybackSession;
   resolveStream: (stream: StreamOption) => Promise<string>;
+  /** The source behind what is playing now; the next episode prefers its pack. */
+  playingSource: StreamOption | null;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -112,21 +114,32 @@ function errorMessage(error: unknown): string {
   return "Something went wrong";
 }
 
-/** The preferred quality when one matches, otherwise the best source offered. */
+/**
+ * The preferred quality when one matches, otherwise the best source offered.
+ * A stream from the pack already playing wins first, so the next episode comes
+ * out of the same download instead of hunting for a new one.
+ */
 export function pickSource(
   options: StreamOption[],
   quality: string,
   p2pAllowed = true,
+  playing?: StreamOption | null,
 ): StreamOption | undefined {
   const playable = options.filter(
     (stream) => stream.playable && (p2pAllowed || Boolean(stream.url)),
   );
+  if (playing?.infoHash) {
+    const pack = playing.infoHash.toLowerCase();
+    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
+    if (samePack) return samePack;
+  }
   if (quality && quality !== "auto") {
     const wanted = quality.toLowerCase();
     const match = playable.find((stream) => stream.quality.toLowerCase().includes(wanted));
     if (match) return match;
   }
-  return playable[0];
+  const sameAddon = playing ? playable.find((stream) => stream.addon === playing.addon) : undefined;
+  return sameAddon ?? playable[0];
 }
 
 /** Explain why nothing could play, without sending the user to the addons page for a consent gate. */
@@ -149,6 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
+  const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(1);
   const depth = useRef(0);
@@ -385,8 +399,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       if (!magnet.startsWith("magnet:") && !/^[0-9a-f]{40}$/i.test(magnet)) {
         const providers = await api.debrid.providers().catch(() => []);
-        if (!providers.some((provider) => provider.connected)) return magnet;
-        return api.debrid.resolve(magnet);
+        const url = providers.some((provider) => provider.connected)
+          ? await api.debrid.resolve(magnet)
+          : magnet;
+        setPlayingSource(stream);
+        return url;
       }
 
       if (!settings?.p2pConsent) {
@@ -394,7 +411,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           "That is a torrent source. Allow P2P playback in Settings before starting it.",
         );
       }
-      return api.torrent.start(magnet, stream.fileIdx != null ? String(stream.fileIdx) : undefined);
+      const url = await api.torrent.start(
+        magnet,
+        stream.fileIdx != null ? String(stream.fileIdx) : undefined,
+      );
+      setPlayingSource(stream);
+      return url;
     },
     [settings?.p2pConsent],
   );
@@ -435,6 +457,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           options,
           settings?.preferredQuality ?? "auto",
           settings?.p2pConsent ?? false,
+          playingSource,
         );
         if (!source) throw noSourceError(options, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
@@ -455,6 +478,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       settings?.autoResume,
       settings?.p2pConsent,
       settings?.preferredQuality,
+      playingSource,
     ],
   );
 
@@ -499,6 +523,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           sources,
           settings?.preferredQuality ?? "auto",
           settings?.p2pConsent ?? false,
+          playingSource,
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
@@ -515,7 +540,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         notify(errorMessage(error), "error");
       }
     },
-    [navigate, notify, playRequest, resolveStream, settings?.p2pConsent, settings?.preferredQuality],
+    [
+      navigate,
+      notify,
+      playRequest,
+      resolveStream,
+      settings?.p2pConsent,
+      settings?.preferredQuality,
+      playingSource,
+    ],
   );
 
   const value = useMemo<Store>(
@@ -545,6 +578,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resumeEntry,
       buildSession,
       resolveStream,
+      playingSource,
     }),
     [
       booting,
@@ -572,6 +606,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resumeEntry,
       buildSession,
       resolveStream,
+      playingSource,
     ],
   );
 
