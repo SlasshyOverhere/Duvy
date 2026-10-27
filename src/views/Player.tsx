@@ -588,9 +588,10 @@ export function PlayerView() {
     [],
   );
 
+  // mpv gets the target state, not a toggle: two senders can never cancel out.
   const togglePause = useCallback(() => {
-    send("toggle-pause");
-  }, [send]);
+    send("pause", !(local?.paused ?? false));
+  }, [local?.paused, send]);
 
   const seekTo = useCallback(
     (target: number) => {
@@ -1181,6 +1182,9 @@ export function PlayerView() {
         case " ":
         case "k":
         case "K":
+          // Space on a focused player button is already a click; that path owns it.
+          if (key === " " && target instanceof HTMLButtonElement && target.closest(".pv")) break;
+          if (event.repeat) break;
           event.preventDefault();
           togglePause();
           break;

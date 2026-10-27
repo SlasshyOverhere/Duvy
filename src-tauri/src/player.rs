@@ -842,6 +842,13 @@ impl Player {
         let mut writer = writer.lock().map_err(|_| "player is busy")?;
         match action {
             "toggle-pause" => send(&mut writer, json!({"command": ["cycle", "pause"]})),
+            "pause" => {
+                let paused = bool_value(value.as_ref(), "Pause")?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "pause", paused]}),
+                )
+            }
             "seek" => {
                 let position = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
                 send(
@@ -1219,8 +1226,79 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 
 #[cfg(test)]
 mod tests {
-    use super::{bool_value, color_value, number_value, parse_chapters, parse_tracks};
-    use serde_json::json;
+    use super::{
+        bool_value, color_value, number_value, parse_chapters, parse_tracks, Duplex, Player,
+    };
+    use serde_json::{json, Value};
+    use std::io::{Read, Write};
+    use std::sync::{Arc, Mutex};
+
+    struct FakePipe(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for FakePipe {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .map_err(|_| std::io::ErrorKind::Other)?
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Read for FakePipe {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    fn fake_player() -> (Arc<Mutex<Box<dyn Duplex>>>, Arc<Mutex<Vec<u8>>>) {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer = Arc::new(Mutex::new(
+            Box::new(FakePipe(Arc::clone(&buffer))) as Box<dyn Duplex>
+        ));
+        (writer, buffer)
+    }
+
+    fn written_lines(buffer: &Arc<Mutex<Vec<u8>>>) -> Vec<Value> {
+        String::from_utf8(buffer.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn pause_action_sets_the_requested_state() {
+        for state in [true, false] {
+            let (writer, buffer) = fake_player();
+            Player::send_action(&writer, "pause", Some(json!(state))).unwrap();
+            assert_eq!(
+                written_lines(&buffer),
+                vec![json!({"command": ["set_property", "pause", state]})]
+            );
+        }
+    }
+
+    #[test]
+    fn pause_action_rejects_missing_or_non_boolean_values() {
+        let (writer, buffer) = fake_player();
+        assert!(Player::send_action(&writer, "pause", None).is_err());
+        assert!(Player::send_action(&writer, "pause", Some(json!("true"))).is_err());
+        assert!(buffer.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn toggle_pause_still_cycles() {
+        let (writer, buffer) = fake_player();
+        Player::send_action(&writer, "toggle-pause", None).unwrap();
+        assert_eq!(
+            written_lines(&buffer),
+            vec![json!({"command": ["cycle", "pause"]})]
+        );
+    }
 
     #[test]
     fn subtitle_values_are_validated() {
