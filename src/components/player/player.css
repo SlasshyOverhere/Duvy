@@ -309,7 +309,7 @@
 .pv .pv-vol input[type="range"] {
   width: 84px;
   opacity: 1;
-  margin: 0;
+  margin: 0 4px 0 6px;
 }
 
 .pv .pv-runtime {
@@ -854,12 +854,17 @@
 .pv .pv-sheet {
   position: absolute;
   bottom: 132px;
-  left: 28px;
+  right: 28px;
   z-index: 3;
   padding: 14px 16px 16px;
   border-radius: 8px;
   background: #0c0c0e;
   animation: pv-card 0.16s var(--ease);
+}
+
+.pv .pv-sheet--audio {
+  right: auto;
+  left: 28px;
 }
 
 .pv .pv-sheet--audio,
@@ -919,7 +924,7 @@
   font-weight: 600;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(255, 255, 255, 0.52);
 }
 
 .pv .pv-list {
@@ -956,7 +961,7 @@
   flex: none;
   font-style: normal;
   font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.52);
 }
 
 .pv .pv-list-item:hover {
@@ -1089,10 +1094,12 @@
 }
 
 @media (max-width: 720px) {
-  .pv .pv-sheet {
+  .pv .pv-sheet,
+  .pv .pv-sheet--audio {
     left: 18px;
+    right: 18px;
     bottom: 124px;
-    width: calc(100vw - 36px);
+    width: auto;
   }
 
   .pv .pv-tip-shot {

@@ -1702,15 +1702,18 @@ export function PlayerView() {
               dragging.current = false;
               const target = ratioFromEvent(event) * duration;
               setScrub(null);
+              setHover(null);
               seekTo(target);
             }}
             onPointerCancel={() => {
               dragging.current = false;
               setScrub(null);
+              setHover(null);
             }}
             onLostPointerCapture={() => {
               dragging.current = false;
               setScrub(null);
+              setHover(null);
             }}
             onKeyDown={(event) => {
               if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -1727,7 +1730,7 @@ export function PlayerView() {
             {hover ? (
               <span
                 className="pv-tip"
-                style={{ left: `${Math.min(94, Math.max(6, hover.ratio * 100))}%` }}
+                style={{ left: `clamp(92px, ${hover.ratio * 100}%, calc(100% - 92px))` }}
               >
                 <span className="pv-tip-shot">
                   {shot ? <img src={shot} alt="" draggable={false} /> : null}
