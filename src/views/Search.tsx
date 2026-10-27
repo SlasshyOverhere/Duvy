@@ -67,6 +67,21 @@ export function SearchView({ query }: { query?: string }) {
     };
   }, []);
 
+  // Search returns both kinds at once; split them the way Stremio does.
+  const movies = results.filter((item) => item.type === "movie");
+  const series = results.filter((item) => item.type === "series");
+  const other = results.filter((item) => item.type !== "movie" && item.type !== "series");
+
+  const card = (item: MetaPreview) => (
+    <PosterCard
+      key={`${item.id}-${item.type}`}
+      item={item}
+      caption
+      onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+      onPlay={() => void playItem(item)}
+    />
+  );
+
   return (
     <div className="page search-page">
       <h1 className="search-title">Search</h1>
@@ -117,32 +132,39 @@ export function SearchView({ query }: { query?: string }) {
               body="Try a shorter title, or check that a catalog addon with search support is enabled."
             />
           ) : (
-            <div className="grid">
-              {results.map((item) => (
-                <PosterCard
-                  key={`${item.id}-${item.type}`}
-                  item={item}
-                  caption
-                  onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-                  onPlay={() => void playItem(item)}
-                />
-              ))}
-            </div>
+            <>
+              {movies.length ? (
+                <Row
+                  title="Popular - Movie"
+                  detail={<span className="row-detail">{movies.length}</span>}
+                >
+                  {movies.map(card)}
+                </Row>
+              ) : null}
+              {series.length ? (
+                <Row
+                  title="Popular - Series"
+                  detail={<span className="row-detail">{series.length}</span>}
+                >
+                  {series.map(card)}
+                </Row>
+              ) : null}
+              {other.length ? (
+                <Row
+                  title="More results"
+                  detail={<span className="row-detail">{other.length}</span>}
+                >
+                  {other.map(card)}
+                </Row>
+              ) : null}
+            </>
           )}
         </div>
       ) : recos.length > 0 ? (
         <div className="search-discover">
           {recos.map((row) => (
             <Row key={row.id} title={row.title}>
-              {row.items.map((item) => (
-                <PosterCard
-                  key={`${row.id}-${item.id}`}
-                  item={item}
-                  caption
-                  onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-                  onPlay={() => void playItem(item)}
-                />
-              ))}
+              {row.items.map(card)}
             </Row>
           ))}
         </div>
