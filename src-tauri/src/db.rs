@@ -336,7 +336,14 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
            WHERE duration > 0
              AND position > 5
              AND position < duration * 0.9
-             AND key NOT IN (SELECT key FROM watched WHERE watched = 1)
+             -- Only a finished mark newer than the position hides the title.
+             -- One left over from an earlier run must not outrank playback
+             -- that happened after it.
+             AND key NOT IN (
+               SELECT w.key FROM watched w
+               JOIN progress p ON p.key = w.key
+               WHERE w.watched = 1 AND w.updated_at > p.updated_at
+             )
          )
          WHERE rn = 1
          ORDER BY updated_at DESC
@@ -381,6 +388,12 @@ pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()
             now()
         ],
     )?;
+    // A position short of the end means the title is being watched again, so a
+    // finished mark from an earlier run no longer applies. Without this it stays
+    // out of Continue watching for good.
+    if p.duration > 0.0 && p.position < p.duration * 0.92 {
+        conn.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
+    }
     Ok(())
 }
 
@@ -505,7 +518,17 @@ pub struct WatchedItem {
 pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem>> {
     let mut stmt = conn.prepare(
         "WITH marks AS (
-           SELECT meta_id, updated_at AS at FROM watched WHERE watched = 1
+           SELECT w.meta_id, w.updated_at AS at FROM watched w
+           WHERE w.watched = 1
+             -- Playback after a mark means the title is being watched again,
+             -- so the completed entry has to go.
+             AND NOT EXISTS (
+               SELECT 1 FROM progress p
+               WHERE p.key = w.key
+                 AND p.duration > 0
+                 AND p.position < p.duration * 0.9
+                 AND p.updated_at > w.updated_at
+             )
            UNION ALL
            SELECT meta_id, updated_at FROM progress
            WHERE duration > 0 AND position >= duration * 0.9

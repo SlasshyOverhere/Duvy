@@ -14,7 +14,7 @@ use crate::streams::{self as stream_utils, StreamOption};
 use crate::{tmdb, AppState};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::task::JoinSet;
 
 const MAX_ITEMS_PER_ROW: usize = 20;
@@ -1219,6 +1219,9 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
     if let Some(host) = crate::video_host(&app) {
         crate::refit_webview(host);
     }
+    // A player we killed on purpose does not close on its own, so this is the
+    // only chance the UI gets to drop the snapshot and re-read progress.
+    let _ = app.emit("player:closed", ());
     Ok(())
 }
 

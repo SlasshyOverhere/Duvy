@@ -335,6 +335,82 @@ fn watched_items_keep_metadata_after_completion() {
 }
 
 #[test]
+fn rewatching_a_finished_title_returns_it_to_continue_watching() {
+    let (conn, path) = temp_database();
+    let item = db::ProgressItem {
+        key: "tt9".into(),
+        meta_id: "tt9".into(),
+        media_type: "movie".into(),
+        name: "A Film".into(),
+        poster: None,
+        background: None,
+        season: None,
+        episode: None,
+        episode_title: None,
+        position: 990.0,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_progress(&conn, &item).expect("finish");
+    db::set_watched(&conn, "tt9", "tt9", true).expect("mark");
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+
+    // Starting it again saves a position short of the end, and that has to
+    // retire the finished mark or the title never comes back.
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            position: 200.0,
+            ..item
+        },
+    )
+    .expect("rewatch");
+
+    let continuing = db::list_continue_watching(&conn).expect("continue");
+    assert_eq!(continuing.len(), 1);
+    assert_eq!(continuing[0].position, 200.0);
+    assert!(db::list_watched_items(&conn).unwrap().is_empty());
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
+    let (conn, path) = temp_database();
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt9".into(),
+            meta_id: "tt9".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            poster: None,
+            background: None,
+            season: None,
+            episode: None,
+            episode_title: None,
+            position: 200.0,
+            duration: 1000.0,
+            updated_at: 0,
+        },
+    )
+    .expect("play");
+    // A mark left behind by an earlier completion, older than this position.
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES ('tt9', 'tt9', 1, 1)",
+        [],
+    )
+    .unwrap();
+
+    let continuing = db::list_continue_watching(&conn).expect("continue");
+    assert_eq!(continuing.len(), 1);
+    assert_eq!(continuing[0].position, 200.0);
+    assert!(db::list_watched_items(&conn).unwrap().is_empty());
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn credentials_are_encrypted_at_rest() {
     let (conn, path) = temp_database();
     let stored = json!({ "tmdbKey": "abc123", "trakt": { "token": "tok" } });
