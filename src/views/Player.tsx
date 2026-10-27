@@ -1316,8 +1316,11 @@ export function PlayerView() {
   }
 
   const percent = progressPercent(shownPosition, duration);
+  // mpv reports the cache relative to the playhead; the bar wants where it ends.
   const bufferedPercent =
-    duration > 0 && local.buffered ? Math.min(100, (local.buffered / duration) * 100) : 0;
+    duration > 0 && local.buffered
+      ? Math.min(100, ((position + local.buffered) / duration) * 100)
+      : 0;
   const title = session?.name ?? local.title;
   const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
   const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
@@ -1334,7 +1337,6 @@ export function PlayerView() {
   const offSelected =
     selectedLang === OFF || (selectedLang === null && !activeSub && !loadedSub);
   const styleOn = Boolean(activeSub || loadedSub) && currentLang != null && Boolean(activeVariant);
-  const hoverPercent = hover && duration > 0 ? Math.min(100, (hover.time / duration) * 100) : 0;
   const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
   const shot = frame && frame.time === hoverBucket ? frame.src : null;
   const volumeFill = Math.min(100, Math.max(0, (local.volume / 130) * 100));
@@ -2361,7 +2363,6 @@ export function PlayerView() {
             >
               <span className="pv-trackrail" />
               <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
-              <span className="pv-hover-fill" style={{ width: `${hoverPercent}%` }} />
               <span className="pv-played" style={{ width: `${percent}%` }} />
               {duration > 0
                 ? chapters.map((chapter, at) => {
