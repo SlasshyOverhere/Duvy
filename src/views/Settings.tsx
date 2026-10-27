@@ -289,6 +289,30 @@ export function SettingsView({ section }: { section?: string }) {
                 </div>
                 <div className="settings-row">
                   <div>
+                    <h3>Preferred quality</h3>
+                    <p>Try this quality first. Auto takes the best-ranked source available.</p>
+                  </div>
+                  <div className="field-row" style={{ margin: 0 }} role="group" aria-label="Preferred quality">
+                    {[
+                      ["auto", "Auto"],
+                      ["4k", "4K"],
+                      ["1080p", "1080p"],
+                      ["720p", "720p"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`chip${settings.preferredQuality === value ? " is-active" : ""}`}
+                        aria-pressed={settings.preferredQuality === value}
+                        onClick={() => update({ preferredQuality: value })}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <div>
                     <h3>Track progress</h3>
                     <p>Keep a Continue Watching row and mark finished titles.</p>
                   </div>
