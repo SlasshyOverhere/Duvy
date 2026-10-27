@@ -23,6 +23,7 @@ mod trakt;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 pub struct AppState {
     pub db: db::Db,
@@ -235,8 +236,27 @@ pub fn run() {
                 .expect("the app data directory should be available");
             std::fs::create_dir_all(&data_dir)?;
 
-            let connection = db::open(&data_dir.join("betternuvio.db"))
-                .expect("the local database should open");
+            let db_path = data_dir.join("betternuvio.db");
+            let connection = match db::open(&db_path) {
+                Ok(connection) => connection,
+                Err(error) => {
+                    eprintln!("[startup] cannot open {}: {error}", db_path.display());
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    // setup runs on the event loop thread, so the dialog has to
+                    // be queued and the exit taken from its callback.
+                    app.dialog()
+                        .message(format!(
+                            "BetterNuvio could not open its local database:\n\n{}\n\n{error}\n\nThe app will now close.",
+                            db_path.display()
+                        ))
+                        .title("BetterNuvio cannot start")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| std::process::exit(1));
+                    return Ok(());
+                }
+            };
             let http = http_client();
 
             app.manage(AppState {
