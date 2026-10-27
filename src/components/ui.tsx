@@ -31,7 +31,6 @@ export type IconName =
   | "sliders"
   | "film"
   | "tv"
-  | "sparkles"
   | "clock"
   | "chevron"
   | "monitor"
@@ -216,12 +215,6 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
     <>
       <rect x="3" y="6.5" width="18" height="12" rx="2" />
       <path d="m8 3.5 4 3 4-3" />
-    </>
-  ),
-  sparkles: (
-    <>
-      <path d="M12 4.5 13.4 9 18 10.4 13.4 11.8 12 16.3 10.6 11.8 6 10.4 10.6 9 12 4.5Z" />
-      <path d="M18.5 15.5 19.2 17.8 21.5 18.5 19.2 19.2 18.5 21.5 17.8 19.2 15.5 18.5 17.8 17.8 18.5 15.5Z" />
     </>
   ),
   clock: (
@@ -492,7 +485,7 @@ export function EmptyState({
   title,
   body,
   action,
-  icon = "sparkles",
+  icon = "info",
 }: {
   title: string;
   body?: string;

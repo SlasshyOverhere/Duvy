@@ -143,7 +143,6 @@ export function AddonsView() {
         </form>
         <div className="install-quick">
           <Button
-            icon="sparkles"
             onClick={() => void install("https://v3-cinemeta.strem.io")}
             disabled={busy}
           >
