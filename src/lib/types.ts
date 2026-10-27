@@ -199,6 +199,7 @@ export interface NuvioSyncReport {
   progress: number;
   watched: number;
   library: number;
+  addons: number;
   pushed: number;
 }
 

@@ -1,17 +1,20 @@
 //! Nuvio Cloud sync.
 //!
 //! Talks to the same Supabase project the official Nuvio apps use: GoTrue for
-//! email/password auth and PostgREST `sync_*` RPCs for profiles, watch
-//! progress, watched items and the library. The publishable ("anon") key below
-//! is the one shipped in Nuvio's own desktop binary; it is public by design and
-//! only grants what row-level security allows for the signed-in user. Both the
-//! endpoint and the key can be overridden in settings.
+//! email/password auth, PostgREST `sync_*` RPCs for profiles, watch progress,
+//! watched items and the library, and the `addons` table for installed addons.
+//! The publishable ("anon") key below is the one shipped in Nuvio's own desktop
+//! binary; it is public by design and only grants what row-level security allows
+//! for the signed-in user. Both the endpoint and the key can be overridden in
+//! settings.
 //!
 //! Strategy: full pull, merge by timestamp, then upsert everything local. That
 //! is a couple of requests per sync for a normal account, needs no cursor
 //! bookkeeping and converges no matter which app wrote last.
 //!
-//! ponytail: deletions are not propagated to the server yet (local clear/remove
+//! ponytail: addons are pull-only, so this can never wipe the account's list;
+//! add `sync_push_addons` when editing addons here should reach the phone.
+//! Deletions are not propagated to the server yet either (local clear/remove
 //! just comes back on the next pull). Add tombstone pushes when sync_delete_*
 //! is wired to the library/progress commands.
 
@@ -97,6 +100,7 @@ pub struct SyncReport {
     pub progress: i64,
     pub watched: i64,
     pub library: i64,
+    pub addons: i64,
     pub pushed: i64,
 }
 
@@ -181,13 +185,15 @@ fn error_from(status: u16, body: &str) -> String {
     }
 }
 
-/// POST that falls back to the secondary endpoint on transient failures.
-async fn post(
+/// Generic request that falls back to the secondary endpoint on transient
+/// failures.
+async fn request(
     http: &reqwest::Client,
     settings: &Settings,
+    method: reqwest::Method,
     path: &str,
     token: Option<&str>,
-    body: &Value,
+    body: Option<&Value>,
 ) -> Result<Value, String> {
     let key = api_key(settings);
     let mut hosts = vec![base_url(settings)];
@@ -199,11 +205,13 @@ async fn post(
     let mut last_error = String::from("no endpoint tried");
     for host in hosts {
         let mut req = http
-            .post(format!("{host}{path}"))
+            .request(method.clone(), format!("{host}{path}"))
             .header("apikey", &key)
             .header("content-type", "application/json")
-            .header("user-agent", UA)
-            .json(body);
+            .header("user-agent", UA);
+        if let Some(body) = body {
+            req = req.json(body);
+        }
         req = match token {
             Some(t) => req.header("authorization", format!("Bearer {t}")),
             None => req,
@@ -232,6 +240,25 @@ async fn post(
         }
     }
     Err(last_error)
+}
+
+async fn post(
+    http: &reqwest::Client,
+    settings: &Settings,
+    path: &str,
+    token: Option<&str>,
+    body: &Value,
+) -> Result<Value, String> {
+    request(http, settings, reqwest::Method::POST, path, token, Some(body)).await
+}
+
+async fn get(
+    http: &reqwest::Client,
+    settings: &Settings,
+    path: &str,
+    token: &str,
+) -> Result<Value, String> {
+    request(http, settings, reqwest::Method::GET, path, Some(token), None).await
 }
 
 async fn rpc(
@@ -422,6 +449,7 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         merge_pulled(&conn, &pulled)?;
     }
+    merge_addons(state, &pulled.addons).await?;
     enrich(state).await?;
 
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
@@ -506,6 +534,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         merge_pulled(&conn, &pulled)?
     };
+    report.addons = merge_addons(state, &pulled.addons).await?;
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -538,6 +567,7 @@ struct Pulled {
     progress: Vec<Value>,
     watched: Vec<Value>,
     library: Vec<Value>,
+    addons: Vec<Value>,
 }
 
 async fn pull(
@@ -595,7 +625,89 @@ async fn pull(
         }
     }
 
-    Ok(Pulled { progress, watched, library })
+    // Addons live in a plain table rather than a `sync_*` RPC. A backend that
+    // refuses the read must not cost the user their history sync.
+    let addons = match get(http, settings, &addons_path(pid), token).await {
+        Ok(value) => as_rows(value),
+        Err(error) => {
+            eprintln!("nuvio: addon list unavailable: {error}");
+            Vec::new()
+        }
+    };
+
+    Ok(Pulled { progress, watched, library, addons })
+}
+
+/// PostgREST query for one profile's addons, newest ordering preserved.
+fn addons_path(pid: i64) -> String {
+    format!(
+        "/rest/v1/addons?profile_id=eq.{pid}&select=url,name,enabled,sort_order&order=sort_order.asc"
+    )
+}
+
+/// The manifest URL Nuvio stores for a row, normalised the way an install is.
+fn remote_addon_url(row: &Value) -> Option<String> {
+    let url = crate::addons::normalize_addon_url(&text(row, "url"));
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
+}
+
+/// Installs addons the account has and this machine does not. Pull-only: local
+/// addons are never removed, so a sync cannot wipe a source you added here.
+async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let installed: Vec<String> = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        db::list_addons(&conn)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|addon| addon.url)
+            .collect()
+    };
+    let mut added = 0;
+    for row in rows {
+        let Some(url) = remote_addon_url(row) else { continue };
+        if installed.iter().any(|known| known == &url) {
+            continue;
+        }
+        let manifest_url = format!("{url}/manifest.json");
+        let value = match state
+            .http
+            .get(&manifest_url)
+            .header("accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<Value>().await {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                }
+            }
+            _ => continue,
+        };
+        let Ok(manifest) = serde_json::from_value::<crate::addons::Manifest>(value.clone()) else {
+            continue;
+        };
+        if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
+            continue;
+        }
+        let enabled = row.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        if db::upsert_addon(&conn, &url, &manifest.id, &manifest.name, &value).is_err() {
+            continue;
+        }
+        if !enabled {
+            let _ = db::set_addon_enabled(&conn, &url, false);
+        }
+        added += 1;
+    }
+    Ok(added)
 }
 
 fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
@@ -932,6 +1044,21 @@ mod tests {
     fn keys_round_trip_to_nuvio_shape() {
         assert_eq!(local_key("tt1", 0, 0), "tt1");
         assert_eq!(local_key("tt1", 2, 5), "tt1:2:5");
+    }
+
+    #[test]
+    fn addon_rows_normalise_to_manifest_urls() {
+        let row = json!({ "url": "https://example.com/addon/", "enabled": true, "sort_order": 0 });
+        assert_eq!(
+            remote_addon_url(&row).as_deref(),
+            Some("https://example.com/addon")
+        );
+        assert_eq!(
+            remote_addon_url(&json!({ "url": "stremio://a/b/manifest.json" })).as_deref(),
+            Some("https://a/b")
+        );
+        assert_eq!(remote_addon_url(&json!({ "url": "   " })), None);
+        assert!(addons_path(2).contains("profile_id=eq.2"));
     }
 
     #[test]

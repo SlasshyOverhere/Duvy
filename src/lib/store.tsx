@@ -266,7 +266,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!status.signedIn) return;
         await api.nuvio.syncNow();
         if (!alive) return;
-        await Promise.all([refreshProgress(), refreshLibrary()]);
+        await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       } catch {
         // Offline, or signed out elsewhere. The next tick tries again.
       }
@@ -277,7 +277,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary]);
+  }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
 
   // Player events are pushed from Rust while mpv is running.
   useEffect(() => {
