@@ -54,6 +54,8 @@ interface Store {
   route: Route;
   navigate: (route: Route) => void;
   back: () => void;
+  /** Leave the player for the playing title, without stacking a second copy. */
+  leavePlayer: () => void;
   refreshAddons: () => Promise<void>;
   refreshLibrary: () => Promise<void>;
   refreshProgress: () => Promise<void>;
@@ -167,6 +169,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toastId = useRef(1);
   const depth = useRef(0);
   const opening = useRef(false);
+  const pending = useRef(false);
+  const routeRef = useRef<Route>(route);
+  const lastSession = useRef<PlaybackSession | null>(null);
+  const playerBase = useRef<Route | null>(null);
 
   const notify = useCallback((text: string, tone: ToastTone = "info") => {
     const id = toastId.current++;
@@ -180,29 +186,80 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
-  const navigate = useCallback((next: Route) => {
-    depth.current += 1;
-    window.history.pushState({ route: next, depth: depth.current }, "");
+  const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
+    // The player never stacks an entry: leaving it (or opening the next source)
+    // replaces the player entry, so back can not land on a dead screen.
+    const replace = Boolean(options?.replace) || routeRef.current.name === "player";
+    if (!replace) {
+      depth.current += 1;
+      // Remember the screen the player was opened from, so leaving can pop
+      // straight back to it instead of stacking a second copy of the same page.
+      if (next.name === "player") playerBase.current = routeRef.current;
+    }
+    const state = { route: next, depth: depth.current };
+    if (replace) window.history.replaceState(state, "");
+    else window.history.pushState(state, "");
+    routeRef.current = next;
     setRoute(next);
   }, []);
+
+  // Land on the title that was playing, otherwise home. No-op off the player.
+  const leavePlayer = useCallback(() => {
+    if (routeRef.current.name !== "player") return;
+    const session = lastSession.current;
+    const target: Route = session
+      ? { name: "details", id: session.metaId, type: session.type }
+      : { name: "home" };
+    const base = playerBase.current;
+    playerBase.current = null;
+    const sameScreen =
+      base != null &&
+      base.name === target.name &&
+      (base.name !== "details" ||
+        (target.name === "details" && base.id === target.id && base.type === target.type));
+    if (sameScreen && depth.current > 0) {
+      // The entry underneath is already the right screen: pop to it.
+      routeRef.current = target;
+      depth.current -= 1;
+      window.history.back();
+      return;
+    }
+    navigate(target, { replace: true });
+  }, [navigate]);
 
   // window.history.back() on the first entry does nothing (or leaves the app),
   // so fall back to home when there is nowhere to go back to.
   const back = useCallback(() => {
     if (depth.current > 0) window.history.back();
-    else setRoute({ name: "home" });
+    else {
+      routeRef.current = { name: "home" };
+      setRoute({ name: "home" });
+    }
   }, []);
 
   useEffect(() => {
     window.history.replaceState({ route: { name: "home" }, depth: 0 }, "");
     const onPop = (event: PopStateEvent) => {
       const state = event.state as { route?: Route; depth?: number } | null;
+      const next = state?.route ?? { name: "home" };
       depth.current = state?.depth ?? 0;
-      setRoute(state?.route ?? { name: "home" });
+      routeRef.current = next;
+      setRoute(next);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // A restored player entry (or a close the screen never saw) has no session:
+  // leave it instead of showing the empty player.
+  useEffect(() => {
+    if (route.name === "player" && !player) leavePlayer();
+  }, [leavePlayer, player, route.name]);
+
+  // The close event carries no session, so remember the last one to return to.
+  useEffect(() => {
+    if (player?.session) lastSession.current = player.session;
+  }, [player]);
 
   const refreshAddons = useCallback(async () => {
     setAddons(await api.addons.list());
@@ -291,6 +348,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
         const closed = await listen("player:closed", () => {
           setPlayer(null);
+          leavePlayer();
           void refreshProgress();
         });
         const ended = await listen("player:ended", () => {
@@ -312,7 +370,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [refreshProgress]);
+  }, [leavePlayer, refreshProgress]);
 
   const saveSettings = useCallback(
     async (patch: Partial<Settings>) => {
@@ -564,6 +622,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       navigate,
       back,
+      leavePlayer,
       refreshAddons,
       refreshLibrary,
       refreshProgress,
@@ -592,6 +651,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       navigate,
       back,
+      leavePlayer,
       refreshAddons,
       refreshLibrary,
       refreshProgress,
