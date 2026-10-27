@@ -1025,6 +1025,19 @@ pub async fn subtitles(
         });
     }
 
+    // Built in so a fresh install finds subtitles before any addon is added.
+    {
+        const OPENSUBTITLES: &str = "https://opensubtitles-v3.strem.io";
+        let url = addons::subtitle_url(OPENSUBTITLES, &media_type, &request_id, &BTreeMap::new());
+        let client = state.http.clone();
+        set.spawn(async move {
+            let result = fetch_json(&client, &url).await.and_then(|value| {
+                serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
+            });
+            ("OpenSubtitles".to_string(), result)
+        });
+    }
+
     let mut tracks = Vec::new();
     while let Some(joined) = set.join_next().await {
         if let Ok((addon, Ok(response))) = joined {
