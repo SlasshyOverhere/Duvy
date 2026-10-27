@@ -31,6 +31,8 @@ export function SettingsView({ section }: { section?: string }) {
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
   const [mpvPath, setMpvPath] = useState(settings?.mpvPath ?? "");
   const [log, setLog] = useState<string[]>([]);
+  const [p2pReview, setP2pReview] = useState(false);
+  const [p2pAck, setP2pAck] = useState(false);
 
   const loadLog = async () => {
     if (!isTauri()) return;
@@ -42,7 +44,7 @@ export function SettingsView({ section }: { section?: string }) {
   };
 
   useEffect(() => {
-    if (tab === "playback") void loadLog();
+    if (tab === "about") void loadLog();
     // Reloads when the tab is opened; the button below refreshes on demand.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -315,32 +317,111 @@ export function SettingsView({ section }: { section?: string }) {
               <section className="settings-group">
                 <h2>Peer-to-peer streaming</h2>
                 <p className="settings-hint">
-                  Torrents stream through a local engine, so your IP address is visible to the swarm.
-                  Only enable this if you know what that means for you.
+                  Torrent sources are off until you opt in. Nothing joins a swarm before that, and
+                  Debrid and direct links keep working either way.
                 </p>
-                <div className="settings-row">
-                  <div>
-                    <h3>Allow P2P playback</h3>
-                    <p className="settings-hint">Torrent sources stay disabled until this is on.</p>
-                  </div>
-                  <Toggle
-                    label="Allow P2P playback"
-                    checked={settings.p2pConsent}
-                    onChange={(next) => update({ p2pConsent: next })}
-                  />
-                </div>
+                {settings.p2pConsent ? (
+                  <>
+                    <div className="settings-row">
+                      <div>
+                        <h3>P2P playback is on</h3>
+                        <p>Turn this off to hide torrent sources. A running session keeps going until you stop it below.</p>
+                      </div>
+                      <Toggle
+                        label="Allow P2P playback"
+                        checked
+                        onChange={(next) => update({ p2pConsent: next })}
+                      />
+                    </div>
+                    <p className="settings-note">
+                      <Icon name="info" size={14} />
+                      <span>
+                        Swarm peers can see your IP while a torrent streams. Streamed pieces are
+                        cached on this machine and deleted when the torrent session stops; leftovers
+                        above {settings.p2pCacheMb} MB are wiped before the next torrent starts.
+                      </span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="settings-row">
+                      <div>
+                        <h3>P2P playback is off</h3>
+                        <p>Torrent sources stay out of search and detail pages.</p>
+                      </div>
+                      <Button onClick={() => setP2pReview((open) => !open)}>
+                        {p2pReview ? "Close" : "Review and enable"}
+                      </Button>
+                    </div>
+                    {p2pReview ? (
+                      <>
+                        <p className="settings-hint">
+                          <strong>Your IP address becomes visible.</strong> A torrent stream
+                          connects you to other peers, so everyone in that swarm can see the address
+                          you connect from, exactly like any torrent client. Your internet provider
+                          can see the traffic as well.
+                        </p>
+                        <p className="settings-hint">
+                          <strong>Pieces are cached on disk.</strong> The parts being streamed are
+                          written to a local torrent cache, capped at {settings.p2pCacheMb} MB. That
+                          cache is deleted when the torrent session stops; if a deletion fails,
+                          leftovers above the cap are wiped before the next torrent starts.
+                        </p>
+                        <p className="settings-hint">
+                          <strong>It is easy to undo.</strong> Switch P2P playback off on this tab
+                          and torrent sources disappear. A stream already running keeps going until
+                          you stop its session below.
+                        </p>
+                        <label
+                          className="settings-hint"
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 9,
+                            color: "var(--muted)",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={p2pAck}
+                            onChange={(event) => setP2pAck(event.target.checked)}
+                            style={{ marginTop: 3 }}
+                          />
+                          <span>
+                            I understand my IP address will be visible to the torrent swarm.
+                          </span>
+                        </label>
+                        <div className="about-actions">
+                          <Button
+                            variant="primary"
+                            disabled={!p2pAck}
+                            onClick={() => {
+                              update({ p2pConsent: true });
+                              setP2pAck(false);
+                              setP2pReview(false);
+                              notify("P2P playback enabled", "success");
+                            }}
+                          >
+                            Enable P2P playback
+                          </Button>
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                )}
                 <div className="settings-row">
                   <div>
                     <h3>Disk cache</h3>
-                    <p className="settings-hint">Cleared leftovers above this size before each start.</p>
+                    <p className="settings-hint">
+                      Maximum size of the torrent cache. Leftovers above it are wiped before each
+                      start.
+                    </p>
                   </div>
                   <span className="settings-value">{settings.p2pCacheMb} MB</span>
                 </div>
-                {settings.p2pConsent ? (
-                  <div className="settings-embed">
-                    <TorrentView />
-                  </div>
-                ) : null}
+                <div className="settings-embed">
+                  <TorrentView />
+                </div>
               </section>
 
               <section className="settings-group">
@@ -351,27 +432,6 @@ export function SettingsView({ section }: { section?: string }) {
                 <Button icon="film" onClick={() => void playLocalFile()}>
                   Open a video file
                 </Button>
-              </section>
-
-              <section className="settings-group">
-                <h2>Playback log</h2>
-                <p className="settings-hint">
-                  Every step between pressing play and the first frame, with the time since the
-                  request and the gap since the step above. Written to{" "}
-                  <code>playback.log</code> next to the database as well.
-                </p>
-                {log.length ? (
-                  <pre className="log-view">{log.join("\n")}</pre>
-                ) : (
-                  <p className="settings-hint">
-                    Nothing logged yet. Play something, then refresh.
-                  </p>
-                )}
-                <div className="about-actions">
-                  <Button icon="refresh" onClick={() => void loadLog()}>
-                    Refresh
-                  </Button>
-                </div>
               </section>
             </>
           ) : null}
@@ -437,47 +497,93 @@ export function SettingsView({ section }: { section?: string }) {
           {tab === "servers" ? <MediaServers /> : null}
 
           {tab === "about" ? (
-            <section className="settings-group">
-              <h2>BetterNuvio</h2>
-              <p className="settings-hint">
-                An unofficial, performance-first reimplementation inspired by Nuvio Desktop. Not affiliated
-                with or endorsed by Nuvio Media.
-              </p>
-              <dl className="about-list">
-                <div>
-                  <dt>Version</dt>
-                  <dd>{appInfo?.version ?? "0.1.0"}</dd>
+            <>
+              <section className="settings-group">
+                <h2>BetterNuvio</h2>
+                <p className="settings-hint">
+                  An unofficial, performance-first reimplementation inspired by Nuvio Desktop. Not affiliated
+                  with or endorsed by Nuvio Media.
+                </p>
+                <dl className="about-list">
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{appInfo?.version ?? "unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt>Platform</dt>
+                    <dd>{appInfo?.platform ?? "unknown"}</dd>
+                  </div>
+                  <div>
+                    <dt>Data directory</dt>
+                    <dd>
+                      <code>{appInfo?.dataDir ?? "—"}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>mpv</dt>
+                    <dd>
+                      {appInfo?.mpv ? (
+                        <code>{appInfo.mpv.path}</code>
+                      ) : (
+                        "Not found. Set a path in Playback."
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>License</dt>
+                    <dd>MIT (original code)</dd>
+                  </div>
+                </dl>
+                <div className="about-actions">
+                  <Button
+                    icon="external"
+                    onClick={() => void openExternal("https://github.com/NuvioMedia/NuvioDesktop")}
+                  >
+                    Upstream project
+                  </Button>
+                  <Button
+                    icon="external"
+                    onClick={() => void openExternal("https://www.stremio.com/")}
+                  >
+                    Addon protocol
+                  </Button>
                 </div>
-                <div>
-                  <dt>Platform</dt>
-                  <dd>{appInfo?.platform ?? "unknown"}</dd>
+              </section>
+
+              <section className="settings-group">
+                <h2>Diagnostics</h2>
+                <p className="settings-hint">
+                  Every step between pressing play and the first frame, with the time since the
+                  request and the gap since the step above. The same lines are written to{" "}
+                  <code>playback.log</code> next to the database.
+                </p>
+                <details>
+                  <summary
+                    style={{ cursor: "pointer", fontSize: 13, color: "var(--muted)", padding: "4px 0" }}
+                  >
+                    Recent playback log
+                  </summary>
+                  {log.length ? (
+                    <pre className="log-view">{log.join("\n")}</pre>
+                  ) : (
+                    <p className="settings-hint" style={{ marginTop: 12 }}>
+                      {isTauri()
+                        ? "Nothing logged yet. Play something, then refresh."
+                        : "The playback log is only available in the desktop app."}
+                    </p>
+                  )}
+                </details>
+                <div className="about-actions">
+                  <Button
+                    icon="refresh"
+                    disabled={!isTauri()}
+                    onClick={() => void loadLog()}
+                  >
+                    Refresh log
+                  </Button>
                 </div>
-                <div>
-                  <dt>Data directory</dt>
-                  <dd>
-                    <code>{appInfo?.dataDir ?? "—"}</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>License</dt>
-                  <dd>MIT (original code)</dd>
-                </div>
-              </dl>
-              <div className="about-actions">
-                <Button
-                  icon="external"
-                  onClick={() => void openExternal("https://github.com/NuvioMedia/NuvioDesktop")}
-                >
-                  Upstream project
-                </Button>
-                <Button
-                  icon="external"
-                  onClick={() => void openExternal("https://www.stremio.com/")}
-                >
-                  Addon protocol
-                </Button>
-              </div>
-            </section>
+              </section>
+            </>
           ) : null}
         </div>
       </div>
