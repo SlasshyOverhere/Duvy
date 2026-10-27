@@ -1174,8 +1174,9 @@ pub async fn player_control(
 
 #[tauri::command]
 pub async fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
-    // P2P must stop seeding before the player state is cleared.
-    crate::torrent::shutdown().await?;
+    // P2P must stop seeding before the player state is cleared, but a locked
+    // cache file must not keep mpv running or the UI stuck on the player.
+    let _ = crate::torrent::shutdown().await;
     let mut guard = state.player.lock().map_err(|_| "player is busy")?;
     if let Some(mut player) = guard.take() {
         let _ = player.command("stop", None);
