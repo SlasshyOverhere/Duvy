@@ -1,37 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { openExternal } from "../lib/bridge";
-import { Badge, Button, Icon, Spinner } from "../components/ui";
+import { api, openExternal } from "../lib/bridge";
+import { useApp } from "../lib/store";
+import type { TraktStatus } from "../lib/types";
+import { Badge, Button, Icon, Spinner, Toggle } from "../components/ui";
 
-type TraktStatus = {
-  connected: boolean;
-  username: string;
-  lastSync: number;
-  userCode: string;
-  verificationUrl: string;
-};
-
-type SyncResult = { pulled: number; pushed: number };
+type SyncResult = { pulled?: number; pushed?: number };
+type Busy = "connect" | "sync" | "disconnect" | null;
 
 const APPS = "https://trakt.tv/oauth/applications";
 const ACTIVATE = "https://trakt.tv/activate";
+const POLL_MS = 5000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function rows(count: number): string {
+  return `${count} ${count === 1 ? "row" : "rows"}`;
+}
+
+function summary(report: SyncResult): string {
+  const parts: string[] = [];
+  if (report.pulled != null) parts.push(`${rows(report.pulled)} pulled from Trakt`);
+  if (report.pushed != null) parts.push(`${rows(report.pushed)} pushed back`);
+  return parts.length ? `Sync finished: ${parts.join(", ")}.` : "Sync finished.";
+}
+
 export function TraktView() {
+  const { settings, saveSettings } = useApp();
   const [status, setStatus] = useState<TraktStatus | null>(null);
+  const [code, setCode] = useState<string | null>(null);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
-  const [busy, setBusy] = useState<"connect" | "sync" | "disconnect" | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SyncResult | null>(null);
   const polling = useRef(false);
+  const working = useRef(false);
+  const savingPref = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await invoke<TraktStatus>("status"));
+      setStatus(await api.trakt.status());
     } catch (e) {
       setError(message(e));
     }
@@ -41,76 +52,123 @@ export function TraktView() {
     void refresh();
   }, [refresh]);
 
-  const poll = useCallback(async () => {
-    if (polling.current) return;
-    polling.current = true;
-    try {
-      const next = await invoke<TraktStatus>("poll");
-      setStatus(next);
-      if (next.connected) setError(null);
-    } catch (e) {
-      setError(message(e));
-      await refresh();
-    } finally {
-      polling.current = false;
-    }
-  }, [refresh]);
-
-  const pending = Boolean(status?.userCode);
-
   useEffect(() => {
-    if (!pending) return;
-    const timer = window.setInterval(() => void poll(), 5000);
-    return () => window.clearInterval(timer);
-  }, [pending, poll]);
+    if (!code) return;
+    let stopped = false;
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      setCode(null);
+    };
+
+    const timer = window.setInterval(async () => {
+      if (polling.current) return;
+      polling.current = true;
+      try {
+        const next = await api.trakt.poll();
+        if (stopped) return;
+        setStatus(next);
+        if (next.connected) {
+          stop();
+          setError(null);
+          setResult(null);
+        }
+      } catch (e) {
+        if (stopped) return;
+        stop();
+        setError(message(e));
+        void refresh();
+      } finally {
+        polling.current = false;
+      }
+    }, POLL_MS);
+
+    const expiry = window.setTimeout(() => {
+      if (stopped) return;
+      stop();
+      setError("Stopped waiting for approval. Request a new code to try again.");
+    }, POLL_TIMEOUT_MS);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.clearTimeout(expiry);
+    };
+  }, [code, refresh]);
 
   const connect = async () => {
+    if (working.current) return;
+    working.current = true;
     setBusy("connect");
     setError(null);
     setResult(null);
     try {
-      // Empty fields reuse the credentials already saved on this machine.
-      const next = await invoke<TraktStatus>("begin", {
-        clientId: clientId.trim(),
-        clientSecret: clientSecret.trim(),
-      });
+      const next = await api.trakt.begin(clientId.trim(), clientSecret.trim());
       setStatus(next);
       setClientSecret("");
+      setCode(next.connected || !next.userCode ? null : next.userCode);
     } catch (e) {
       setError(message(e));
     } finally {
+      working.current = false;
       setBusy(null);
     }
   };
 
+  const cancel = () => {
+    setCode(null);
+  };
+
   const sync = async () => {
+    if (working.current) return;
+    working.current = true;
     setBusy("sync");
     setError(null);
     setResult(null);
     try {
-      setResult(await invoke<SyncResult>("sync"));
+      const report = await api.trakt.sync();
+      setResult({ pulled: report.pulled, pushed: report.pushed });
       await refresh();
     } catch (e) {
       setError(message(e));
     } finally {
+      working.current = false;
       setBusy(null);
     }
   };
 
   const disconnect = async () => {
+    if (working.current) return;
     if (!window.confirm("Disconnect Trakt? History already stored locally stays on this machine.")) {
       return;
     }
+    working.current = true;
     setBusy("disconnect");
     setError(null);
     setResult(null);
     try {
-      await invoke("disconnect");
+      await api.trakt.disconnect();
+      setCode(null);
       await refresh();
     } catch (e) {
       setError(message(e));
     } finally {
+      working.current = false;
       setBusy(null);
+    }
+  };
+
+  const setScrobble = async (value: boolean) => {
+    if (savingPref.current) return;
+    savingPref.current = true;
+    setError(null);
+    try {
+      await saveSettings({ traktScrobble: value });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      savingPref.current = false;
     }
   };
 
@@ -131,12 +189,12 @@ export function TraktView() {
 
       {error ? <p className="form-error">{error}</p> : null}
 
-      {status && !status.connected && pending ? (
+      {status && !status.connected && code ? (
         <section className="settings-group">
           <h2>Approve this device</h2>
           <p className="settings-hint">
             Type the code below at trakt.tv/activate while signed in to Trakt. This window checks back
-            every few seconds and finishes on its own.
+            every five seconds and finishes on its own.
           </p>
           <div
             style={{
@@ -158,24 +216,37 @@ export function TraktView() {
                 borderRadius: "var(--radius)",
               }}
             >
-              {status.userCode}
+              {code}
             </code>
             <Button icon="external" onClick={() => void openExternal(status.verificationUrl || ACTIVATE)}>
               Open trakt.tv/activate
             </Button>
           </div>
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => void connect()}
-            disabled={busy !== null}
+          <div
+            className="field-row"
+            style={{ alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}
           >
-            {busy === "connect" ? "Requesting a new code…" : "Start over with a new code"}
-          </button>
+            <div className="spinner-wrap" style={{ padding: 0, justifyContent: "flex-start" }}>
+              <span className="spinner" />
+              <span className="spinner-label" role="status" aria-live="polite">
+                Waiting for approval…
+              </span>
+            </div>
+            <Button icon="x" onClick={cancel} disabled={busy !== null}>
+              Cancel
+            </Button>
+          </div>
+          <p className="settings-note">
+            <Icon name="info" size={14} />
+            <span>
+              The code expires after ten minutes. Cancel stops this window from checking; you can request
+              a new code any time.
+            </span>
+          </p>
         </section>
       ) : null}
 
-      {status && !status.connected && !pending ? (
+      {status && !status.connected && !code ? (
         <section className="settings-group">
           <h2>Connect</h2>
           <p className="settings-hint">
@@ -252,10 +323,22 @@ export function TraktView() {
               {busy === "sync" ? "Syncing…" : "Sync now"}
             </Button>
           </div>
+          <div className="settings-row">
+            <div>
+              <h3>Scrobble while playing</h3>
+              <p>Report playback starts, pauses and stops to Trakt.</p>
+            </div>
+            {settings ? (
+              <Toggle
+                checked={settings.traktScrobble}
+                onChange={(value) => void setScrobble(value)}
+                label="Scrobble playback to Trakt"
+              />
+            ) : null}
+          </div>
           {result ? (
             <p className="settings-hint" style={{ marginTop: 14, marginBottom: 0 }}>
-              Pulled {result.pulled} {result.pulled === 1 ? "row" : "rows"} from Trakt, pushed{" "}
-              {result.pushed} {result.pushed === 1 ? "row" : "rows"} back.
+              {summary(result)}
             </p>
           ) : null}
           <div className="field-row">
