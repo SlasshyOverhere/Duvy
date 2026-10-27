@@ -12,6 +12,7 @@ mod models;
 mod nuvio_sync;
 mod playback_log;
 mod player;
+mod secret;
 mod servers;
 mod settings;
 mod skip;

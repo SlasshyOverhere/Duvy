@@ -335,6 +335,38 @@ fn watched_items_keep_metadata_after_completion() {
 }
 
 #[test]
+fn credentials_are_encrypted_at_rest() {
+    let (conn, path) = temp_database();
+    let stored = json!({ "tmdbKey": "abc123", "trakt": { "token": "tok" } });
+    db::write_settings(&conn, &stored).expect("settings write");
+    assert_eq!(db::read_settings(&conn).unwrap(), stored, "settings roundtrip");
+
+    let raw: String = conn
+        .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| row.get(0))
+        .expect("raw value");
+    assert!(raw.starts_with("enc1:"), "stored value must be encrypted: {raw}");
+    assert!(!raw.contains("abc123"), "plaintext key must not survive on disk");
+
+    // Rows written before encryption existed still load.
+    let legacy = json!({ "plain": true }).to_string();
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('legacy', ?1)",
+        rusqlite::params![legacy],
+    )
+    .expect("legacy insert");
+    assert_eq!(
+        db::read_kv(&conn, "legacy").unwrap(),
+        Some(json!({ "plain": true }))
+    );
+
+    // The shared kv path roundtrips through the same codec.
+    db::write_kv(&conn, "kv", &json!({ "n": 1 })).expect("kv write");
+    assert_eq!(db::read_kv(&conn, "kv").unwrap(), Some(json!({ "n": 1 })));
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn settings_patch_merges_and_resets() {
     let (conn, path) = temp_database();
     let mut settings = Settings::default();

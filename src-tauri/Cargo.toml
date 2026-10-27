@@ -49,6 +49,7 @@ librqbit-dualstack-sockets = "0.7"
 windows-sys = { version = "0.60", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_Security_Cryptography",
   "Win32_System_LibraryLoader",
   "Win32_UI_WindowsAndMessaging",
 ] }

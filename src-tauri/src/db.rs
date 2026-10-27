@@ -4,6 +4,7 @@
 //! few hundred rows at most, so a single WAL-mode connection behind a mutex is
 //! both simpler and faster than a pool.
 
+use crate::secret;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -556,14 +557,16 @@ pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> 
             r.get(0)
         })
         .optional()?;
-    Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
+    Ok(raw
+        .and_then(|s| secret::decode(&s))
+        .and_then(|s| serde_json::from_str(&s).ok()))
 }
 
 pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = ?2",
-        params![key, value.to_string()],
+        params![key, secret::encode(&value.to_string())],
     )?;
     Ok(())
 }
