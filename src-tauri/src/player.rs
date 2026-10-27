@@ -799,9 +799,13 @@ fn spawn_reader(
         }
         // The pipe is gone, so the ticker has nothing left to report. Without
         // this it keeps emitting ticks for a player that no longer exists.
-        stop.store(true, Ordering::Relaxed);
+        let replaced = stop.swap(true, Ordering::Relaxed);
         crate::playback_log::mark("control pipe closed");
-        let _ = app.emit("player:closed", ());
+        // A player we killed on purpose (stop, or a new source taking over) is
+        // not news: closing it would blank the snapshot of the new playback.
+        if !replaced {
+            let _ = app.emit("player:closed", ());
+        }
     });
 }
 

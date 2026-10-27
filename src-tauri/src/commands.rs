@@ -1145,6 +1145,7 @@ pub async fn player_open(
         previous.kill();
         std::thread::spawn(move || drop(previous));
     }
+    crate::playback_log::mark("starting mpv");
     let player = Player::spawn(
         app.clone(),
         &settings,
