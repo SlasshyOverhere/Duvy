@@ -45,27 +45,29 @@ export function SearchView({ query }: { query?: string }) {
     };
   }, [query, addons.length]);
 
+  const submit = () => {
+    const next = value.trim();
+    if (next) navigate({ name: "search", query: next });
+  };
+
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <p className="kicker">Search</p>
-          <h1>{query ? `Results for “${query}”` : "Search everything"}</h1>
-          <p className="page-sub">
-            {query
-              ? `${results.length} ${results.length === 1 ? "title" : "titles"} across your addons`
-              : "Press / anywhere to come straight here."}
-          </p>
-        </div>
+    <div className={`page search-page${query ? " has-results" : ""}`}>
+      <div className="search-stage">
+        {!query ? (
+          <>
+            <h1>Search everything</h1>
+            <p className="search-hint">Films and series, across every addon you have installed.</p>
+          </>
+        ) : null}
+
         <form
           className="search-page-form"
           onSubmit={(event) => {
             event.preventDefault();
-            const next = value.trim();
-            if (next) navigate({ name: "search", query: next });
+            submit();
           }}
         >
-          <Icon name="search" size={17} />
+          <Icon name="search" size={18} />
           <input
             ref={input}
             value={value}
@@ -74,22 +76,36 @@ export function SearchView({ query }: { query?: string }) {
             aria-label="Search films and series"
             spellCheck={false}
           />
+          {value ? (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="Clear search"
+              onClick={() => {
+                setValue("");
+                navigate({ name: "search" });
+                input.current?.focus();
+              }}
+            >
+              <Icon name="x" size={14} />
+            </button>
+          ) : null}
         </form>
-      </header>
 
-      {loading ? <Spinner label="Searching your addons…" /> : null}
+        {!query ? (
+          <p className="search-keys">
+            Press <kbd>/</kbd> anywhere to land here
+          </p>
+        ) : null}
+      </div>
 
-      {!loading && error ? (
-        <EmptyState icon="info" title="Search failed" body={error} />
+      {loading ? (
+        <div className="page-loading page-loading-inline">
+          <Spinner label="Searching" />
+        </div>
       ) : null}
 
-      {!loading && !query ? (
-        <EmptyState
-          icon="search"
-          title="Start with a title"
-          body="Search reaches every addon that exposes a search catalog, plus TMDB when a key is configured."
-        />
-      ) : null}
+      {!loading && error ? <EmptyState icon="info" title="Search failed" body={error} /> : null}
 
       {!loading && query && results.length === 0 && !error ? (
         <EmptyState
@@ -99,16 +115,23 @@ export function SearchView({ query }: { query?: string }) {
         />
       ) : null}
 
-      <div className="grid">
-        {results.map((item) => (
-          <PosterCard
-            key={`${item.id}-${item.type}`}
-            item={item}
-            onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-            onPlay={() => void playItem(item)}
-          />
-        ))}
-      </div>
+      {results.length > 0 ? (
+        <>
+          <p className="search-count">
+            {results.length} {results.length === 1 ? "title" : "titles"}
+          </p>
+          <div className="grid">
+            {results.map((item) => (
+              <PosterCard
+                key={`${item.id}-${item.type}`}
+                item={item}
+                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+                onPlay={() => void playItem(item)}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
