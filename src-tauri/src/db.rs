@@ -13,11 +13,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Db(pub Mutex<Connection>);
 
-const SCHEMA: &str = r#"
+const PRAGMAS: &str = r#"
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
+"#;
 
+// IF NOT EXISTS throughout: databases written before versioning existed already
+// hold these tables and must only be stamped as version 1, not rebuilt.
+const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS addons (
   url          TEXT PRIMARY KEY,
   addon_id     TEXT NOT NULL,
@@ -70,12 +74,31 @@ CREATE TABLE IF NOT EXISTS people (
   photo      TEXT NOT NULL,
   checked_at INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_progress_meta ON progress(meta_id);
+CREATE INDEX IF NOT EXISTS idx_progress_updated ON progress(updated_at);
+CREATE INDEX IF NOT EXISTS idx_watched_meta ON watched(meta_id);
+CREATE INDEX IF NOT EXISTS idx_library_added ON library(added_at);
 "#;
+
+const MIGRATIONS: &[&str] = &[V1];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
-    conn.execute_batch(SCHEMA)?;
+    conn.execute_batch(PRAGMAS)?;
+    migrate(&conn)?;
     Ok(conn)
+}
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    for (index, sql) in MIGRATIONS.iter().enumerate().skip(version.max(0) as usize) {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", index as i64 + 1)?;
+        tx.commit()?;
+    }
+    Ok(())
 }
 
 pub fn now() -> i64 {

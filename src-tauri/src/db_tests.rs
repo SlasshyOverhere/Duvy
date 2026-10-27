@@ -6,12 +6,16 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_database() -> (rusqlite::Connection, PathBuf) {
+fn temp_path() -> PathBuf {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!("betternuvio-test-{stamp}.db"));
+    std::env::temp_dir().join(format!("betternuvio-test-{stamp}.db"))
+}
+
+fn temp_database() -> (rusqlite::Connection, PathBuf) {
+    let path = temp_path();
     let connection = db::open(&path).expect("test database opens");
     (connection, path)
 }
@@ -19,6 +23,47 @@ fn temp_database() -> (rusqlite::Connection, PathBuf) {
 fn cleanup(connection: rusqlite::Connection, path: PathBuf) {
     drop(connection);
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn schema_migration_is_idempotent_and_keeps_rows() {
+    let path = temp_path();
+    let version = |conn: &rusqlite::Connection| -> i64 {
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap()
+    };
+
+    let conn = db::open(&path).expect("first open");
+    assert_eq!(version(&conn), 1);
+    db::write_kv(&conn, "kept", &json!({ "yes": true })).expect("write");
+    drop(conn);
+
+    let conn = db::open(&path).expect("second open");
+    assert_eq!(version(&conn), 1, "reopening must not re-run migrations");
+    assert_eq!(
+        db::read_kv(&conn, "kept").unwrap(),
+        Some(json!({ "yes": true })),
+        "existing data survives the migration"
+    );
+
+    let mut stmt = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'")
+        .unwrap();
+    let indexes: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    for expected in [
+        "idx_progress_meta",
+        "idx_progress_updated",
+        "idx_watched_meta",
+        "idx_library_added",
+    ] {
+        assert!(indexes.iter().any(|name| name == expected), "missing {expected}");
+    }
+    drop(stmt);
+
+    cleanup(conn, path);
 }
 
 #[test]
