@@ -109,6 +109,15 @@ export function PlayerView() {
   // A segment jumps once per playback session, even if the tick lands inside
   // the window again.
   const fired = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
+  // Trakt scrobble bookkeeping: the last action sent for which key, when, and
+  // how far in, so repeated states and idle ticks are not sent twice.
+  const traktRef = useRef<{ key: string | null; action: string; at: number; pct: number }>({
+    key: null,
+    action: "",
+    at: 0,
+    pct: -1,
+  });
+  const livePct = useRef(0);
 
   useEffect(() => {
     setLocal(player);
@@ -461,7 +470,55 @@ export function PlayerView() {
 
   useEffect(() => {
     posRef.current = position;
-  }, [position]);
+    livePct.current = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+  }, [duration, position]);
+
+  // Trakt scrobbling: start on open, pause on pause, stop on end or close, and
+  // a throttled start now and then to carry the playhead. Failures are dropped
+  // because the account may not be connected and playback must not wait.
+  const traktKey = session?.key ?? null;
+  const traktOn = Boolean(settings?.traktScrobble && traktKey);
+  const scrobbleLive = Boolean(local && !local.paused && !local.ended);
+
+  const pushScrobble = useCallback((key: string, action: "start" | "pause" | "stop") => {
+    traktRef.current = { key, action, at: Date.now(), pct: livePct.current };
+    void api.trakt.scrobble(action, key, livePct.current).catch(() => undefined);
+  }, []);
+
+  const reportScrobble = useCallback(
+    (action: "start" | "pause" | "stop") => {
+      if (!traktKey || !traktOn) return;
+      const last = traktRef.current;
+      if (last.key === traktKey && last.action === action) return;
+      pushScrobble(traktKey, action);
+    },
+    [pushScrobble, traktKey, traktOn],
+  );
+
+  useEffect(() => {
+    if (!traktOn || !local) return;
+    reportScrobble(local.ended ? "stop" : local.paused ? "pause" : "start");
+  }, [traktOn, local?.paused, local?.ended, reportScrobble]);
+
+  useEffect(() => {
+    if (!traktOn || !scrobbleLive) return;
+    const timer = window.setInterval(() => {
+      const last = traktRef.current;
+      if (!last.key || Date.now() - last.at < 25000) return;
+      if (Math.abs(livePct.current - last.pct) < 1) return;
+      pushScrobble(last.key, "start");
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [traktOn, scrobbleLive, pushScrobble]);
+
+  // Closing the player, changing episode, or leaving the screen ends it.
+  useEffect(() => {
+    if (!traktOn) return;
+    return () => {
+      const last = traktRef.current;
+      if (last.key && last.action !== "stop") pushScrobble(last.key, "stop");
+    };
+  }, [traktOn, traktKey, pushScrobble]);
 
   // A stored position is worth offering when it is past the opening minutes
   // but not close enough to the end to count as finished.
