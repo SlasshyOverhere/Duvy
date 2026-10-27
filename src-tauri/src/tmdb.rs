@@ -191,6 +191,31 @@ async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPrevi
     }
 }
 
+/// Percent-encode a search term so it stays one catalog-extra value.
+fn escape(query: &str) -> String {
+    let mut out = String::with_capacity(query.len());
+    for byte in query.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Cinemeta's own catalogs double as search and return IMDb ids.
+async fn cinemeta_search(client: &reqwest::Client, query: &str) -> Vec<MetaPreview> {
+    let term = escape(query);
+    let movie_path = format!("movie/top/search={term}");
+    let series_path = format!("series/top/search={term}");
+    let (movies, series) = tokio::join!(
+        cinemeta_catalog(client, &movie_path),
+        cinemeta_catalog(client, &series_path),
+    );
+    movies.into_iter().chain(series).collect()
+}
+
 async fn get(
     client: &reqwest::Client,
     key: &str,
@@ -213,42 +238,60 @@ const ROWS: &[(&str, &str, &str, &str)] = &[
     ("/popular/all", "", "trending/all/week", "Trending this week"),
     ("/popular/movie", "movie/top", "movie/popular", "Popular movies"),
     ("/popular/tv", "series/top", "tv/popular", "Popular series"),
-    ("/movie/top_rated", "", "movie/top_rated", "Top rated movies"),
-    ("/tv/top_rated", "", "tv/top_rated", "Top rated series"),
+    ("/movie/top_rated", "movie/imdbRating", "movie/top_rated", "Top rated movies"),
+    ("/tv/top_rated", "series/imdbRating", "tv/top_rated", "Top rated series"),
     ("/movie/upcoming", "", "movie/now_playing", "In cinemas"),
 ];
 
 pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRow>, String> {
-    let mut rows = Vec::new();
-    for (mirror_path, cinemeta_path, tmdb_path, title) in ROWS {
-        // Cinemeta answers without a key and hands back IMDb ids, which is what
-        // stream addons key on. The mirror and TMDB are the fallbacks.
-        let mut items = if cinemeta_path.is_empty() {
-            Vec::new()
-        } else {
-            cinemeta_catalog(client, cinemeta_path).await
-        };
-        if items.is_empty() {
-            items = mirror(client, mirror_path).await;
-        }
-        if items.is_empty() && !key.is_empty() {
-            items = get(client, key, &format!("/{tmdb_path}"), &[("language", "en-US")])
-                .await
-                .map(|value| items_of(&value))
-                .unwrap_or_default();
-        }
-        if items.is_empty() {
-            continue;
-        }
-        rows.push(HomeRow {
-            id: format!("row:{mirror_path}"),
-            title: (*title).to_string(),
-            addon: Some("Discover".into()),
-            media_type: "mixed".into(),
-            catalog_id: (*mirror_path).to_string(),
-            items,
+    // The rows are independent, so launch them together: the wait becomes the
+    // slowest row instead of the sum of all six.
+    let mut set = tokio::task::JoinSet::new();
+    for (index, row) in ROWS.iter().enumerate() {
+        let (mirror_path, cinemeta_path, tmdb_path, title) = *row;
+        let client = client.clone();
+        let key = key.to_string();
+        set.spawn(async move {
+            // Cinemeta answers without a key and hands back IMDb ids, which is
+            // what stream addons key on. The mirror and TMDB are the fallbacks.
+            let mut items = if cinemeta_path.is_empty() {
+                Vec::new()
+            } else {
+                cinemeta_catalog(&client, cinemeta_path).await
+            };
+            if items.is_empty() {
+                items = mirror(&client, mirror_path).await;
+            }
+            if items.is_empty() && !key.is_empty() {
+                items = get(&client, &key, &format!("/{tmdb_path}"), &[("language", "en-US")])
+                    .await
+                    .map(|value| items_of(&value))
+                    .unwrap_or_default();
+            }
+            if items.is_empty() {
+                return (index, None);
+            }
+            (
+                index,
+                Some(HomeRow {
+                    id: format!("row:{mirror_path}"),
+                    title: title.to_string(),
+                    addon: Some("Discover".into()),
+                    media_type: "mixed".into(),
+                    catalog_id: mirror_path.to_string(),
+                    items,
+                }),
+            )
         });
     }
+    // Keep the declaration order: the first row feeds the hero.
+    let mut slots: Vec<Option<HomeRow>> = ROWS.iter().map(|_| None).collect();
+    while let Some(joined) = set.join_next().await {
+        if let Ok((index, Some(row))) = joined {
+            slots[index] = Some(row);
+        }
+    }
+    let rows: Vec<HomeRow> = slots.into_iter().flatten().collect();
     if rows.is_empty() {
         return Err("No discovery source answered. Try again in a moment.".into());
     }
@@ -260,17 +303,22 @@ pub async fn search(
     key: &str,
     query: &str,
 ) -> Result<Vec<MetaPreview>, String> {
-    let mut url =
-        reqwest::Url::parse(&format!("{BALLOON}/search/multi")).map_err(|e| e.to_string())?;
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("query", query);
-        pairs.append_pair("language", "en-US");
+    // Cinemeta first: no key, and the ids are the ones addons can stream.
+    let mut items = cinemeta_search(client, query).await;
+
+    if items.is_empty() {
+        let mut url =
+            reqwest::Url::parse(&format!("{BALLOON}/search/multi")).map_err(|e| e.to_string())?;
+        {
+            let mut pairs = url.query_pairs_mut();
+            pairs.append_pair("query", query);
+            pairs.append_pair("language", "en-US");
+        }
+        items = fetch(client, url.as_str())
+            .await
+            .map(|value| items_of(&value))
+            .unwrap_or_default();
     }
-    let mut items = fetch(client, url.as_str())
-        .await
-        .map(|value| items_of(&value))
-        .unwrap_or_default();
 
     if items.is_empty() && !key.is_empty() {
         let value = get(

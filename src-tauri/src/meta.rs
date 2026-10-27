@@ -1,10 +1,11 @@
 //! IMDb-keyed metadata for ids that arrive without a title.
 //!
 //! Nuvio Cloud only stores ids, so a progress row can land here as `tt1234567`
-//! with no name and no artwork. This resolves such an id through the unofficial
-//! TMDB mirror first (it speaks TMDB's shapes but takes IMDb ids), then
-//! Cinemeta, which is the only source that returns a whole episode list in one
-//! request. Every failure just means "no data": callers keep what they have.
+//! with no name and no artwork. Cinemeta answers first: no key, one request, a
+//! whole episode list, and cast and trailers in the same document. The
+//! unofficial TMDB mirror (it speaks TMDB's shapes but takes IMDb ids) is the
+//! fallback for ids Cinemeta does not know. Every failure just means "no data":
+//! callers keep what they have.
 
 use crate::addons::Video;
 use crate::models::{CastMember, MetaDetails};
@@ -206,6 +207,41 @@ async fn cinemeta(
         })
         .unwrap_or_default();
 
+    // Cinemeta names the cast and crew but carries no headshots or roles.
+    let cast: Vec<CastMember> = meta
+        .get("cast")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .take(14)
+                .filter_map(|person| {
+                    Some(CastMember {
+                        name: text(Some(person))?,
+                        character: String::new(),
+                        photo: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let director: Vec<String> = meta
+        .get("director")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(|name| text(Some(name))).collect())
+        .unwrap_or_default();
+
+    let trailer = meta
+        .get("trailers")
+        .and_then(Value::as_array)
+        .and_then(|list| {
+            list.iter()
+                .find(|t| text(t.get("type")).as_deref() == Some("Trailer"))
+                .or_else(|| list.first())
+        })
+        .and_then(|t| text(t.get("source")))
+        .map(|id| format!("https://www.youtube.com/watch?v={id}"));
+
     Some(MetaDetails {
         id: imdb.to_string(),
         media_type: match text(meta.get("type")).as_deref() {
@@ -232,9 +268,9 @@ async fn cinemeta(
         runtime: text(meta.get("runtime")),
         status: None,
         videos,
-        cast: Vec::new(),
-        director: Vec::new(),
-        trailer: None,
+        cast,
+        director,
+        trailer,
         imdb_id: Some(imdb.to_string()),
         tmdb_id: None,
         source: "cinemeta".into(),
@@ -251,37 +287,25 @@ fn other(media_type: &str) -> &'static str {
 }
 
 /// Best available record for an IMDb id, or `None` when nothing answers.
+///
+/// Cinemeta is the default: no key, one request, and the whole episode list
+/// comes back with it. The mirror is only asked for ids Cinemeta missed.
 pub async fn details(
     client: &reqwest::Client,
     imdb: &str,
     media_type: &str,
 ) -> Option<MetaDetails> {
-    let mut found = match balloon(client, imdb, media_type).await {
-        Ok(details) => details,
-        Err(_) => match cinemeta(client, imdb, media_type).await {
-            Some(details) => details,
-            // Synced rows sometimes carry the wrong kind; the id is what counts.
-            None => cinemeta(client, imdb, other(media_type)).await?,
-        },
-    };
-    if found.videos.is_empty() {
-        if let Some(fallback) = cinemeta(client, imdb, media_type).await {
-            found.poster = found.poster.or(fallback.poster);
-            found.background = found.background.or(fallback.background);
-            found.logo = found.logo.or(fallback.logo);
-            if found.description.is_none() {
-                found.description = fallback.description;
-            }
-            if found.rating.is_none() {
-                found.rating = fallback.rating;
-            }
-            if found.runtime.is_none() {
-                found.runtime = fallback.runtime;
-            }
-            found.videos = fallback.videos;
-        }
+    if let Some(found) = cinemeta(client, imdb, media_type).await {
+        return Some(found);
     }
-    Some(found)
+    // Synced rows sometimes carry the wrong kind; the id is what counts.
+    if let Some(found) = cinemeta(client, imdb, other(media_type)).await {
+        return Some(found);
+    }
+    match balloon(client, imdb, media_type).await {
+        Ok(found) => Some(found),
+        Err(_) => balloon(client, imdb, other(media_type)).await.ok(),
+    }
 }
 
 /// Episode list only: used to repair series whose addon sent no videos.

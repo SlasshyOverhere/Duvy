@@ -33,6 +33,18 @@ function HomeSkeleton() {
   );
 }
 
+// Stremio-style: the last feed paints immediately, the network only refreshes it.
+const FEED_CACHE = "home.feed.v1";
+
+function cachedFeed(): HomeFeed | null {
+  try {
+    const raw = localStorage.getItem(FEED_CACHE);
+    return raw ? (JSON.parse(raw) as HomeFeed) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function HomeView() {
   const {
     addons,
@@ -43,7 +55,7 @@ export function HomeView() {
     inLibrary,
     progress,
   } = useApp();
-  const [feed, setFeed] = useState<HomeFeed | null>(null);
+  const [feed, setFeed] = useState<HomeFeed | null>(cachedFeed);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [slide, setSlide] = useState(0);
@@ -57,7 +69,14 @@ export function HomeView() {
     api
       .home()
       .then((result) => {
-        if (alive) setFeed(result);
+        if (!alive) return;
+        setFeed(result);
+        // Keep the next launch instant, like Stremio does.
+        try {
+          localStorage.setItem(FEED_CACHE, JSON.stringify(result));
+        } catch {
+          // A full quota only costs a skeleton on the next launch.
+        }
       })
       .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : String(e));
@@ -154,7 +173,7 @@ export function HomeView() {
           </Row>
         ) : null}
 
-        {error ? (
+        {error && !feed ? (
           <EmptyState
             icon="info"
             title="Could not refresh your home feed"
