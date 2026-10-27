@@ -40,8 +40,9 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Hardware decoding | Done | **Done** | `hwdec=auto-safe`, toggleable |
 | Audio/subtitle tracks | Done | **Done** | Read from mpv and switchable from the player console |
 | External subtitles | Addon plus local | **Done** | Addon tracks and a local file picker |
-| Subtitle styling | Full | **Partial** | Size, colour and background opacity; no custom font, outline or position editor |
-| Subtitle delay and auto-sync | Done | **Planned** | No offset controls or analysis |
+| Subtitle styling | Full | **Partial** | Size, colour and background opacity, applied to mpv; no custom font, outline or position editor |
+| Subtitle delay | Done | **Done** | ±10s in 0.1s steps, applied to mpv and persisted per episode |
+| Subtitle auto-sync | Done | **Planned** | No analysis or automatic offset |
 | Speed, volume, seek | Done | **Done** | Player console controls |
 | In-player overlay | Custom, gesture driven | **Done** | Custom HUD with track, subtitle, skip and style panels |
 | Hover previews | Done | **Planned** | Needs a preview pipeline |
@@ -101,6 +102,6 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 1. Downloads and offline playback.
 2. Local profiles with PIN protection.
 3. Auto-updater and signed release builds.
-4. Subtitle delay, auto-sync and a fuller style editor.
+4. Subtitle auto-sync and a fuller style editor.
 5. Translations.
 6. Simkl and MDBList.

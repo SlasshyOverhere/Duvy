@@ -119,8 +119,8 @@ The UI turns a stream row into a playable URL in this order:
    emits `player:closed` and the UI returns to the title.
 7. Intro/outro markers are read per meta id; when the playhead enters a marked segment the UI
    seeks to its end. Markers are set manually from the player console.
-8. Subtitles come from addon tracks (`sub-add`) or a file picker. Style controls map to mpv
-   subtitle options; there is no subtitle delay or auto-sync feature.
+8. Subtitles come from addon tracks (`sub-add`) or a file picker. Style controls and the ±10s
+   delay map to mpv subtitle options; automatic sync is not implemented.
 
 `session.key` is the resume identity: `metaId` for a film, `metaId:season:episode` for a series.
 
@@ -143,8 +143,9 @@ query touches a small number of rows, so a pool would add latency, not remove it
 ## Privacy and trust boundaries
 
 - No telemetry, analytics or crash reporting is built in.
-- Credentials are stored in the local settings table as JSON. They are not encrypted at rest by
-  the app.
+- Credential values in the local settings table are encrypted with Windows DPAPI for the current
+  user before they are written. Legacy plaintext rows are read once and re-encrypted on the next
+  write. A database copied to another Windows account or machine cannot be decrypted.
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
   binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
   opt-in.

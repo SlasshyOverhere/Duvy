@@ -2,7 +2,7 @@
 
 > Status note (October 2026): this file is the original planning inventory and has not been kept
 > in step with the code. P2P, debrid, Trakt, Nuvio Cloud sync, Jellyfin/Emby, local subtitle
-> files, subtitle styling and intro/outro markers have since shipped. Use
+> files, subtitle styling and delay, and intro/outro markers have since shipped. Use
 > [`FEATURE-PARITY.md`](./FEATURE-PARITY.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md) for
 > current status; the status marks below are historical.
 
@@ -197,7 +197,7 @@ Everything below is the exhaustive union, not just that list.
 | Strip SDH / hearing-impaired tracks | yes | — | GAP | P2 |
 | Subtitle styling: font, size, colour, outline colour, background colour, opacity, edges, vertical offset | yes | yes | PART (mpv defaults) | P1 |
 | ASS/SSA styling passthrough (libass) + style-ASS toggle | yes | yes | PART | P2 |
-| Subtitle delay adjustment (+ keyboard shortcuts, live display) | yes | yes | GAP | P1 |
+| Subtitle delay adjustment (+ keyboard shortcuts, live display) | yes | yes | PART (manual ±10s, no shortcuts) | P1 |
 | Subtitle auto-sync (analysis, offsets, best variant, other-language fallback) | yes (`docs/subtitle-autosync.md`) | yes ("Auto Sync") | GAP | P1 |
 | Subtitle Live Sync (pick the line you hear) | — | yes | GAP | P2 |
 | "Wrong subtitles?" report flow | — | yes | GAP | P3 |

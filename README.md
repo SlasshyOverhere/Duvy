@@ -26,7 +26,8 @@ touches a video frame:
 - **Addon fan-out is concurrent.** Catalogs, search, streams and subtitles run as parallel Tokio
   tasks with a shared pooled HTTP client, an 18s timeout and per-host idle limits.
 - **One local SQLite file in WAL mode** holds addons, library, progress, watched state, settings
-  and integration credentials. No account is required, and there is no telemetry.
+  and integration credentials. Credential values are encrypted with Windows DPAPI for the
+  current user. No account is required, and there is no telemetry.
 
 ## What works now (0.1.0 beta)
 
@@ -138,14 +139,16 @@ address visible to the swarm. Debrid accounts have their own terms.
 - Everything is stored locally in one SQLite file. There is no telemetry, analytics or crash
   reporting.
 - Credentials (TMDB key, Trakt tokens, debrid keys, Jellyfin/Emby tokens, Nuvio session) are kept
-  in the local settings table. They are not encrypted at rest by the app, so treat the data
+  in the local settings table. Each value is encrypted with Windows DPAPI for the current user
+  before it is written, so a copy of the database cannot be read by another Windows account or
+  on another machine. The app can still read them while you are signed in, so treat the data
   directory like any other credential store.
 - Network requests go to the addons you install, image hosts, and the optional services you
   configure (TMDB, Trakt, Nuvio, debrid, Jellyfin/Emby). Addon developers and service operators
   see requests from your IP.
 - P2P traffic goes directly to other peers while a torrent source is playing.
-- Signing out of Trakt or Nuvio removes the stored session; deleting the database resets
-  everything.
+- Signing out of Trakt or Nuvio removes the stored tokens; Nuvio keeps a non-secret account
+  identifier so a later sign-in can tell accounts apart. Deleting the database resets everything.
 
 ## Where data lives
 
