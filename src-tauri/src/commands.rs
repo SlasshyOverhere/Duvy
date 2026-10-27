@@ -1139,7 +1139,12 @@ pub async fn player_open(
     // Spawning waits for mpv to open its IPC pipe, so the lock is not held
     // across it: every other player command would block behind it.
     let previous = state.player.lock().map_err(|_| "player is busy")?.take();
-    drop(previous);
+    // A wedged mpv can stall wait() in Drop, so the old process is killed now
+    // and reaped on its own thread. It can never hold up the next source.
+    if let Some(mut previous) = previous {
+        previous.kill();
+        std::thread::spawn(move || drop(previous));
+    }
     let player = Player::spawn(
         app.clone(),
         &settings,
@@ -1167,21 +1172,30 @@ pub async fn player_control(
     if action == "stop" {
         return player_stop(state).await;
     }
-    let mut guard = state.player.lock().map_err(|_| "player is busy")?;
-    let player = guard.as_mut().ok_or("Nothing is playing")?;
-    player.command(&action, value)
+    // Never hold the player slot across an IPC write: mpv's pipe can wedge
+    // after a source dies, and that blocked the next play for good.
+    let (writer, failed) = {
+        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let player = guard.as_ref().ok_or("Nothing is playing")?;
+        (player.writer(), player.failed())
+    };
+    if failed {
+        return Err("Playback has stopped. Choose another source.".into());
+    }
+    Player::send_action(&writer, &action, value)
 }
 
 #[tauri::command]
 pub async fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
     // Kill the player first so a slow P2P teardown can never leave mpv running
-    // behind the menu. Dropping the Player kills the child process.
+    // behind the menu. Reaping happens off-thread: Drop waits on the process.
     let player = {
         let mut guard = state.player.lock().map_err(|_| "player is busy")?;
         guard.take()
     };
     if let Some(mut player) = player {
-        let _ = player.command("stop", None);
+        player.kill();
+        std::thread::spawn(move || drop(player));
     }
     let _ = crate::torrent::shutdown().await;
     Ok(())
@@ -1193,9 +1207,16 @@ pub async fn player_subtitle(
     label: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut guard = state.player.lock().map_err(|_| "player is busy")?;
-    let player = guard.as_mut().ok_or("Nothing is playing")?;
-    player.command(
+    let writer = {
+        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let player = guard.as_ref().ok_or("Nothing is playing")?;
+        if player.failed() {
+            return Err("Playback has stopped. Choose another source.".into());
+        }
+        player.writer()
+    };
+    Player::send_action(
+        &writer,
         "sub-add",
         Some(json!({ "url": url, "label": label.unwrap_or_else(|| "Subtitle".into()) })),
     )

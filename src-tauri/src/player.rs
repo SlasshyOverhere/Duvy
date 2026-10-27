@@ -92,7 +92,7 @@ pub struct PlayRequest {
 
 pub struct Player {
     child: Child,
-    writer: Box<dyn Duplex>,
+    writer: Arc<Mutex<Box<dyn Duplex>>>,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
     #[cfg_attr(windows, allow(dead_code))]
@@ -537,7 +537,7 @@ impl Player {
 
         Ok(Self {
             child,
-            writer,
+            writer: Arc::new(Mutex::new(writer)),
             snapshot,
             stop,
             pipe,
@@ -548,43 +548,68 @@ impl Player {
         self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
-    pub fn command(&mut self, action: &str, value: Option<Value>) -> Result<(), String> {
+    pub fn writer(&self) -> Arc<Mutex<Box<dyn Duplex>>> {
+        Arc::clone(&self.writer)
+    }
+
+    /// mpv reported a dead source. Its pipe wedges, so writes are refused.
+    pub fn failed(&self) -> bool {
+        self.snapshot
+            .lock()
+            .map(|snap| snap.error.is_some())
+            .unwrap_or(true)
+    }
+
+    /// Stop mpv now; reaping it can happen later on another thread.
+    pub fn kill(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = self.child.kill();
+    }
+
+    /// Send one action without holding the player slot, so a wedged mpv cannot
+    /// block the next playback behind a full IPC pipe.
+    pub fn send_action(
+        writer: &Arc<Mutex<Box<dyn Duplex>>>,
+        action: &str,
+        value: Option<Value>,
+    ) -> Result<(), String> {
+        let mut writer = writer.lock().map_err(|_| "player is busy")?;
         match action {
-            "toggle-pause" => send(&mut self.writer, json!({"command": ["cycle", "pause"]})),
+            "toggle-pause" => send(&mut writer, json!({"command": ["cycle", "pause"]})),
             "seek" => {
                 let position = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "time-pos", position]}),
                 )
             }
             "seek-rel" => {
                 let delta = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["seek", delta, "relative"]}),
                 )
             }
             "volume" => {
                 let volume = value.and_then(|v| v.as_f64()).unwrap_or(100.0);
-                send(&mut self.writer, json!({"command": ["set_property", "volume", volume]}))
+                send(&mut writer, json!({"command": ["set_property", "volume", volume]}))
             }
-            "mute" => send(&mut self.writer, json!({"command": ["cycle", "mute"]})),
+            "mute" => send(&mut writer, json!({"command": ["cycle", "mute"]})),
             "speed" => {
                 let speed = value.and_then(|v| v.as_f64()).unwrap_or(1.0);
-                send(&mut self.writer, json!({"command": ["set_property", "speed", speed]}))
+                send(&mut writer, json!({"command": ["set_property", "speed", speed]}))
             }
             "audio" => {
                 let id = value.and_then(|v| v.as_i64());
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "aid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
                 )
             }
             "sub" => {
                 let id = value.and_then(|v| v.as_i64());
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "sid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
                 )
             }
@@ -594,28 +619,28 @@ impl Player {
                     return Err("Subtitle font size must be between 10 and 200".into());
                 }
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "sub-font-size", size]}),
                 )
             }
             "sub-color" => {
                 let color = color_value(value.as_ref(), "Subtitle colour")?;
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "sub-color", color]}),
                 )
             }
             "sub-back-color" => {
                 let color = color_value(value.as_ref(), "Subtitle background")?;
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "sub-back-color", color]}),
                 )
             }
             "sub-delay" => {
                 let delay = number_value(value.as_ref(), "Subtitle delay")?;
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["set_property", "sub-delay", delay]}),
                 )
             }
@@ -636,12 +661,12 @@ impl Player {
                     return Err("No subtitle URL supplied".into());
                 }
                 send(
-                    &mut self.writer,
+                    &mut writer,
                     json!({"command": ["sub-add", url, "select", label]}),
                 )
             }
             "stop" => {
-                let _ = send(&mut self.writer, json!({"command": ["quit"]}));
+                let _ = send(&mut writer, json!({"command": ["quit"]}));
                 Ok(())
             }
             other => Err(format!("Unknown player action: {other}")),
