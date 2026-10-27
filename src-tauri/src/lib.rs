@@ -385,7 +385,7 @@ pub fn video_host(app: &tauri::AppHandle) -> Option<isize> {
 }
 
 /// Whether an mpv surface is currently attached to the window.
-fn player_is_live(app: &tauri::AppHandle) -> bool {
+pub(crate) fn player_is_live(app: &tauri::AppHandle) -> bool {
     let Some(state) = app.try_state::<AppState>() else {
         return false;
     };

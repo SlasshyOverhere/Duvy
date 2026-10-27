@@ -1251,11 +1251,17 @@ pub async fn player_subtitle(
 #[tauri::command]
 pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
     let host = crate::video_host(&app).ok_or("The main window is not available")?;
-    if crate::set_fullscreen(host, on) {
-        Ok(())
-    } else {
-        Err("The window could not go fullscreen".into())
+    // Fullscreen has no frame, but tao still insets the client rect for the
+    // window shadow, which shows as black bars around the page. The player
+    // needs it off too, so it only comes back with neither.
+    set_window_shadow(&app, !on && !crate::player_is_live(&app));
+    if !crate::set_fullscreen(host, on) {
+        return Err("The window could not go fullscreen".into());
     }
+    if !on {
+        crate::refit_webview(host);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
