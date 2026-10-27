@@ -482,9 +482,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Resolve metadata, resume point, and the best playable source in one go. */
   const playItem = useCallback(
     async (item: MetaPreview, fromStart = false) => {
+      // One click, one chain: a second click while a source is still being
+      // found used to start a whole second hunt behind the first.
+      if (pending.current) return;
+      pending.current = true;
       try {
         notify(`Finding a source for ${item.name}…`);
-        const details = await api.details(item.id, item.type);
+        // A movie's tt id is what the stream addons key on, so the hunt can run
+        // alongside the details fetch instead of queueing behind it.
+        const early =
+          item.type === "movie" && item.id.startsWith("tt")
+            ? api.streams({ id: item.id, mediaType: item.type })
+            : null;
+        const [details, prefetched] = await Promise.all([api.details(item.id, item.type), early]);
         let video: Video | null = null;
         if (details.type === "series") {
           const last = progress
@@ -504,13 +514,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         const session = sessionFor(details, video);
         const resume = settings?.autoResume && !fromStart ? progressFor(session.key)?.position ?? 0 : 0;
-        const options = await api.streams({
-          id: details.imdbId ?? details.id,
-          mediaType: details.type,
-          season: session.season,
-          episode: session.episode,
-          imdbId: details.imdbId,
-        });
+        const options =
+          (details.type === item.type ? prefetched : null) ??
+          (await api.streams({
+            id: details.imdbId ?? details.id,
+            mediaType: details.type,
+            season: session.season,
+            episode: session.episode,
+            imdbId: details.imdbId,
+          }));
         const source = pickSource(
           options,
           settings?.preferredQuality ?? "auto",
@@ -525,6 +537,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await playRequest({ url, title: label, startAt: resume, session });
       } catch (error) {
         notify(errorMessage(error), "error");
+      } finally {
+        pending.current = false;
       }
     },
     [
@@ -543,19 +557,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Resume a specific Continue Watching entry (exact episode, exact position). */
   const resumeEntry = useCallback(
     async (entry: ProgressItem) => {
+      if (pending.current) return;
+      pending.current = true;
       try {
-        const details = await api.details(entry.metaId, entry.type);
-        const video =
-          entry.type === "series"
-            ? details.videos.find(
-                (candidate) =>
-                  candidate.season === entry.season &&
-                  (candidate.episode ?? candidate.number) === entry.episode,
-              ) ??
-              details.videos[0] ??
-              null
-            : null;
-        if (entry.type === "series" && !video) {
+        notify(`Resuming ${entry.name}…`);
+        // The entry already carries every session field, and a tt id is exactly
+        // what the stream addons key on. Fetching details first only resolved
+        // that same id, at the cost of a full metadata round trip before the hunt.
+        const imdbId = entry.metaId.startsWith("tt") ? entry.metaId : null;
+        const details = imdbId ? null : await api.details(entry.metaId, entry.type);
+        if (details && entry.type === "series" && details.videos.length === 0) {
           navigate({ name: "details", id: entry.metaId, type: entry.type });
           return;
         }
@@ -571,11 +582,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episodeTitle: entry.episodeTitle ?? null,
         };
         const sources = await api.streams({
-          id: details.imdbId ?? details.id,
-          mediaType: details.type,
+          id: imdbId ?? details?.imdbId ?? details?.id ?? entry.metaId,
+          mediaType: details?.type ?? entry.type,
           season: entry.season,
           episode: entry.episode,
-          imdbId: details.imdbId,
+          imdbId: imdbId ?? details?.imdbId ?? null,
         });
         const source = pickSource(
           sources,
@@ -585,17 +596,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
-        notify("Resuming…");
         await playRequest({
           url,
-          title: video
-            ? `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`
-            : details.name,
+          title:
+            entry.type === "series"
+              ? `${entry.name} · ${seasonLabel(entry.season, entry.episode)}`
+              : entry.name,
           startAt: entry.position,
           session,
         });
       } catch (error) {
         notify(errorMessage(error), "error");
+      } finally {
+        pending.current = false;
       }
     },
     [
