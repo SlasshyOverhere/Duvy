@@ -45,7 +45,8 @@ function catalogCount(addon: AddonInfo): string {
   return `${count} ${count === 1 ? "catalog" : "catalogs"}`;
 }
 
-export function AddonsView() {
+// Addon management lives in Settings, so this is the body without a page shell.
+export function AddonsPanel() {
   const { addons, booting, refreshAddons, notify } = useApp();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -101,18 +102,7 @@ export function AddonsView() {
   const loading = booting || (busy && addons.length === 0);
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <p className="kicker">Addons</p>
-          <h1>Bring your own sources</h1>
-          <p className="page-sub">
-            BetterNuvio speaks the open Stremio addon protocol. Nothing is bundled and nothing is
-            scraped. Every catalog, metadata record and stream comes from a URL you add.
-          </p>
-        </div>
-      </header>
-
+    <>
       <section className="install-card">
         <div className="install-copy">
           <h2>Install from URL</h2>
@@ -249,6 +239,6 @@ export function AddonsView() {
           HTTP sources and local files.
         </span>
       </footer>
-    </div>
+    </>
   );
 }

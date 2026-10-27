@@ -6,16 +6,15 @@ import { Icon, IconButton, type IconName } from "./ui";
 
 const DOCK: { route: Route; label: string; icon: IconName }[] = [
   { route: { name: "home" }, label: "Home", icon: "home" },
-  { route: { name: "discover" }, label: "Discover", icon: "compass" },
   { route: { name: "search" }, label: "Search", icon: "search" },
   { route: { name: "library" }, label: "Library", icon: "library" },
-  { route: { name: "watched" }, label: "Watched", icon: "check" },
-  { route: { name: "addons" }, label: "Addons", icon: "puzzle" },
+  { route: { name: "settings" }, label: "Settings", icon: "settings" },
 ];
 
-// Home stays lit on a title page, the way a tab would.
+// A title page keeps Home lit, and watched history lives inside Library.
 function isActive(route: Route, target: Route) {
   if (target.name === "home") return route.name === "home" || route.name === "details";
+  if (target.name === "library") return route.name === "library" || route.name === "watched";
   return route.name === target.name;
 }
 
@@ -104,7 +103,11 @@ export function TopBar() {
 
       <div className="topbar-right">
         {addons.length === 0 ? (
-          <button type="button" className="pill pill-warn" onClick={() => navigate({ name: "addons" })}>
+          <button
+            type="button"
+            className="pill pill-warn"
+            onClick={() => navigate({ name: "settings", section: "addons" })}
+          >
             <Icon name="puzzle" size={14} /> No addons
           </button>
         ) : null}
@@ -136,16 +139,6 @@ export function TopBar() {
             <Icon name={fullscreen ? "compress" : "expand"} size={19} />
           </button>
         ) : null}
-
-        <button
-          type="button"
-          className="profile-btn"
-          onClick={() => navigate({ name: "settings" })}
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Icon name="settings" size={19} />
-        </button>
       </div>
     </header>
   );

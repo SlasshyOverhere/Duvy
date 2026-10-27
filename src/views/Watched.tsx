@@ -141,7 +141,19 @@ export function WatchedView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <p className="kicker">Watched</p>
+          <div className="page-tabs" role="tablist" aria-label="Library">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              onClick={() => navigate({ name: "library" })}
+            >
+              Library
+            </button>
+            <button type="button" role="tab" aria-selected className="is-active">
+              Watched
+            </button>
+          </div>
           <h1>Finished, not forgotten</h1>
           <p className="page-sub">{status}</p>
         </div>
@@ -187,8 +199,8 @@ export function WatchedView() {
           title="Nothing finished yet"
           body="Titles land here when you finish them, or when Nuvio marks them watched on another device."
           action={
-            <Button variant="primary" icon="compass" onClick={() => navigate({ name: "discover" })}>
-              Browse catalogs
+            <Button variant="primary" icon="home" onClick={() => navigate({ name: "home" })}>
+              Back to home
             </Button>
           }
         />

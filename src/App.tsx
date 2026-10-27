@@ -9,14 +9,10 @@ import { PlayerView } from "./views/Player";
 // Playback stays in the first chunk because the player must open instantly;
 // every other screen is fetched the first time it is opened.
 const HomeView = lazy(() => import("./views/Home").then((m) => ({ default: m.HomeView })));
-const DiscoverView = lazy(() =>
-  import("./views/Discover").then((m) => ({ default: m.DiscoverView })),
-);
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
 const LibraryView = lazy(() => import("./views/Library").then((m) => ({ default: m.LibraryView })));
 const WatchedView = lazy(() => import("./views/Watched").then((m) => ({ default: m.WatchedView })));
-const AddonsView = lazy(() => import("./views/Addons").then((m) => ({ default: m.AddonsView })));
 const SettingsView = lazy(() =>
   import("./views/Settings").then((m) => ({ default: m.SettingsView })),
 );
@@ -157,11 +153,9 @@ function Screen() {
             <ErrorBoundary key={viewKey}>
               <Suspense fallback={<div className="view-loading" aria-hidden="true" />}>
                 {route.name === "home" ? <HomeView /> : null}
-                {route.name === "discover" ? <DiscoverView mediaType={route.mediaType} /> : null}
                 {route.name === "search" ? <SearchView query={route.query} /> : null}
                 {route.name === "library" ? <LibraryView /> : null}
                 {route.name === "watched" ? <WatchedView /> : null}
-                {route.name === "addons" ? <AddonsView /> : null}
                 {route.name === "settings" ? <SettingsView section={route.section} /> : null}
                 {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
               </Suspense>

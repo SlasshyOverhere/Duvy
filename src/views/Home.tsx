@@ -122,7 +122,11 @@ export function HomeView() {
             body="BetterNuvio ships with no content. Add a catalog addon to fill this screen, or connect TMDB for curated rows."
             action={
               <div className="empty-actions">
-                <Button variant="primary" icon="puzzle" onClick={() => navigate({ name: "addons" })}>
+                <Button
+                  variant="primary"
+                  icon="puzzle"
+                  onClick={() => navigate({ name: "settings", section: "addons" })}
+                >
                   Add an addon
                 </Button>
                 <Button icon="key" onClick={() => navigate({ name: "settings", section: "integrations" })}>

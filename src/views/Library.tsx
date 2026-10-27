@@ -85,7 +85,19 @@ export function LibraryView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <p className="kicker">Library</p>
+          <div className="page-tabs" role="tablist" aria-label="Library">
+            <button type="button" role="tab" aria-selected className="is-active">
+              Library
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              onClick={() => navigate({ name: "watched" })}
+            >
+              Watched
+            </button>
+          </div>
           <h1>Saved for later</h1>
           <p className="page-sub">
             {items.length === library.length
@@ -153,8 +165,8 @@ export function LibraryView() {
           body={EMPTY[tab].body}
           action={
             tab === "all" ? (
-              <Button variant="primary" icon="compass" onClick={() => navigate({ name: "discover" })}>
-                Browse catalogs
+              <Button variant="primary" icon="home" onClick={() => navigate({ name: "home" })}>
+                Back to home
               </Button>
             ) : (
               <Button variant="primary" icon="library" onClick={() => setTab("all")}>

@@ -4,6 +4,7 @@ import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { Button, Icon, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
+import { AddonsPanel } from "./Addons";
 import TraktView from "./Trakt";
 import DebridView from "./Debrid";
 import TorrentView from "./Torrent";
@@ -12,6 +13,7 @@ import { MediaServers } from "./settings/MediaServers";
 const SECTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: "general", label: "General", icon: "sliders" },
   { id: "playback", label: "Playback", icon: "play" },
+  { id: "addons", label: "Addons", icon: "puzzle" },
   { id: "servers", label: "Servers", icon: "tv" },
   { id: "integrations", label: "Integrations", icon: "key" },
   { id: "sync", label: "Sync", icon: "refresh" },
@@ -523,6 +525,19 @@ export function SettingsView({ section }: { section?: string }) {
 
           {tab === "sync" ? <NuvioSync /> : null}
           {tab === "servers" ? <MediaServers /> : null}
+
+          {tab === "addons" ? (
+            <>
+              <section className="settings-group">
+                <h2>Addons</h2>
+                <p className="settings-hint">
+                  BetterNuvio speaks the open Stremio addon protocol. Nothing is bundled and nothing
+                  is scraped; every catalog, metadata record and stream comes from a URL you add.
+                </p>
+              </section>
+              <AddonsPanel />
+            </>
+          ) : null}
 
           {tab === "about" ? (
             <>

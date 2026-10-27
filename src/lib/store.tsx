@@ -28,11 +28,9 @@ import type {
 
 export type Route =
   | { name: "home" }
-  | { name: "discover"; mediaType?: string }
   | { name: "search"; query?: string }
   | { name: "library" }
   | { name: "watched" }
-  | { name: "addons" }
   | { name: "settings"; section?: string }
   | { name: "details"; id: string; type: string }
   | { name: "player" };
