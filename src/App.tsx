@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
+import { TitleBar } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { Icon } from "./components/ui";
 import { PlayerView } from "./views/Player";
@@ -147,25 +148,28 @@ function Screen() {
   }`;
 
   return (
-    <div className="shell">
-      <div className="main">
-        <TopBar />
-        <main className="view" key={viewKey}>
-          <ErrorBoundary key={viewKey}>
-            <Suspense fallback={<div className="view-loading" aria-hidden="true" />}>
-              {route.name === "home" ? <HomeView /> : null}
-              {route.name === "discover" ? <DiscoverView mediaType={route.mediaType} /> : null}
-              {route.name === "search" ? <SearchView query={route.query} /> : null}
-              {route.name === "library" ? <LibraryView /> : null}
-              {route.name === "watched" ? <WatchedView /> : null}
-              {route.name === "addons" ? <AddonsView /> : null}
-              {route.name === "settings" ? <SettingsView section={route.section} /> : null}
-              {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
-            </Suspense>
-          </ErrorBoundary>
-        </main>
+    <div className="app">
+      <TitleBar />
+      <div className="shell">
+        <div className="main">
+          <TopBar />
+          <main className="view" key={viewKey}>
+            <ErrorBoundary key={viewKey}>
+              <Suspense fallback={<div className="view-loading" aria-hidden="true" />}>
+                {route.name === "home" ? <HomeView /> : null}
+                {route.name === "discover" ? <DiscoverView mediaType={route.mediaType} /> : null}
+                {route.name === "search" ? <SearchView query={route.query} /> : null}
+                {route.name === "library" ? <LibraryView /> : null}
+                {route.name === "watched" ? <WatchedView /> : null}
+                {route.name === "addons" ? <AddonsView /> : null}
+                {route.name === "settings" ? <SettingsView section={route.section} /> : null}
+                {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
+              </Suspense>
+            </ErrorBoundary>
+          </main>
+        </div>
+        <Toasts />
       </div>
-      <Toasts />
     </div>
   );
 }

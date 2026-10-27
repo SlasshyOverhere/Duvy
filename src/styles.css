@@ -37,6 +37,7 @@
   --display: var(--sans);
   --pad: clamp(24px, 5vw, 88px);
   --nav-h: 88px;
+  --titlebar-h: 34px;
 }
 
 :root[data-accent="violet"] {
@@ -185,13 +186,141 @@ select {
 
 .shell {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-}.main {
+}
+
+.main {
   position: relative;
   flex: 1;
   min-width: 0;
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+   Chrome: the frameless window's own bar and its resize edges
+   --------------------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
+  overflow: hidden;
+}
+
+.titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--titlebar-h);
+  background: var(--bg-2);
+  user-select: none;
+}
+
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+}
+
+.titlebar-button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  transition: background 0.12s linear, color 0.12s linear;
+}
+
+.titlebar-button svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.titlebar-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.titlebar-button.is-close:hover {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+/* Four edges, four corners, four pixels of grab each. */
+.resize-edge {
+  position: fixed;
+  z-index: 200;
+}
+
+.resize-north,
+.resize-south {
+  left: 10px;
+  right: 10px;
+  height: 4px;
+  cursor: ns-resize;
+}
+
+.resize-west,
+.resize-east {
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.resize-north {
+  top: 0;
+}
+
+.resize-south {
+  bottom: 0;
+}
+
+.resize-west {
+  left: 0;
+}
+
+.resize-east {
+  right: 0;
+}
+
+.resize-north-west,
+.resize-north-east,
+.resize-south-west,
+.resize-south-east {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-north-west {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.resize-south-east {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+.resize-north-east {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.resize-south-west {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
 }
 
 .topbar {

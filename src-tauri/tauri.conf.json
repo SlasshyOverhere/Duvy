@@ -20,6 +20,7 @@
         "minHeight": 640,
         "center": true,
         "theme": "Dark",
+        "decorations": false,
         "transparent": false,
         "backgroundColor": "#08090c",
         "dragDropEnabled": false
