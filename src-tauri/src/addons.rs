@@ -183,7 +183,7 @@ pub struct Meta {
 pub struct Video {
     #[serde(default)]
     pub id: String,
-    #[serde(default)]
+    #[serde(default, alias = "name")]
     pub title: Option<String>,
     #[serde(default)]
     pub season: Option<i64>,

@@ -4,8 +4,11 @@
 use crate::models::{CastMember, HomeRow, MetaDetails};
 use crate::addons::MetaPreview;
 use serde_json::Value;
+use std::time::Duration;
 
 const API: &str = "https://api.themoviedb.org/3";
+const BALLOON: &str = "https://api.balloonerismm.workers.dev";
+const CINEMETA_CATALOG: &str = "https://v3-cinemeta.strem.io/catalog";
 const IMG: &str = "https://image.tmdb.org/t/p";
 
 pub fn poster_url(path: &str) -> String {
@@ -37,12 +40,26 @@ fn media_type_of(item: &Value) -> String {
 }
 
 pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
-    let tmdb_id = item.get("id")?.as_i64()?;
     let media_type = media_type_of(item);
     if media_type != "movie" && media_type != "series" && media_type != "tv" {
         return None;
     }
     let media_type = if media_type == "tv" { "series".to_string() } else { media_type };
+
+    // The mirror keys its rows by IMDb id, which is also what stream addons
+    // expect, so an `tt` id is kept as-is instead of being wrapped in `tmdb:`.
+    let imdb = item
+        .get("imdb_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| item.get("id").and_then(|v| v.as_str()))
+        .filter(|s| s.starts_with("tt"))
+        .map(|s| s.to_string());
+    let id = match (imdb, item.get("id").and_then(|v| v.as_i64())) {
+        (Some(imdb), _) => imdb,
+        (None, Some(numeric)) => format!("tmdb:{media_type}:{numeric}"),
+        (None, None) => return None,
+    };
+
     let name = item
         .get("title")
         .or_else(|| item.get("name"))
@@ -64,7 +81,7 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
         .map(|v| format!("{v:.1}"));
 
     Some(MetaPreview {
-        id: format!("tmdb:{media_type}:{tmdb_id}"),
+        id,
         media_type,
         name,
         poster,
@@ -83,56 +100,157 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
     })
 }
 
+async fn fetch(client: &reqwest::Client, url: &str) -> Result<Value, String> {
+    let response = client
+        .get(url)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(|e| format!("metadata request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("metadata source returned HTTP {}", response.status()));
+    }
+    response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("metadata response was not JSON: {e}"))
+}
+
+fn items_of(value: &Value) -> Vec<MetaPreview> {
+    value
+        .get("results")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(preview_from_item).collect())
+        .unwrap_or_default()
+}
+
+/// One catalog page from the IMDb-keyed mirror.
+async fn mirror(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
+    match fetch(client, &format!("{BALLOON}{path}")).await {
+        Ok(value) => items_of(&value),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
+    let id = item
+        .get("imdb_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| item.get("id").and_then(|v| v.as_str()))
+        .filter(|s| s.starts_with("tt"))?
+        .to_string();
+    let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or("movie");
+    Some(MetaPreview {
+        id,
+        media_type: if kind == "series" { "series".into() } else { "movie".into() },
+        name: item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Untitled")
+            .to_string(),
+        poster: item.get("poster").and_then(|v| v.as_str()).map(str::to_string),
+        poster_shape: Some("poster".into()),
+        background: item.get("background").and_then(|v| v.as_str()).map(str::to_string),
+        logo: item.get("logo").and_then(|v| v.as_str()).map(str::to_string),
+        description: item
+            .get("description")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        release_info: item
+            .get("releaseInfo")
+            .or_else(|| item.get("year"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        imdb_rating: item
+            .get("imdbRating")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        genres: item
+            .get("genres")
+            .and_then(|v| v.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|g| g.as_str().map(str::to_string))
+                    .collect::<Vec<String>>()
+            }),
+        runtime: None,
+    })
+}
+
+/// Cinemeta has two curated catalogs and they already carry IMDb ids.
+async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
+    match fetch(client, &format!("{CINEMETA_CATALOG}{path}.json")).await {
+        Ok(value) => value
+            .get("metas")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(preview_from_cinemeta).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
 async fn get(
     client: &reqwest::Client,
     key: &str,
     path: &str,
     query: &[(&str, &str)],
 ) -> Result<Value, String> {
-    let url = format!("{API}{path}");
-    let request = client.get(&url).query(query).query(&[("api_key", key)]);
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("TMDB request failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("TMDB returned HTTP {}", response.status()));
+    let mut url = reqwest::Url::parse(&format!("{API}{path}")).map_err(|e| e.to_string())?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        for (name, value) in query {
+            pairs.append_pair(name, value);
+        }
+        pairs.append_pair("api_key", key);
     }
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("TMDB response was not JSON: {e}"))
+    fetch(client, url.as_str()).await
 }
 
-const ROWS: &[(&str, &str)] = &[
-    ("trending/all/week", "Trending this week"),
-    ("movie/popular", "Popular movies"),
-    ("tv/popular", "Popular series"),
-    ("movie/top_rated", "Top rated movies"),
-    ("tv/top_rated", "Top rated series"),
-    ("movie/now_playing", "In cinemas"),
+/// (mirror path, Cinemeta catalog, TMDB path, row title)
+const ROWS: &[(&str, &str, &str, &str)] = &[
+    ("/popular/all", "", "trending/all/week", "Trending this week"),
+    ("/popular/movie", "movie/top", "movie/popular", "Popular movies"),
+    ("/popular/tv", "series/top", "tv/popular", "Popular series"),
+    ("/movie/top_rated", "", "movie/top_rated", "Top rated movies"),
+    ("/tv/top_rated", "", "tv/top_rated", "Top rated series"),
+    ("/movie/upcoming", "", "movie/now_playing", "In cinemas"),
 ];
 
 pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRow>, String> {
     let mut rows = Vec::new();
-    for (path, title) in ROWS {
-        let value = get(client, key, &format!("/{path}"), &[("language", "en-US")]).await?;
-        let items: Vec<MetaPreview> = value
-            .get("results")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(preview_from_item).collect())
-            .unwrap_or_default();
+    for (mirror_path, cinemeta_path, tmdb_path, title) in ROWS {
+        // Cinemeta answers without a key and hands back IMDb ids, which is what
+        // stream addons key on. The mirror and TMDB are the fallbacks.
+        let mut items = if cinemeta_path.is_empty() {
+            Vec::new()
+        } else {
+            cinemeta_catalog(client, cinemeta_path).await
+        };
+        if items.is_empty() {
+            items = mirror(client, mirror_path).await;
+        }
+        if items.is_empty() && !key.is_empty() {
+            items = get(client, key, &format!("/{tmdb_path}"), &[("language", "en-US")])
+                .await
+                .map(|value| items_of(&value))
+                .unwrap_or_default();
+        }
         if items.is_empty() {
             continue;
         }
         rows.push(HomeRow {
-            id: format!("tmdb:{path}"),
+            id: format!("row:{mirror_path}"),
             title: (*title).to_string(),
-            addon: Some("TMDB".into()),
+            addon: Some("Discover".into()),
             media_type: "mixed".into(),
-            catalog_id: path.to_string(),
+            catalog_id: (*mirror_path).to_string(),
             items,
         });
+    }
+    if rows.is_empty() {
+        return Err("No discovery source answered. Try again in a moment.".into());
     }
     Ok(rows)
 }
@@ -142,18 +260,29 @@ pub async fn search(
     key: &str,
     query: &str,
 ) -> Result<Vec<MetaPreview>, String> {
-    let value = get(
-        client,
-        key,
-        "/search/multi",
-        &[("query", query), ("include_adult", "false"), ("language", "en-US")],
-    )
-    .await?;
-    Ok(value
-        .get("results")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(preview_from_item).collect())
-        .unwrap_or_default())
+    let mut url =
+        reqwest::Url::parse(&format!("{BALLOON}/search/multi")).map_err(|e| e.to_string())?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("query", query);
+        pairs.append_pair("language", "en-US");
+    }
+    let mut items = fetch(client, url.as_str())
+        .await
+        .map(|value| items_of(&value))
+        .unwrap_or_default();
+
+    if items.is_empty() && !key.is_empty() {
+        let value = get(
+            client,
+            key,
+            "/search/multi",
+            &[("query", query), ("include_adult", "false"), ("language", "en-US")],
+        )
+        .await?;
+        items = items_of(&value);
+    }
+    Ok(items)
 }
 
 /// Resolve a TMDB id into a full detail record.

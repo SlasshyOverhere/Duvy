@@ -340,11 +340,18 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut errors: Vec<String> = Vec::new();
 
     let key = settings.tmdb_api_key.trim().to_string();
-    if !key.is_empty() {
-        match tmdb::home_rows(&state.http, &key).await {
-            Ok(mut tmdb_rows) => rows.append(&mut tmdb_rows),
-            Err(e) => errors.push(format!("TMDB: {e}")),
-        }
+    let mut discover_error: Option<String> = None;
+    // Six catalogs walk three sources each; cap them so a dead network cannot
+    // hold the home screen hostage.
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(14),
+        tmdb::home_rows(&state.http, &key),
+    )
+    .await
+    {
+        Ok(Ok(mut discover_rows)) => rows.append(&mut discover_rows),
+        Ok(Err(e)) => discover_error = Some(format!("Discover: {e}")),
+        Err(_) => discover_error = Some("Discover timed out".into()),
     }
 
     struct Task {
@@ -456,6 +463,13 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let limit = settings.home_rows_limit.clamp(1, 24) as usize;
     rows.truncate(limit);
     errors.truncate(6);
+    // A dead discovery source only matters when it left the page empty; with
+    // addon catalogs on screen the banner is noise.
+    if rows.is_empty() {
+        if let Some(message) = discover_error {
+            errors.insert(0, message);
+        }
+    }
 
     Ok(HomeFeed {
         continue_watching: progress,
@@ -599,6 +613,12 @@ pub async fn meta_details(
                 }
             }
         }
+        if details.videos.is_empty() && details.media_type == "series" {
+            if let Some(imdb) = details.imdb_id.clone() {
+                details.videos =
+                    crate::meta::videos(&state.http, &imdb, &details.media_type).await;
+            }
+        }
         return Ok(details);
     }
 
@@ -606,10 +626,19 @@ pub async fn meta_details(
         addon_meta(&state.http, &addons, &id, &media_type).await
     {
         meta_details_from_meta(meta, "addon")
-    } else if !key.is_empty() && id.starts_with("tt") {
-        let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
-        match found {
-            Some((kind, tmdb_id)) => tmdb::details(&state.http, &key, &kind, &tmdb_id).await?,
+    } else if id.starts_with("tt") {
+        // No addon knows this id: the mirror and Cinemeta still do.
+        match crate::meta::details(&state.http, &id, &media_type).await {
+            Some(found) => found,
+            None if !key.is_empty() => {
+                let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
+                match found {
+                    Some((kind, tmdb_id)) => {
+                        tmdb::details(&state.http, &key, &kind, &tmdb_id).await?
+                    }
+                    None => return Err("No metadata source could resolve this title".into()),
+                }
+            }
             None => return Err("No metadata source could resolve this title".into()),
         }
     } else {
@@ -618,6 +647,18 @@ pub async fn meta_details(
                 .into(),
         );
     };
+
+    // An addon can describe a series yet send no episode list. Cinemeta has
+    // the whole thing in one request, which beats a page of "Untitled".
+    if details.videos.is_empty() && details.media_type == "series" {
+        let imdb = details
+            .imdb_id
+            .clone()
+            .or_else(|| id.starts_with("tt").then(|| id.clone()));
+        if let Some(imdb) = imdb {
+            details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
+        }
+    }
 
     if !key.is_empty() {
         let imdb = details

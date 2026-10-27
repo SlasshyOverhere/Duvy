@@ -16,7 +16,7 @@ function message(error: unknown): string {
  * BetterNuvio on the next sync.
  */
 export function NuvioSync() {
-  const { settings, saveSettings, refreshProgress } = useApp();
+  const { settings, saveSettings, refreshProgress, refreshLibrary } = useApp();
   const [status, setStatus] = useState<NuvioStatus | null>(null);
   const [profiles, setProfiles] = useState<NuvioProfile[]>([]);
   const [email, setEmail] = useState("");
@@ -52,7 +52,7 @@ export function NuvioSync() {
       setStatus(await api.nuvio.signIn(email.trim(), password, signUp));
       setPassword("");
       setNote("Signed in. First sync finished.");
-      await refreshProgress();
+      await Promise.all([refreshProgress(), refreshLibrary()]);
       await refresh();
     } catch (e) {
       setError(message(e));
@@ -70,7 +70,7 @@ export function NuvioSync() {
       setNote(
         `Pulled ${report.progress} progress, ${report.watched} watched and ${report.library} library rows; pushed ${report.pushed}.`,
       );
-      await refreshProgress();
+      await Promise.all([refreshProgress(), refreshLibrary()]);
       await refresh();
     } catch (e) {
       setError(message(e));

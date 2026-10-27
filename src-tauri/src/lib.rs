@@ -7,6 +7,7 @@ mod addons;
 mod commands;
 mod db;
 mod debrid;
+mod meta;
 mod models;
 mod nuvio_sync;
 mod playback_log;

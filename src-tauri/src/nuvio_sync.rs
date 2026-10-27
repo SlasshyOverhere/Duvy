@@ -510,6 +510,42 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     }
 
     report.pushed = (report.progress + report.watched + report.library) as i64;
+
+    // ---- enrich -----------------------------------------------------------
+    // The account carries ids only, so pulled rows arrive with no title or
+    // art. Resolve them here; anything that fails is retried next sync.
+    let mut missing = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let mut rows = db::progress_missing_meta(&conn).unwrap_or_default();
+        rows.append(&mut db::library_missing_meta(&conn).unwrap_or_default());
+        rows
+    };
+    // The same title usually lands in both tables; resolve it once.
+    missing.sort();
+    missing.dedup();
+    if !missing.is_empty() {
+        let filled = crate::meta::fill_missing(&state.http, missing).await;
+        if !filled.is_empty() {
+            let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+            for (meta_id, name, poster, background) in filled {
+                let _ = db::set_progress_meta(
+                    &conn,
+                    &meta_id,
+                    &name,
+                    poster.as_deref(),
+                    background.as_deref(),
+                );
+                let _ = db::set_library_meta(
+                    &conn,
+                    &meta_id,
+                    &name,
+                    poster.as_deref(),
+                    background.as_deref(),
+                );
+            }
+        }
+    }
+
     session.last_sync = db::now();
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
     save_session(&conn, &session)?;
