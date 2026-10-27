@@ -144,7 +144,7 @@ export function DiscoverView({ mediaType }: { mediaType?: string }) {
             onClick={() => setActive(choice.key)}
           >
             {choice.catalog.name || choice.catalog.id}
-            <span>{choice.catalog.type === "series" ? "Series" : "Movies"}</span>
+            <span>{choice.catalog.type === "series" ? "Shows" : "Movies"}</span>
           </button>
         ))}
       </div>

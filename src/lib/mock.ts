@@ -90,8 +90,8 @@ const MOVIES = makeItems(TITLES_MOVIES, "movie", "tt1");
 const SERIES = makeItems(TITLES_SERIES, "series", "tt2");
 
 const ROWS: HomeRow[] = [
-  { id: "mock:movie:top", title: "Featured films", addon: "Cinemeta", type: "movie", catalogId: "top", items: MOVIES.slice(0, 10) },
-  { id: "mock:series:top", title: "Series everyone is watching", addon: "Cinemeta", type: "series", catalogId: "top", items: SERIES.slice(0, 10) },
+  { id: "mock:movie:top", title: "Featured movies", addon: "Cinemeta", type: "movie", catalogId: "top", items: MOVIES.slice(0, 10) },
+  { id: "mock:series:top", title: "Shows everyone is watching", addon: "Cinemeta", type: "series", catalogId: "top", items: SERIES.slice(0, 10) },
   { id: "mock:movie:year", title: "New this year", addon: "Cinemeta", type: "movie", catalogId: "year", items: [...MOVIES].reverse().slice(0, 10) },
   { id: "mock:series:year", title: "Fresh seasons", addon: "Cinemeta", type: "series", catalogId: "year", items: [...SERIES].reverse().slice(0, 10) },
 ];
@@ -420,6 +420,9 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         rows: ROWS,
         addonErrors: [],
       } satisfies HomeFeed;
+
+    case "recommendations":
+      return ROWS.slice(0, 2);
 
     case "catalog": {
       const source = payload.mediaType === "series" ? SERIES : MOVIES;

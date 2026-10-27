@@ -482,7 +482,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut addon_rows = addon_rows;
     for (_, row) in addon_rows.iter_mut() {
         if title_counts.get(&row.title).copied().unwrap_or(0) > 1 {
-            let suffix = if row.media_type == "series" { "Series" } else { "Movies" };
+            let suffix = if row.media_type == "series" { "Shows" } else { "Movies" };
             row.title = format!("{} · {suffix}", row.title);
         }
     }
@@ -577,6 +577,102 @@ pub async fn cast_photos(
         }
     }
     Ok(photos)
+}
+
+/// One row of picks for this viewer, built from the genres of what they
+/// recently finished and stripped of anything already watched or started.
+/// No history means no row, and the screen says why.
+#[tauri::command]
+pub async fn recommendations(state: State<'_, AppState>) -> Result<Vec<HomeRow>, String> {
+    let (recent, seen) = {
+        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let recent = db::list_watched_items(&conn).map_err(|e| e.to_string())?;
+        let seen = db::touched_ids(&conn).map_err(|e| e.to_string())?;
+        (recent, seen)
+    };
+    Ok(recommendation_rows(&state.http, recent, seen).await)
+}
+
+/// The pick itself, taking the history as plain data so it can be run outside
+/// Tauri (and against the live network in a test). `seen` is every id the
+/// viewer has touched, so nothing already watched or started can come back.
+pub async fn recommendation_rows(
+    http: &reqwest::Client,
+    recent: Vec<db::WatchedItem>,
+    seen: Vec<String>,
+) -> Vec<HomeRow> {
+    let seen: HashSet<String> = seen.into_iter().collect();
+
+    // Learn the genre of the last dozen finished titles at once: most of them
+    // are "Action", so the next step needs choice, not just the last three.
+    const CANDIDATES: usize = 12;
+    let mut probes = JoinSet::new();
+    for (slot, seed) in recent
+        .into_iter()
+        .filter(|seed| seed.meta_id.starts_with("tt") && !seed.name.trim().is_empty())
+        .take(CANDIDATES)
+        .enumerate()
+    {
+        let http = http.clone();
+        probes.spawn(async move {
+            let details = crate::meta::details(&http, &seed.meta_id, &seed.media_type).await?;
+            let genre = details.genres.first()?.clone();
+            Some((slot, seed, details.media_type.clone(), genre))
+        });
+    }
+
+    let mut found: Vec<Option<(db::WatchedItem, String, String)>> = vec![None; CANDIDATES];
+    while let Some(joined) = probes.join_next().await {
+        if let Ok(Some((slot, seed, media_type, genre))) = joined {
+            found[slot] = Some((seed, media_type, genre));
+        }
+    }
+
+    // Three genres, not three copies: five seeds that all sit in Action would
+    // otherwise repeat the same catalog five times.
+    let mut genres: HashSet<String> = HashSet::new();
+    let seeds: Vec<(db::WatchedItem, String, String)> = found
+        .into_iter()
+        .flatten()
+        .filter(|(_, media_type, genre)| genres.insert(format!("{media_type}|{genre}")))
+        .take(3)
+        .collect();
+
+    // Each genre contributes a share, so one broad taste cannot crowd out the
+    // rest of the row. Anything watched or started never makes the cut.
+    const PER_GENRE: usize = 8;
+    const TOTAL: usize = 24;
+    let mut items = Vec::new();
+    let mut used: HashSet<String> = HashSet::new();
+    for (seed, media_type, genre) in seeds {
+        let mut taken = 0;
+        for item in tmdb::similar(http, &media_type, &genre, &seed.meta_id).await {
+            if seen.contains(&item.id) || !used.insert(item.id.clone()) {
+                continue;
+            }
+            items.push(item);
+            taken += 1;
+            if taken == PER_GENRE || items.len() == TOTAL {
+                break;
+            }
+        }
+        if items.len() == TOTAL {
+            break;
+        }
+    }
+
+    if items.is_empty() {
+        return Vec::new();
+    }
+
+    vec![HomeRow {
+        id: "reco:for-you".into(),
+        title: "Recommended for you".into(),
+        addon: Some("Cinemeta".into()),
+        media_type: "movie".into(),
+        catalog_id: "for-you".into(),
+        items,
+    }]
 }
 
 #[tauri::command]
@@ -1160,4 +1256,48 @@ pub async fn nuvio_sync_now(
 ) -> Result<crate::nuvio_sync::SyncReport, String> {
     let report = crate::nuvio_sync::sync_now(&state).await?;
     Ok(report)
+}
+#[cfg(test)]
+mod reco_tests {
+    use super::*;
+
+    fn seed(id: &str, name: &str, media_type: &str) -> db::WatchedItem {
+        db::WatchedItem {
+            meta_id: id.into(),
+            media_type: media_type.into(),
+            name: name.into(),
+            poster: None,
+            background: None,
+            season: None,
+            episode: None,
+            watched_at: 0,
+        }
+    }
+
+    /// The honest check: the real client, the real catalogs, real history.
+    /// `cargo test --lib -- --ignored`
+    #[tokio::test]
+    #[ignore = "talks to Cinemeta"]
+    async fn one_row_of_picks_never_repeats_history() {
+        let history = vec![
+            seed("tt38915678", "Dorothy", "movie"),
+            seed("tt28607951", "Anora", "movie"),
+            seed("tt7363076", "Raid", "movie"),
+            seed("tt16997004", "Matka King", "series"),
+        ];
+        let seen: Vec<String> = history.iter().map(|item| item.meta_id.clone()).collect();
+        let rows = recommendation_rows(&crate::http_client(), history, seen.clone()).await;
+
+        assert_eq!(rows.len(), 1, "the picks should be one row, not a stack");
+        let row = &rows[0];
+        assert_eq!(row.title, "Recommended for you");
+        assert!(!row.items.is_empty(), "the one row came out empty");
+
+        let ids: HashSet<&str> = row.items.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids.len(), row.items.len(), "the same title appeared twice");
+        for id in &seen {
+            assert!(!ids.contains(id.as_str()), "{id} is already watched");
+        }
+        assert!(row.items.len() <= 24, "the row outgrew its cap");
+    }
 }

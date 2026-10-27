@@ -395,7 +395,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : undefined) ??
             details.videos[0] ??
             null;
-          if (!video) throw new Error("This series has no episodes listed yet.");
+          if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
         const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;

@@ -68,7 +68,7 @@ function Poster({
       <div className="poster-caption">
         <span className="poster-name">{item.name}</span>
         <span className="poster-sub">
-          {[item.kind === "Series" ? "Series" : "Film", item.year].filter(Boolean).join(" · ")}
+          {[item.kind === "Series" ? "Show" : "Movie", item.year].filter(Boolean).join(" · ")}
         </span>
       </div>
     </article>
@@ -233,7 +233,7 @@ export function MediaServers() {
               browsing ? (
                 <Spinner label="Loading library…" />
               ) : items.length === 0 ? (
-                <p className="settings-hint">That library returned no movies or series.</p>
+                <p className="settings-hint">That library returned no movies or shows.</p>
               ) : (
                 <div className="grid" style={{ marginTop: 18 }}>
                   {items.map((item) => (

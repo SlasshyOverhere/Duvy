@@ -180,8 +180,14 @@ fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
 }
 
 /// Cinemeta has two curated catalogs and they already carry IMDb ids.
+fn catalog_url(path: &str) -> String {
+    // Paths arrive as "movie/top" or "/movie/top": one slash, and it has to be
+    // there, or the whole catalog quietly 404s into an empty row.
+    format!("{CINEMETA_CATALOG}/{}.json", path.strip_prefix('/').unwrap_or(path))
+}
+
 async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
-    match fetch(client, &format!("{CINEMETA_CATALOG}{path}.json")).await {
+    match fetch(client, &catalog_url(path)).await {
         Ok(value) => value
             .get("metas")
             .and_then(|v| v.as_array())
@@ -254,9 +260,9 @@ pub async fn similar(
 const ROWS: &[(&str, &str, &str, &str)] = &[
     ("/popular/all", "", "trending/all/week", "Trending this week"),
     ("/popular/movie", "movie/top", "movie/popular", "Popular movies"),
-    ("/popular/tv", "series/top", "tv/popular", "Popular series"),
+    ("/popular/tv", "series/top", "tv/popular", "Popular shows"),
     ("/movie/top_rated", "movie/imdbRating", "movie/top_rated", "Top rated movies"),
-    ("/tv/top_rated", "series/imdbRating", "tv/top_rated", "Top rated series"),
+    ("/tv/top_rated", "series/imdbRating", "tv/top_rated", "Top rated shows"),
     ("/movie/upcoming", "", "movie/now_playing", "In cinemas"),
 ];
 
@@ -510,4 +516,20 @@ pub async fn find_by_imdb(
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn catalog_urls_keep_their_slash() {
+        let base = "https://v3-cinemeta.strem.io/catalog";
+        assert_eq!(catalog_url("movie/top"), format!("{base}/movie/top.json"));
+        assert_eq!(catalog_url("/movie/top"), format!("{base}/movie/top.json"));
+        assert_eq!(
+            catalog_url("movie/top/genre=Action"),
+            format!("{base}/movie/top/genre=Action.json")
+        );
+    }
 }

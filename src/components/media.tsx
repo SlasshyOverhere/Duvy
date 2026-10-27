@@ -83,7 +83,7 @@ export function PosterCard({
         <div className="poster-caption">
           <span className="poster-name">{item.name}</span>
           <span className="poster-sub">
-            {[item.releaseInfo, item.type === "series" ? "Series" : "Film"]
+            {[item.releaseInfo, item.type === "series" ? "Show" : "Movie"]
               .filter(Boolean)
               .join(" · ")}
           </span>

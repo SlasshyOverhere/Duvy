@@ -485,6 +485,15 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
     rows.collect()
 }
 
+/// Every title the viewer has touched in any way: finished, marked watched, or
+/// only started. Used to keep recommendations clear of anything already seen.
+pub fn touched_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT meta_id FROM progress UNION SELECT meta_id FROM watched")?;
+    let rows = stmt.query_map([], |row| row.get(0))?;
+    rows.collect()
+}
+
 // ---------------------------------------------------------------------------
 // People (headshots)
 // ---------------------------------------------------------------------------

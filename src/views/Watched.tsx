@@ -212,7 +212,7 @@ export function WatchedView() {
                 onOpen={() => open(item)}
               />
               <p className="watched-meta">
-                {item.type === "series" ? seasonLabel(item.season, item.episode) || "Series" : "Film"}
+                {item.type === "series" ? seasonLabel(item.season, item.episode) || "Show" : "Movie"}
                 {item.watchedAt ? ` · ${timeAgo(item.watchedAt)}` : ""}
               </p>
             </div>

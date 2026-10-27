@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/bridge";
+import { cachedFeed, saveFeed } from "../lib/feed";
 import { useApp } from "../lib/store";
 import type { HomeFeed } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
@@ -34,17 +35,6 @@ function HomeSkeleton() {
 }
 
 // Stremio-style: the last feed paints immediately, the network only refreshes it.
-const FEED_CACHE = "home.feed.v1";
-
-function cachedFeed(): HomeFeed | null {
-  try {
-    const raw = localStorage.getItem(FEED_CACHE);
-    return raw ? (JSON.parse(raw) as HomeFeed) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function HomeView() {
   const {
     addons,
@@ -72,11 +62,7 @@ export function HomeView() {
         if (!alive) return;
         setFeed(result);
         // Keep the next launch instant, like Stremio does.
-        try {
-          localStorage.setItem(FEED_CACHE, JSON.stringify(result));
-        } catch {
-          // A full quota only costs a skeleton on the next launch.
-        }
+        saveFeed(result);
       })
       .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : String(e));
@@ -163,7 +149,7 @@ export function HomeView() {
                     ? `${seasonLabel(entry.season, entry.episode)}${
                         entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""
                       }`
-                    : "Film"
+                    : "Movie"
                 }
                 position={entry.position}
                 duration={entry.duration}

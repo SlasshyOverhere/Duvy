@@ -391,13 +391,16 @@ export function EmptyState({
   title: string;
   body?: string;
   action?: ReactNode;
-  icon?: IconName;
+  /** `null` for states that should not carry a mark at all. */
+  icon?: IconName | null;
 }) {
   return (
     <div className="empty-state">
-      <div className="empty-icon">
-        <Icon name={icon} size={26} />
-      </div>
+      {icon ? (
+        <div className="empty-icon">
+          <Icon name={icon} size={26} />
+        </div>
+      ) : null}
       <h3>{title}</h3>
       {body ? <p>{body}</p> : null}
       {action}

@@ -6,6 +6,7 @@ import type {
   Details,
   DebridProvider,
   HomeFeed,
+  HomeRow,
   LibraryItem,
   MetaPreview,
   NuvioProfile,
@@ -67,6 +68,7 @@ export const api = {
   },
 
   home: () => call<HomeFeed>("home_feed"),
+  recommendations: () => call<HomeRow[]>("recommendations"),
   catalog: (args: {
     addonUrl: string;
     mediaType: string;

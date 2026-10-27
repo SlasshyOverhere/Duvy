@@ -211,6 +211,18 @@ pub fn video_host(app: &tauri::AppHandle) -> Option<isize> {
     }
 }
 
+/// One client for every outbound request: the same user agent Cinemeta expects,
+/// and timeouts short enough that a dead host cannot hold a screen hostage.
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent("BetterNuvio/0.1 (+https://github.com/better-nuvio)")
+        .timeout(Duration::from_secs(18))
+        .connect_timeout(Duration::from_secs(8))
+        .pool_max_idle_per_host(6)
+        .build()
+        .expect("the HTTP client should build")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -225,13 +237,7 @@ pub fn run() {
 
             let connection = db::open(&data_dir.join("betternuvio.db"))
                 .expect("the local database should open");
-            let http = reqwest::Client::builder()
-                .user_agent("BetterNuvio/0.1 (+https://github.com/better-nuvio)")
-                .timeout(Duration::from_secs(18))
-                .connect_timeout(Duration::from_secs(8))
-                .pool_max_idle_per_host(6)
-                .build()
-                .expect("the HTTP client should build");
+            let http = http_client();
 
             app.manage(AppState {
                 db: db::Db(Mutex::new(connection)),
@@ -263,6 +269,7 @@ pub fn run() {
             commands::search,
             commands::meta_details,
             commands::cast_photos,
+            commands::recommendations,
             commands::similar,
             commands::streams,
             commands::subtitles,

@@ -151,7 +151,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       target = resumeTarget.video ?? details.videos[0] ?? null;
     }
     if (details.type === "series" && !target) {
-      notify("This series has no episodes listed yet.", "error");
+      notify("This show has no episodes listed yet.", "error");
       return;
     }
     setDrawer({ video: target });
@@ -229,7 +229,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           </div>
           <div className="detail-info">
             <p className="kicker">
-              {details.type === "series" ? "Series" : "Film"}
+              {details.type === "series" ? "Show" : "Movie"}
               {details.year ? ` · ${details.year}` : ""}
             </p>
             <h1>{details.name}</h1>

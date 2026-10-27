@@ -31,8 +31,8 @@ export function LibraryView() {
           {(
             [
               ["all", "All"],
-              ["movie", "Films"],
-              ["series", "Series"],
+              ["movie", "Movies"],
+              ["series", "Shows"],
             ] as const
           ).map(([value, label]) => (
             <button
