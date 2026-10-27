@@ -7,6 +7,7 @@ mod addons;
 mod commands;
 mod db;
 mod debrid;
+mod frame;
 mod meta;
 mod models;
 mod nuvio_sync;
@@ -486,6 +487,7 @@ pub fn run() {
             commands::watched_list,
             commands::player_open,
             commands::player_state,
+            commands::player_frame,
             commands::player_control,
             commands::player_stop,
             commands::player_subtitle,

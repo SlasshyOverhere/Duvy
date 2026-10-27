@@ -127,6 +127,8 @@ export const api = {
     stop: () => call<null>("player_stop"),
     subtitle: (url: string, label?: string) =>
       call<null>("player_subtitle", { url, label }),
+    /** One still of the picture at `seconds`, as a data URL, for the seek preview. */
+    frame: (seconds: number) => call<string>("player_frame", { seconds }),
   },
 
   nuvio: {

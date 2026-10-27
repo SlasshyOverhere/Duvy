@@ -1160,6 +1160,8 @@ pub async fn player_open(
         host,
         mpv_dir(&app).as_deref(),
     )?;
+    // Frames cached for the previous source are meaningless now.
+    crate::frame::clear();
     let snapshot = player.snapshot();
     *state.player.lock().map_err(|_| "player is busy")? = Some(player);
     Ok(snapshot)
@@ -1177,6 +1179,25 @@ fn set_window_shadow(app: &AppHandle, on: bool) {
 pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>, String> {
     let guard = state.player.lock().map_err(|_| "player is busy")?;
     Ok(guard.as_ref().map(|player| player.snapshot()))
+}
+
+/// One frame from the running source as a `data:image/jpeg;base64,...` URL.
+/// Decoded by a second headless mpv, so the picture keeps playing untouched.
+#[tauri::command]
+pub async fn player_frame(
+    seconds: f64,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let source = {
+        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let player = guard.as_ref().ok_or("Nothing is playing")?;
+        player.source().to_string()
+    };
+    let settings = load_settings(&state);
+    let mpv = player::find_mpv(&settings.mpv_path, mpv_dir(&app).as_deref())
+        .ok_or("mpv was not found")?;
+    crate::frame::preview(&mpv.path, &source, seconds).await
 }
 
 #[tauri::command]

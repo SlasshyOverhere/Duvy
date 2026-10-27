@@ -95,6 +95,8 @@ pub struct Player {
     writer: Arc<Mutex<Box<dyn Duplex>>>,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
+    /// Exactly what mpv was handed, so frame previews decode the same stream.
+    source: String,
     #[cfg_attr(windows, allow(dead_code))]
     pipe: String,
 }
@@ -540,12 +542,17 @@ impl Player {
             writer: Arc::new(Mutex::new(writer)),
             snapshot,
             stop,
+            source: request.url.clone(),
             pipe,
         })
     }
 
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     pub fn writer(&self) -> Arc<Mutex<Box<dyn Duplex>>> {
@@ -644,6 +651,14 @@ impl Player {
                     json!({"command": ["set_property", "sub-delay", delay]}),
                 )
             }
+            "sub-pos" => {
+                // mpv measures sub-pos from the top: 0 is the top edge, 100 the bottom.
+                let position = number_value(value.as_ref(), "Subtitle position")?.clamp(25.0, 100.0);
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "sub-pos", position]}),
+                )
+            }
             "sub-add" => {
                 let url = value
                     .as_ref()
@@ -663,6 +678,32 @@ impl Player {
                 send(
                     &mut writer,
                     json!({"command": ["sub-add", url, "select", label]}),
+                )
+            }
+            "video-mode" => {
+                // Two properties per mode: aspect first, then the pan/scan crop.
+                let mode = value
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                let (aspect, panscan) = match mode {
+                    "fit" => ("yes", 0.0),
+                    "fill" => ("yes", 1.0),
+                    "stretch" => ("no", 0.0),
+                    other => {
+                        return Err(format!(
+                            "Video mode must be fit, fill or stretch, not {other:?}"
+                        ));
+                    }
+                };
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "keepaspect", aspect]}),
+                )?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "panscan", panscan]}),
                 )
             }
             "stop" => {
