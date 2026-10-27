@@ -16,6 +16,10 @@ type ServerItem = {
   kind: string;
   year: number | null;
   image: string;
+  seriesId?: string | null;
+  seriesName?: string | null;
+  season?: number | null;
+  episode?: number | null;
 };
 
 type Kind = "jellyfin" | "emby";
@@ -28,23 +32,49 @@ function kindLabel(kind: string) {
   return kind === "emby" ? "Emby" : "Jellyfin";
 }
 
+function playable(item: ServerItem) {
+  return item.kind === "Movie" || item.kind === "Episode";
+}
+
+function episodeLabel(item: ServerItem) {
+  const season = item.season != null ? `S${item.season}` : "";
+  const episode = item.episode != null ? `E${item.episode}` : "";
+  return `${season}${episode}`;
+}
+
+function caption(item: ServerItem) {
+  if (item.kind === "Episode") {
+    return [item.seriesName, episodeLabel(item)].filter(Boolean).join(" · ");
+  }
+  const kind = item.kind === "Series" ? "Show" : item.kind === "Season" ? "Season" : "Movie";
+  return [kind, item.year].filter(Boolean).join(" · ");
+}
+
+function playTitle(item: ServerItem) {
+  if (item.kind !== "Episode") return item.name;
+  return [item.seriesName, episodeLabel(item), item.name].filter(Boolean).join(" · ");
+}
+
 function Poster({
   item,
   playing,
   onPlay,
+  onOpen,
 }: {
   item: ServerItem;
   playing: boolean;
   onPlay: () => void;
+  onOpen: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const canPlay = playable(item);
 
   return (
     <article className="poster-card">
       <div className="poster-frame">
         {failed ? (
           <div className="poster-fallback" style={{ color: "var(--faint)" }}>
-            <Icon name="film" size={20} />
+            <Icon name={item.kind === "Episode" || item.kind === "Movie" ? "film" : "tv"} size={20} />
           </div>
         ) : (
           // Jellyfin serves artwork behind the user session, so this URL carries
@@ -52,24 +82,20 @@ function Poster({
           // rest fall back to the placeholder above.
           <img src={item.image} alt="" loading="lazy" onError={() => setFailed(true)} />
         )}
-        {item.kind === "Movie" ? (
-          <button
-            type="button"
-            className="poster-play"
-            aria-label={`Play ${item.name}`}
-            title={`Play ${item.name}`}
-            disabled={playing}
-            onClick={onPlay}
-          >
-            <Icon name="play" size={17} />
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="poster-play"
+          aria-label={`${canPlay ? "Play" : "Open"} ${item.name}`}
+          title={`${canPlay ? "Play" : "Open"} ${item.name}`}
+          disabled={playing}
+          onClick={canPlay ? onPlay : onOpen}
+        >
+          <Icon name={canPlay ? "play" : "chevron"} size={17} />
+        </button>
       </div>
       <div className="poster-caption">
         <span className="poster-name">{item.name}</span>
-        <span className="poster-sub">
-          {[item.kind === "Series" ? "Show" : "Movie", item.year].filter(Boolean).join(" · ")}
-        </span>
+        <span className="poster-sub">{caption(item)}</span>
       </div>
     </article>
   );
@@ -93,8 +119,10 @@ export function MediaServers() {
   const [password, setPassword] = useState("");
 
   const [browseId, setBrowseId] = useState<string | null>(null);
+  const [trail, setTrail] = useState<ServerItem[]>([]);
   const [items, setItems] = useState<ServerItem[]>([]);
   const [browsing, setBrowsing] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -112,6 +140,31 @@ export function MediaServers() {
     void load();
   }, [load]);
 
+  const closeBrowse = () => {
+    setBrowseId(null);
+    setTrail([]);
+    setItems([]);
+    setBrowseError(null);
+  };
+
+  const loadItems = async (serverId: string, parent?: ServerItem) => {
+    setBrowsing(true);
+    setBrowseError(null);
+    setItems([]);
+    try {
+      setItems(
+        await invoke<ServerItem[]>(
+          "srv_items",
+          parent ? { id: serverId, parentId: parent.id } : { id: serverId },
+        ),
+      );
+    } catch (e) {
+      setBrowseError(message(e));
+    } finally {
+      setBrowsing(false);
+    }
+  };
+
   const add = async () => {
     setBusy("add");
     setError(null);
@@ -120,8 +173,7 @@ export function MediaServers() {
       setUrl("");
       setUsername("");
       setPassword("");
-      setBrowseId(null);
-      setItems([]);
+      closeBrowse();
     } catch (e) {
       setError(message(e));
     } finally {
@@ -134,10 +186,7 @@ export function MediaServers() {
     setError(null);
     try {
       setServers(await invoke<Server[]>("srv_remove", { id }));
-      if (browseId === id) {
-        setBrowseId(null);
-        setItems([]);
-      }
+      if (browseId === id) closeBrowse();
     } catch (e) {
       setError(message(e));
     } finally {
@@ -147,22 +196,25 @@ export function MediaServers() {
 
   const browse = async (server: Server) => {
     if (browseId === server.id) {
-      setBrowseId(null);
-      setItems([]);
+      closeBrowse();
       return;
     }
-    setError(null);
-    setBrowsing(true);
     setBrowseId(server.id);
-    setItems([]);
-    try {
-      setItems(await invoke<ServerItem[]>("srv_items", { id: server.id }));
-    } catch (e) {
-      setError(message(e));
-      setBrowseId(null);
-    } finally {
-      setBrowsing(false);
-    }
+    setTrail([]);
+    await loadItems(server.id);
+  };
+
+  const open = async (item: ServerItem) => {
+    if (!browseId) return;
+    setTrail((previous) => [...previous, item]);
+    await loadItems(browseId, item);
+  };
+
+  const up = async () => {
+    if (!browseId || trail.length === 0) return;
+    const next = trail.slice(0, -1);
+    setTrail(next);
+    await loadItems(browseId, next[next.length - 1]);
   };
 
   const play = async (serverId: string, item: ServerItem) => {
@@ -173,7 +225,7 @@ export function MediaServers() {
         id: serverId,
         itemId: item.id,
       });
-      await invoke("player_open", { request: { url: streamUrl, title: item.name } });
+      await invoke("player_open", { request: { url: streamUrl, title: playTitle(item) } });
     } catch (e) {
       setError(message(e));
     } finally {
@@ -230,22 +282,52 @@ export function MediaServers() {
             </div>
 
             {browseId === server.id ? (
-              browsing ? (
-                <Spinner label="Loading library…" />
-              ) : items.length === 0 ? (
-                <p className="settings-hint">That library returned no movies or shows.</p>
-              ) : (
-                <div className="grid" style={{ marginTop: 18 }}>
-                  {items.map((item) => (
-                    <Poster
-                      key={item.id}
-                      item={item}
-                      playing={playing === item.id}
-                      onPlay={() => void play(server.id, item)}
-                    />
-                  ))}
+              <div style={{ marginTop: 18 }}>
+                <div className="field-row" style={{ margin: 0, alignItems: "center" }}>
+                  {trail.length > 0 ? (
+                    <Button icon="back" onClick={() => void up()}>
+                      Back
+                    </Button>
+                  ) : null}
+                  <span className="settings-hint" style={{ margin: 0 }}>
+                    {trail.length > 0
+                      ? trail.map((entry) => entry.name).join(" / ")
+                      : "Movies and shows"}
+                  </span>
                 </div>
-              )
+
+                {browseError ? (
+                  <div style={{ marginTop: 12 }}>
+                    <p className="form-error">{browseError}</p>
+                    <Button
+                      icon="refresh"
+                      onClick={() => void loadItems(server.id, trail[trail.length - 1])}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                ) : browsing ? (
+                  <Spinner label="Loading library…" />
+                ) : items.length === 0 ? (
+                  <p className="settings-hint">
+                    {trail.length > 0
+                      ? `No seasons or episodes in ${trail[trail.length - 1].name}.`
+                      : "That library returned no movies or shows."}
+                  </p>
+                ) : (
+                  <div className="grid" style={{ marginTop: 18 }}>
+                    {items.map((item) => (
+                      <Poster
+                        key={item.id}
+                        item={item}
+                        playing={playing === item.id}
+                        onPlay={() => void play(server.id, item)}
+                        onOpen={() => void open(item)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : null}
           </div>
         ))}

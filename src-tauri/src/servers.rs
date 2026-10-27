@@ -61,6 +61,10 @@ pub struct ServerItem {
     pub kind: String,
     pub year: Option<i32>,
     pub image: String,
+    pub series_id: Option<String>,
+    pub series_name: Option<String>,
+    pub season: Option<i32>,
+    pub episode: Option<i32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -160,12 +164,58 @@ fn parse_items(base: &str, value: &Value) -> Vec<ServerItem> {
                             .get("ProductionYear")
                             .and_then(Value::as_i64)
                             .map(|year| year as i32),
+                        series_id: text_field(item, "SeriesId"),
+                        series_name: text_field(item, "SeriesName"),
+                        season: item
+                            .get("ParentIndexNumber")
+                            .and_then(Value::as_i64)
+                            .map(|number| number as i32),
+                        episode: item
+                            .get("IndexNumber")
+                            .and_then(Value::as_i64)
+                            .map(|number| number as i32),
                         id,
                     })
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn text_field(item: &Value, key: &str) -> Option<String> {
+    item.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// Picks the best media source from a PlaybackInfo reply: direct play first so
+/// mpv gets the original file, any source otherwise.
+fn media_source(value: &Value) -> Option<String> {
+    let sources = value.get("MediaSources")?.as_array()?;
+    let direct = sources.iter().find(|source| {
+        source
+            .get("SupportsDirectPlay")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    });
+    direct
+        .or_else(|| sources.first())
+        .and_then(|source| source.get("Id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn stream_url(base: &str, item_id: &str, source: Option<&str>, token: &str) -> String {
+    let mut url = format!("{base}/Videos/{item_id}/stream?static=true");
+    if let Some(source) = source {
+        url.push_str("&MediaSourceId=");
+        url.push_str(source);
+    }
+    url.push_str("&api_key=");
+    url.push_str(token);
+    url
 }
 
 fn sign_in_error(kind: &str, detail: &str) -> String {
@@ -285,6 +335,7 @@ pub async fn srv_remove(id: String, state: State<'_, AppState>) -> Result<Vec<Se
 pub async fn srv_items(
     id: String,
     kind: Option<String>,
+    parent_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ServerItem>, String> {
     let servers = load(state.inner())?;
@@ -293,16 +344,27 @@ pub async fn srv_items(
         .find(|server| server.id == id)
         .ok_or("That media server is no longer connected.")?;
 
-    let types = match kind.as_deref().map(str::trim) {
-        Some(value) if value.eq_ignore_ascii_case("movie") => "Movie",
-        Some(value) if value.eq_ignore_ascii_case("series") => "Series",
-        _ => "Movie,Series",
-    };
+    let parent_id = parent_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
-    let url = format!(
-        "{}/Users/{}/Items?Recursive=true&IncludeItemTypes={types}&Fields=ProductionYear&SortBy=SortName&Limit=200",
-        server.url, server.user_id
-    );
+    let url = if let Some(parent) = parent_id {
+        // Children of a show are seasons, children of a season are episodes.
+        format!(
+            "{}/Users/{}/Items?ParentId={parent}&IncludeItemTypes=Season,Episode&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
+            server.url, server.user_id
+        )
+    } else {
+        let types = match kind.as_deref().map(str::trim) {
+            Some(value) if value.eq_ignore_ascii_case("movie") => "Movie",
+            Some(value) if value.eq_ignore_ascii_case("series") => "Series",
+            _ => "Movie,Series",
+        };
+        format!(
+            "{}/Users/{}/Items?Recursive=true&IncludeItemTypes={types}&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
+            server.url, server.user_id
+        )
+    };
     let request = token_request(
         &server.kind,
         state.http.get(url).timeout(TIMEOUT),
@@ -344,9 +406,30 @@ pub async fn srv_stream(
         .iter()
         .find(|server| server.id == id)
         .ok_or("That media server is no longer connected.")?;
-    Ok(format!(
-        "{}/Videos/{item_id}/stream?static=true&api_key={}",
-        server.url, server.token
+
+    // Episodes and movies both resolve through PlaybackInfo; the reply names
+    // the media source the static stream needs, or the item id when it does not.
+    let info_url = format!(
+        "{}/Items/{item_id}/PlaybackInfo?UserId={}",
+        server.url, server.user_id
+    );
+    let request = token_request(
+        &server.kind,
+        state.http.post(info_url).timeout(TIMEOUT),
+        &server.token,
+    )
+    .json(&serde_json::json!({ "UserId": server.user_id }));
+    let source = match request.send().await {
+        Ok(reply) if reply.status().is_success() => {
+            reply.json::<Value>().await.ok().and_then(|value| media_source(&value))
+        }
+        _ => None,
+    };
+    Ok(stream_url(
+        &server.url,
+        item_id,
+        source.as_deref(),
+        &server.token,
     ))
 }
 
@@ -420,6 +503,47 @@ mod tests {
             "http://host:8096/Items/abc/Images/Primary?maxWidth=400"
         );
         assert_eq!(items[1].year, None);
+    }
+
+    #[test]
+    fn episodes_carry_series_and_numbers() {
+        let payload = json!({
+            "Items": [{
+                "Id": "ep1",
+                "Name": "The We We Are",
+                "Type": "Episode",
+                "SeriesId": "show1",
+                "SeriesName": "Severance",
+                "ParentIndexNumber": 1,
+                "IndexNumber": 9
+            }]
+        });
+        let items = parse_items("http://host:8096", &payload);
+        assert_eq!(items[0].kind, "Episode");
+        assert_eq!(items[0].series_id.as_deref(), Some("show1"));
+        assert_eq!(items[0].series_name.as_deref(), Some("Severance"));
+        assert_eq!(items[0].season, Some(1));
+        assert_eq!(items[0].episode, Some(9));
+    }
+
+    #[test]
+    fn playback_info_selects_a_direct_source() {
+        let reply = json!({
+            "MediaSources": [
+                { "Id": "transcode", "SupportsDirectPlay": false },
+                { "Id": "direct", "SupportsDirectPlay": true }
+            ]
+        });
+        assert_eq!(media_source(&reply).as_deref(), Some("direct"));
+        assert_eq!(media_source(&json!({})), None);
+        assert_eq!(
+            stream_url("http://host:8096", "ep1", Some("direct"), "tok"),
+            "http://host:8096/Videos/ep1/stream?static=true&MediaSourceId=direct&api_key=tok"
+        );
+        assert_eq!(
+            stream_url("http://host:8096", "m1", None, "tok"),
+            "http://host:8096/Videos/m1/stream?static=true&api_key=tok"
+        );
     }
 
     #[test]
