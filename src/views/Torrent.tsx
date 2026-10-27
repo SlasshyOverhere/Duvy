@@ -1,16 +1,7 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { Badge, Button, Icon } from "../components/ui";
-
-type TorrentStats = {
-  active: boolean;
-  name: string;
-  progress: number;
-  downloadBps: number;
-  uploadBps: number;
-  peers: number;
-  seeds: number;
-};
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../lib/bridge";
+import { Badge, Button, Icon, Spinner } from "../components/ui";
+import type { TorrentStats } from "../lib/types";
 
 const IDLE: TorrentStats = {
   active: false,
@@ -21,6 +12,10 @@ const IDLE: TorrentStats = {
   peers: 0,
   seeds: 0,
 };
+
+function message(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function rate(bytesPerSecond: number) {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
@@ -54,38 +49,63 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 export default function TorrentView() {
   const [stats, setStats] = useState<TorrentStats>(IDLE);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    const read = () => {
-      invoke<TorrentStats>("stats")
-        .then((next) => {
-          if (!alive) return;
-          setStats(next);
-          setError(null);
-        })
-        .catch((reason: unknown) => {
-          if (alive) setError(String(reason));
-        });
-    };
-    read();
-    const timer = window.setInterval(read, 1000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const stop = async () => {
-    setStopping(true);
+  const read = useCallback(async () => {
     try {
-      await invoke("stop");
-      setStats(await invoke<TorrentStats>("stats"));
+      setStats(await api.torrent.stats());
       setError(null);
     } catch (reason) {
-      setError(String(reason));
+      setError(message(reason));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let timer: number | undefined;
+
+    const stopPolling = () => {
+      if (timer === undefined) return;
+      window.clearInterval(timer);
+      timer = undefined;
+    };
+
+    const startPolling = () => {
+      if (timer !== undefined) return;
+      void read();
+      timer = window.setInterval(() => void read(), 1000);
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) stopPolling();
+      else startPolling();
+    };
+
+    if (document.hidden) stopPolling();
+    else startPolling();
+
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [read]);
+
+  const stop = async () => {
+    if (!window.confirm("Stop the torrent session? Downloaded files in the cache will be deleted.")) {
+      return;
+    }
+    setStopping(true);
+    try {
+      await api.torrent.stop();
+      setStats(IDLE);
+      setError(null);
+      await read();
+    } catch (reason) {
+      setError(message(reason));
     } finally {
       setStopping(false);
     }
@@ -95,95 +115,117 @@ export default function TorrentView() {
 
   return (
     <div className="page">
-      <header className="page-head">
+      {loading ? <Spinner label="Reading torrent session…" /> : null}
+
+      {!loading && stats.active ? (
         <div>
-          <p className="kicker">Streaming</p>
-          <h1>Torrent engine</h1>
-          <p className="page-sub">
-            The selected video is served to the player from a loopback HTTP proxy. Peers are only
-            contacted while a torrent is active.
-          </p>
-        </div>
-        <Badge tone={stats.active ? "good" : "neutral"}>
-          {stats.active ? "streaming" : "idle"}
-        </Badge>
-      </header>
-
-      <section className="settings-group">
-        <div className="settings-row">
-          <div style={{ minWidth: 0 }}>
-            <h3 style={{ overflowWrap: "anywhere" }}>
-              {stats.active && stats.name ? stats.name : "No active torrent"}
-            </h3>
-            <p>
-              {stats.active
-                ? "Downloading ahead of the playhead. Stop releases the port and clears the cache."
-                : "Start a magnet or info-hash source from the stream picker to fill this panel."}
-            </p>
+          <div className="settings-row" style={{ alignItems: "flex-start" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <h3 style={{ overflowWrap: "anywhere" }}>{stats.name || "Torrent session"}</h3>
+                <Badge tone="good">streaming</Badge>
+              </div>
+              <p>
+                {stats.peers === 1 ? "1 peer connected" : `${stats.peers} peers connected`} while the
+                player reads ahead of the playhead.
+              </p>
+            </div>
+            <Button
+              variant="danger"
+              icon="stop"
+              onClick={() => void stop()}
+              disabled={stopping}
+            >
+              {stopping ? "Stopping…" : "Stop session"}
+            </Button>
           </div>
-          <Button
-            variant="danger"
-            icon="stop"
-            onClick={() => void stop()}
-            disabled={!stats.active || stopping}
-          >
-            {stopping ? "Stopping…" : "Stop"}
-          </Button>
-        </div>
 
-        <div style={{ padding: "18px 0", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-            <span style={{ color: "var(--faint)" }}>Progress</span>
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{percent.toFixed(1)}%</span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="Torrent progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(percent)}
-            style={{
-              height: 4,
-              borderRadius: 2,
-              background: "var(--line)",
-              overflow: "hidden",
-            }}
-          >
+          <div style={{ padding: "16px 0 4px" }}>
             <div
               style={{
-                height: "100%",
-                width: `${percent}%`,
-                background: "var(--accent)",
-                transition: "width 0.4s var(--ease)",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                fontSize: 12,
+                color: "var(--faint)",
+                marginBottom: 8,
               }}
-            />
+            >
+              <span>Progress</span>
+              <span style={{ color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
+                {percent.toFixed(1)}%
+              </span>
+            </div>
+            <div
+              role="progressbar"
+              aria-label="Torrent progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(percent)}
+              style={{
+                height: 4,
+                borderRadius: 2,
+                background: "var(--line)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${percent}%`,
+                  background: "var(--accent)",
+                  transition: "width 0.4s var(--ease)",
+                }}
+              />
+            </div>
           </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: "16px 28px",
+              padding: "14px 0 6px",
+            }}
+          >
+            <Metric label="Download" value={rate(stats.downloadBps)} />
+            <Metric label="Upload" value={rate(stats.uploadBps)} />
+            <Metric label="Peers" value={String(stats.peers)} />
+          </div>
+
+          <p className="settings-hint">
+            The engine reports total peers only. It does not expose how many of them hold the
+            complete torrent, so there is no seeder count here.
+          </p>
         </div>
+      ) : null}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-            gap: "16px 28px",
-            padding: "4px 0 18px",
-          }}
-        >
-          <Metric label="Down" value={rate(stats.downloadBps)} />
-          <Metric label="Up" value={rate(stats.uploadBps)} />
-          <Metric label="Peers" value={String(stats.peers)} />
-          <Metric label="Seeds" value={String(stats.seeds)} />
+      {!loading && !stats.active ? (
+        <div className="settings-row">
+          <div>
+            <h3>Engine idle</h3>
+            <p>
+              No torrent session is running. The engine starts only while a torrent source is
+              playing, and it is off the rest of the time.
+            </p>
+          </div>
+          <Badge tone="neutral">off</Badge>
         </div>
+      ) : null}
 
-        {error ? <p className="form-error">{error}</p> : null}
-
-        <p className="settings-note">
-          <Icon name="info" size={14} />
-          <span>
-            Peer-to-peer streaming needs consent in Settings. The cache lives under the app data
-            folder and is wiped when the torrent stops.
-          </span>
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
         </p>
-      </section>
+      ) : null}
+
+      <p className="settings-note">
+        <Icon name="info" size={14} />
+        <span>
+          Stopping deletes the session cache from the app data folder. Peer-to-peer traffic only
+          happens while a torrent source is playing.
+        </span>
+      </p>
     </div>
   );
 }
