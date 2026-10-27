@@ -1292,9 +1292,23 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
     if !crate::set_fullscreen(host, on) {
         return Err("The window could not go fullscreen".into());
     }
-    if !on {
-        crate::refit_webview(host);
+    // The style swap moves the outer window but not the child web layer, so the
+    // page keeps its old height and the strip the taskbar gave up stays black.
+    // Resize through tao: it reports the change to the webview (and to mpv,
+    // which draws into the same client area) instead of moving pixels alone.
+    if on {
+        if let Some(window) = app.get_webview_window("main") {
+            if let Ok(Some(monitor)) = window.current_monitor() {
+                let origin = monitor.position();
+                let size = monitor.size();
+                let _ = window.set_position(tauri::PhysicalPosition::new(origin.x, origin.y));
+                let _ = window
+                    .set_size(tauri::PhysicalSize::new(size.width, size.height.saturating_sub(1)));
+                let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
+            }
+        }
     }
+    crate::refit_webview(host);
     Ok(())
 }
 
