@@ -1177,8 +1177,8 @@ button.pill:hover {
   align-items: flex-end;
   justify-content: center;
   min-height: clamp(500px, 72vh, 760px);
-  margin: calc(var(--nav-h) - 6px) var(--pad) 0;
-  border-radius: 30px;
+  margin: 0;
+  border-radius: 0;
   overflow: hidden;
   isolation: isolate;
   background: #0b0b0b;
@@ -3583,8 +3583,8 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
-  margin: calc(var(--nav-h) - 6px) var(--pad) 0;
-  border-radius: 30px;
+  margin: 0;
+  border-radius: 0;
   background: #0f0f0f;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   padding: 0 clamp(24px, 4vw, 56px) clamp(46px, 6vh, 74px);
