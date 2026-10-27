@@ -105,7 +105,7 @@ export function SearchView({ query }: { query?: string }) {
       </form>
 
       {query ? (
-        <>
+        <div className="search-results">
           {loading ? (
             <Spinner label="Searching" />
           ) : error ? (
@@ -129,7 +129,7 @@ export function SearchView({ query }: { query?: string }) {
               ))}
             </div>
           )}
-        </>
+        </div>
       ) : recos.length > 0 ? (
         <div className="search-discover">
           {recos.map((row) => (
