@@ -877,7 +877,7 @@ export function PlayerView() {
 
   return (
     <div
-      className={`pv${chrome ? " pv--awake" : ""}`}
+      className={`pv${chrome ? " pv--awake" : ""}${failed ? " pv--failed" : ""}`}
       onPointerMove={bump}
       onFocusCapture={() => setChrome(true)}
       onClick={(event) => {
@@ -908,10 +908,26 @@ export function PlayerView() {
       </header>
 
       {failed ? (
-        <section className="pv-next pv-next--failed" role="alert" aria-live="assertive">
+        <section
+          className="pv-next pv-next--failed"
+          role="alert"
+          aria-live="assertive"
+        >
+          <button
+            type="button"
+            className="pv-icon pv-failed-close"
+            onClick={() => void stop()}
+            aria-label="Close player"
+            title="Close player"
+          >
+            <Icon name="x" size={16} />
+          </button>
+          <p className="pv-failed-title" title={title}>
+            {title}
+          </p>
           <p className="pv-next-label">Playback stopped</p>
           <h2>This source did not play.</h2>
-          <p className="pv-hint">
+          <p className="pv-failed-body">
             {failed} Check the source or pick another one from the title page.
           </p>
           <div className="pv-next-actions">

@@ -3363,15 +3363,46 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 8px;
 }
 
-/* A dead source owns the screen, so centre it instead of parking it in the
-   up-next corner with the transport hidden. */
+/* A dead source owns the screen: the player layer becomes a one-cell grid so
+   the card centres on its own, and the dead transport chrome is hidden. */
+.pv--failed {
+  display: grid;
+  place-items: center;
+}
+
 .pv-next--failed {
-  top: 50%;
-  left: 50%;
-  bottom: auto;
-  transform: translate(-50%, -50%);
+  position: relative;
+  inset: auto;
   width: min(480px, calc(100vw - 52px));
-  padding: 26px 28px;
+  margin: 0;
+  padding: 24px 26px;
+  background: #0d0c0a;
+}
+
+.pv-failed-title {
+  margin-right: 26px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-failed-body {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pv-next--failed .pv-failed-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.pv--failed .pv-top,
+.pv--failed .pv-center,
+.pv--failed .pv-deck {
+  display: none;
 }
 
 .pv-next-label {
