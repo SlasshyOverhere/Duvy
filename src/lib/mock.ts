@@ -471,6 +471,26 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     }
     case "watched_set":
       return null;
+    case "watched_list": {
+      const seen = new Set<string>();
+      return progress
+        .filter((entry) => entry.duration > 0 && entry.position >= entry.duration * 0.9)
+        .filter((entry) => {
+          if (seen.has(entry.metaId)) return false;
+          seen.add(entry.metaId);
+          return true;
+        })
+        .map((entry) => ({
+          metaId: entry.metaId,
+          type: entry.type,
+          name: entry.name,
+          poster: entry.poster ?? null,
+          background: entry.background ?? null,
+          season: entry.season ?? null,
+          episode: entry.episode ?? null,
+          watchedAt: entry.updatedAt,
+        }));
+    }
 
     case "player_open": {
       const request = payload.request as { url: string; title: string; startAt?: number; session?: PlayerSnapshot["session"] };

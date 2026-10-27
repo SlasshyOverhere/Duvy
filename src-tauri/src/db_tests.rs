@@ -126,6 +126,71 @@ fn library_and_watched_roundtrip() {
 }
 
 #[test]
+fn continue_watching_hides_finished_and_merges_episodes() {
+    let (conn, path) = temp_database();
+    let base = db::ProgressItem {
+        key: String::new(),
+        meta_id: "tt1".into(),
+        media_type: "series".into(),
+        name: "A Show".into(),
+        poster: None,
+        background: None,
+        season: Some(1),
+        episode: Some(1),
+        episode_title: None,
+        position: 100.0,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    let episode = |key: &str, number: i64| db::ProgressItem {
+        key: key.into(),
+        episode: Some(number),
+        ..base.clone()
+    };
+
+    db::save_progress(&conn, &episode("tt1:1:1", 1)).expect("episode 1");
+    db::save_progress(&conn, &episode("tt1:1:2", 2)).expect("episode 2");
+    // Finished: 99% of a film belongs in Watched, not in Continue watching.
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt2".into(),
+            meta_id: "tt2".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            season: None,
+            episode: None,
+            position: 990.0,
+            ..base.clone()
+        },
+    )
+    .expect("film");
+    // save_progress stamps "now", so pin the play order for the assertion.
+    conn.execute("UPDATE progress SET updated_at = 10 WHERE key = 'tt1:1:1'", [])
+        .unwrap();
+    conn.execute("UPDATE progress SET updated_at = 20 WHERE key = 'tt1:1:2'", [])
+        .unwrap();
+
+    let continuing = db::list_continue_watching(&conn).expect("continue");
+    assert_eq!(continuing.len(), 1);
+    assert_eq!(continuing[0].key, "tt1:1:2");
+
+    let watched = db::list_watched_items(&conn).expect("watched");
+    assert_eq!(watched.len(), 1);
+    assert_eq!(watched[0].meta_id, "tt2");
+
+    // An explicit mark hides that episode; the show falls back to the one still
+    // in progress rather than vanishing.
+    db::set_watched(&conn, "tt1:1:2", "tt1", true).expect("mark");
+    let remaining = db::list_continue_watching(&conn).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].key, "tt1:1:1");
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 2);
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn settings_patch_merges_and_resets() {
     let (conn, path) = temp_database();
     let mut settings = Settings::default();

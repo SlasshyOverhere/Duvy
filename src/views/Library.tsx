@@ -10,6 +10,15 @@ export function LibraryView() {
 
   const items = library.filter((item) => (tab === "all" ? true : item.type === tab));
 
+  // Finished titles belong in Watched, and one card per show is enough.
+  const seen = new Set<string>();
+  const continuing = progress.filter((entry) => {
+    if (entry.duration <= 0 || entry.position >= entry.duration * 0.9) return false;
+    if (seen.has(entry.metaId)) return false;
+    seen.add(entry.metaId);
+    return true;
+  });
+
   return (
     <div className="page">
       <header className="page-head">
@@ -40,9 +49,9 @@ export function LibraryView() {
         </div>
       </header>
 
-      {progress.length > 0 ? (
+      {continuing.length > 0 ? (
         <Row title="Continue watching" detail={<span className="row-detail">In progress</span>}>
-          {progress.map((entry) => (
+          {continuing.map((entry) => (
             <ContinueCard
               key={entry.key}
               name={entry.name}

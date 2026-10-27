@@ -240,16 +240,9 @@ pub struct ProgressItem {
     pub updated_at: i64,
 }
 
-pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
-    let mut stmt = conn.prepare(
-        "SELECT key, meta_id, media_type, name, poster, background, season, episode,
-                episode_title, position, duration, updated_at
-         FROM progress
-         WHERE duration > 0 AND position > 5
-         ORDER BY updated_at DESC LIMIT 60",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(ProgressItem {
+impl ProgressItem {
+    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
             key: row.get(0)?,
             meta_id: row.get(1)?,
             media_type: row.get(2)?,
@@ -263,7 +256,41 @@ pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
             duration: row.get(10)?,
             updated_at: row.get(11)?,
         })
-    })?;
+    }
+}
+
+pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, meta_id, media_type, name, poster, background, season, episode,
+                episode_title, position, duration, updated_at
+         FROM progress
+         WHERE duration > 0 AND position > 5
+         ORDER BY updated_at DESC LIMIT 60",
+    )?;
+    let rows = stmt.query_map([], ProgressItem::from_row)?;
+    rows.collect()
+}
+
+/// One card per title for the home screen: the newest unfinished episode.
+/// Anything marked watched, or played past 90%, belongs in the Watched list.
+pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, meta_id, media_type, name, poster, background, season, episode,
+                episode_title, position, duration, updated_at
+         FROM (
+           SELECT progress.*,
+                  ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY updated_at DESC) AS rn
+           FROM progress
+           WHERE duration > 0
+             AND position > 5
+             AND position < duration * 0.9
+             AND key NOT IN (SELECT key FROM watched WHERE watched = 1)
+         )
+         WHERE rn = 1
+         ORDER BY updated_at DESC
+         LIMIT 30",
+    )?;
+    let rows = stmt.query_map([], ProgressItem::from_row)?;
     rows.collect()
 }
 
@@ -273,22 +300,7 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
                 episode_title, position, duration, updated_at
          FROM progress WHERE key = ?1",
         params![key],
-        |row| {
-            Ok(ProgressItem {
-                key: row.get(0)?,
-                meta_id: row.get(1)?,
-                media_type: row.get(2)?,
-                name: row.get(3)?,
-                poster: row.get(4)?,
-                background: row.get(5)?,
-                season: row.get(6)?,
-                episode: row.get(7)?,
-                episode_title: row.get(8)?,
-                position: row.get(9)?,
-                duration: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
+        ProgressItem::from_row,
     )
     .optional()
 }
@@ -409,6 +421,61 @@ pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -
 pub fn list_watched(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT key FROM watched WHERE watched = 1")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedItem {
+    pub meta_id: String,
+    #[serde(rename = "type")]
+    pub media_type: String,
+    pub name: String,
+    pub poster: Option<String>,
+    pub background: Option<String>,
+    pub season: Option<i64>,
+    pub episode: Option<i64>,
+    pub watched_at: i64,
+}
+
+/// Everything already finished, one row per title: the account's explicit
+/// watched marks plus anything played past 90%. Titles that only ever existed
+/// as an id in the account borrow their name and artwork from the library.
+pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem>> {
+    let mut stmt = conn.prepare(
+        "WITH marks AS (
+           SELECT meta_id, updated_at AS at FROM watched WHERE watched = 1
+           UNION ALL
+           SELECT meta_id, updated_at FROM progress
+           WHERE duration > 0 AND position >= duration * 0.9
+         ),
+         latest AS (SELECT meta_id, MAX(at) AS at FROM marks GROUP BY meta_id)
+         SELECT l.meta_id, l.at,
+                COALESCE(p.media_type, b.media_type, 'movie'),
+                COALESCE(NULLIF(p.name, ''), b.name, l.meta_id),
+                COALESCE(p.poster, b.poster),
+                COALESCE(p.background, b.background),
+                p.season, p.episode
+         FROM latest l
+         LEFT JOIN progress p ON p.key = (
+           SELECT p2.key FROM progress p2 WHERE p2.meta_id = l.meta_id
+           ORDER BY p2.updated_at DESC LIMIT 1)
+         LEFT JOIN library b ON b.id = l.meta_id
+         ORDER BY l.at DESC
+         LIMIT 300",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(WatchedItem {
+            meta_id: row.get(0)?,
+            watched_at: row.get(1)?,
+            media_type: row.get(2)?,
+            name: row.get(3)?,
+            poster: row.get(4)?,
+            background: row.get(5)?,
+            season: row.get(6)?,
+            episode: row.get(7)?,
+        })
+    })?;
     rows.collect()
 }
 

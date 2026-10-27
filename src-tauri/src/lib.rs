@@ -270,6 +270,7 @@ pub fn run() {
             commands::progress_for,
             commands::progress_clear,
             commands::watched_set,
+            commands::watched_list,
             commands::player_open,
             commands::player_state,
             commands::player_control,

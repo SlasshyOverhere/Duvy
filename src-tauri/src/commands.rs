@@ -332,7 +332,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
         (
             Settings::load(&conn),
             db::list_addons(&conn).map_err(|e| e.to_string())?,
-            db::list_progress(&conn).map_err(|e| e.to_string())?,
+            db::list_continue_watching(&conn).map_err(|e| e.to_string())?,
         )
     };
 
@@ -874,6 +874,12 @@ pub fn library_toggle(item: LibraryItem, state: State<'_, AppState>) -> Result<b
 pub fn progress_list(state: State<'_, AppState>) -> Result<Vec<ProgressItem>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     db::list_progress(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedItem>, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    db::list_watched_items(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

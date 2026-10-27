@@ -470,6 +470,22 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         report.progress = merge_progress(&conn, &progress_rows)?;
         report.watched = merge_watched(&conn, &watched_rows)?;
         report.library = merge_library(&conn, &library_rows)?;
+        // Watched on another device and never played here: no progress row
+        // exists to carry a name. Park a zero-length one so the enrich pass
+        // below can title it. Zero duration keeps it out of every progress and
+        // push query.
+        conn.execute(
+            "INSERT OR IGNORE INTO progress (key, meta_id, media_type, name, poster, background,
+                                   season, episode, episode_title, position, duration, updated_at)
+             SELECT w.key, w.meta_id, COALESCE(l.media_type, 'movie'), '',
+                    l.poster, l.background, NULL, NULL, NULL, 0, 0, w.updated_at
+             FROM watched w
+             LEFT JOIN library l ON l.id = w.meta_id
+             WHERE w.watched = 1
+               AND NOT EXISTS (SELECT 1 FROM progress p WHERE p.meta_id = w.meta_id)",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
         (
             local_progress(&conn)?,
             local_watched(&conn)?,

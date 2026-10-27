@@ -19,6 +19,7 @@ import type {
   SubtitleTrack,
   TorrentStats,
   TraktStatus,
+  WatchedItem,
 } from "./types";
 
 export function isTauri(): boolean {
@@ -102,6 +103,10 @@ export const api = {
     clear: (key: string) => call<null>("progress_clear", { key }),
     setWatched: (key: string, metaId: string, watched: boolean) =>
       call<null>("watched_set", { key, metaId, watched }),
+  },
+
+  watched: {
+    list: () => call<WatchedItem[]>("watched_list"),
   },
 
   window: {

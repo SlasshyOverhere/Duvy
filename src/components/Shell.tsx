@@ -8,6 +8,7 @@ const DOCK: { route: Route; label: string; icon: IconName }[] = [
   { route: { name: "discover" }, label: "Discover", icon: "compass" },
   { route: { name: "search" }, label: "Search", icon: "search" },
   { route: { name: "library" }, label: "Library", icon: "library" },
+  { route: { name: "watched" }, label: "Watched", icon: "check" },
   { route: { name: "addons" }, label: "Addons", icon: "puzzle" },
 ];
 

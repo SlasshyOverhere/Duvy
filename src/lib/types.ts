@@ -112,6 +112,17 @@ export interface ProgressItem {
   updatedAt: number;
 }
 
+export interface WatchedItem {
+  metaId: string;
+  type: string;
+  name: string;
+  poster?: string | null;
+  background?: string | null;
+  season?: number | null;
+  episode?: number | null;
+  watchedAt: number;
+}
+
 export interface CatalogDef {
   type: string;
   id: string;

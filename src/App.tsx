@@ -14,6 +14,7 @@ const DiscoverView = lazy(() =>
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
 const LibraryView = lazy(() => import("./views/Library").then((m) => ({ default: m.LibraryView })));
+const WatchedView = lazy(() => import("./views/Watched").then((m) => ({ default: m.WatchedView })));
 const AddonsView = lazy(() => import("./views/Addons").then((m) => ({ default: m.AddonsView })));
 const SettingsView = lazy(() =>
   import("./views/Settings").then((m) => ({ default: m.SettingsView })),
@@ -156,6 +157,7 @@ function Screen() {
               {route.name === "discover" ? <DiscoverView mediaType={route.mediaType} /> : null}
               {route.name === "search" ? <SearchView query={route.query} /> : null}
               {route.name === "library" ? <LibraryView /> : null}
+              {route.name === "watched" ? <WatchedView /> : null}
               {route.name === "addons" ? <AddonsView /> : null}
               {route.name === "settings" ? <SettingsView section={route.section} /> : null}
               {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
