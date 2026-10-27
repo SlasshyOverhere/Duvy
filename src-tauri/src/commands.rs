@@ -1164,22 +1164,22 @@ pub async fn player_control(
     value: Option<Value>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut guard = state.player.lock().map_err(|_| "player is busy")?;
     if action == "stop" {
-        if let Some(player) = guard.as_mut() {
-            let _ = player.command("stop", None);
-        }
-        *guard = None;
-        return Ok(());
+        return player_stop(state).await;
     }
+    let mut guard = state.player.lock().map_err(|_| "player is busy")?;
     let player = guard.as_mut().ok_or("Nothing is playing")?;
     player.command(&action, value)
 }
 
 #[tauri::command]
 pub async fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
+    // P2P must stop seeding before the player state is cleared.
+    crate::torrent::shutdown().await?;
     let mut guard = state.player.lock().map_err(|_| "player is busy")?;
-    *guard = None;
+    if let Some(mut player) = guard.take() {
+        let _ = player.command("stop", None);
+    }
     Ok(())
 }
 

@@ -60,7 +60,7 @@ impl Engine {
         self.session.stop().await;
         // Files can still be held by the OS for a moment; a leftover directory
         // is pruned on the next start, so a failure here is not fatal.
-        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = remove_cache(&self.dir);
     }
 }
 
@@ -110,10 +110,27 @@ pub async fn start(
         previous.shutdown().await;
     }
 
-    let running = launch(&source, file_hint.as_deref(), cache, cache_mb).await?;
+    let running = match launch(&source, file_hint.as_deref(), cache.clone(), cache_mb).await {
+        Ok(running) => running,
+        Err(error) => {
+            // A failed launch must not leave a partial cache behind.
+            let _ = remove_cache(&cache);
+            return Err(error);
+        }
+    };
     let url = running.url.clone();
     *engine().lock().await = Some(running);
     Ok(url)
+}
+
+/// Tears down the engine if one is running. Idempotent.
+pub async fn shutdown() -> Result<(), String> {
+    let _guard = lifecycle().lock().await;
+    let running = { engine().lock().await.take() };
+    if let Some(running) = running {
+        running.shutdown().await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -148,12 +165,7 @@ pub async fn stats(_state: State<'_, AppState>) -> Result<TorrentStats, String> 
 
 #[tauri::command]
 pub async fn stop(_state: State<'_, AppState>) -> Result<(), String> {
-    let _guard = lifecycle().lock().await;
-    let running = { engine().lock().await.take() };
-    if let Some(running) = running {
-        running.shutdown().await;
-    }
-    Ok(())
+    shutdown().await
 }
 
 async fn launch(
@@ -424,15 +436,25 @@ fn dir_size(dir: &Path) -> u64 {
 }
 
 /// librqbit streams the whole selected file to disk and has no sliding-window
-/// cache, so the configured budget is enforced between sessions: leftovers above
-/// `p2p_cache_mb` are wiped before a new torrent starts.
+/// cache, so nothing is reused across sessions: the previous run's directory is
+/// wiped before a new torrent starts. The configured budget caps what a leftover
+/// still held open by the OS may keep.
 fn prepare_cache(dir: &Path, cache_mb: i64) -> Result<(), String> {
     let budget = cache_mb.max(64) as u64 * 1024 * 1024;
+    let _ = remove_cache(dir);
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not create the torrent cache: {e}"))?;
     if dir_size(dir) > budget {
-        std::fs::remove_dir_all(dir)
-            .map_err(|e| format!("could not clear the torrent cache: {e}"))?;
+        return Err("Could not clear the torrent cache: files are still in use".into());
     }
-    std::fs::create_dir_all(dir).map_err(|e| format!("could not create the torrent cache: {e}"))
+    Ok(())
+}
+
+fn remove_cache(dir: &Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("could not clear the torrent cache: {e}")),
+    }
 }
 
 #[cfg(test)]
@@ -530,5 +552,32 @@ mod tests {
         assert!(is_video("clip.webm"));
         assert!(!is_video("film.srt"));
         assert!(!is_video("mkv"));
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("betternuvio-torrent-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn wipes_the_stale_cache_on_start() {
+        let dir = scratch_dir("stale");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("nested").join("stream.mkv"), vec![0u8; 2048]).unwrap();
+
+        prepare_cache(&dir, 64).unwrap();
+        assert!(dir.is_dir());
+        assert_eq!(dir_size(&dir), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn creates_a_missing_cache() {
+        let dir = scratch_dir("missing");
+        prepare_cache(&dir, 64).unwrap();
+        assert!(dir.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
