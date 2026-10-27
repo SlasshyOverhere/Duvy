@@ -46,7 +46,13 @@ export type IconName =
   | "audio"
   | "aspect"
   | "more"
-  | "next";
+  | "next"
+  | "chapters"
+  | "sources"
+  | "episodes"
+  | "lock"
+  | "unlock"
+  | "minus";
 
 const STROKE: Partial<Record<IconName, ReactNode>> = {
   replay10: (
@@ -271,6 +277,40 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
       <path d="M4.5 19.5h15" />
     </>
   ),
+  chapters: (
+    <>
+      <path d="M9 6.5h11M9 12h11M9 17.5h11" />
+      <circle cx="4.6" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.6" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.6" cy="17.5" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  sources: (
+    <>
+      <path d="M12 3.5 20.5 8 12 12.5 3.5 8 12 3.5Z" />
+      <path d="m3.5 12.4 8.5 4.5 8.5-4.5" />
+      <path d="m3.5 16.7 8.5 4.5 8.5-4.5" />
+    </>
+  ),
+  episodes: (
+    <>
+      <rect x="3" y="8" width="18" height="12" rx="2" />
+      <path d="M6.5 4.5h11M5.5 6.2h13" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.2" />
+      <path d="M8.4 10.5V8a3.6 3.6 0 0 1 7.2 0v2.5" />
+    </>
+  ),
+  unlock: (
+    <>
+      <rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.2" />
+      <path d="M8.4 10.5V8a3.6 3.6 0 0 1 7-1.4" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
 };
 
 export function Icon({

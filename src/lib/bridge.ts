@@ -122,7 +122,7 @@ export const api = {
   player: {
     open: (request: PlayRequest) => call<PlayerSnapshot>("player_open", { request }),
     state: () => call<PlayerSnapshot | null>("player_state"),
-    control: (action: string, value?: number | string | null) =>
+    control: (action: string, value?: number | string | boolean | null) =>
       call<PlayerSnapshot | null>("player_control", { action, value }),
     stop: () => call<null>("player_stop"),
     subtitle: (url: string, label?: string) =>

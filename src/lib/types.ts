@@ -240,6 +240,13 @@ export interface Track {
   lang?: string | null;
   selected: boolean;
   external: boolean;
+  /** Channels and codec, e.g. "5.1 · Dolby Digital". */
+  details?: string | null;
+}
+
+export interface Chapter {
+  start: number;
+  title?: string | null;
 }
 
 export interface PlaybackSession {
@@ -272,6 +279,7 @@ export interface PlayerSnapshot {
   subTracks: Track[];
   activeAudio?: number | null;
   activeSub?: number | null;
+  chapters?: Chapter[];
   session?: PlaybackSession | null;
 }
 

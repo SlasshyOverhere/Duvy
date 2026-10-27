@@ -31,6 +31,16 @@ pub struct Track {
     pub lang: Option<String>,
     pub selected: bool,
     pub external: bool,
+    /// Channels and codec, e.g. "5.1 · Dolby Digital".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Chapter {
+    pub start: f64,
+    pub title: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -53,6 +63,7 @@ pub struct Snapshot {
     pub sub_tracks: Vec<Track>,
     pub active_audio: Option<i64>,
     pub active_sub: Option<i64>,
+    pub chapters: Vec<Chapter>,
     pub session: Option<PlaybackSession>,
 }
 
@@ -74,6 +85,7 @@ impl Default for Snapshot {
             sub_tracks: Vec::new(),
             active_audio: None,
             active_sub: None,
+            chapters: Vec::new(),
             session: None,
         }
     }
@@ -252,6 +264,12 @@ fn number_value(value: Option<&Value>, what: &str) -> Result<f64, String> {
         .ok_or_else(|| format!("{what} must be a number"))
 }
 
+fn bool_value(value: Option<&Value>, what: &str) -> Result<bool, String> {
+    value
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("{what} must be true or false"))
+}
+
 /// mpv colours are `#RRGGBB` or `#AARRGGBB`.
 fn color_value<'a>(value: Option<&'a Value>, what: &str) -> Result<&'a str, String> {
     let text = value.and_then(Value::as_str).map(str::trim).unwrap_or_default();
@@ -277,16 +295,15 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
             let lang = track
                 .get("lang")
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("und"))
                 .map(|s| s.to_string());
             let title = track
                 .get("title")
                 .and_then(|v| v.as_str())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string());
-            let label = title
-                .or_else(|| lang.clone())
-                .unwrap_or_else(|| if kind == "audio" { "Audio".into() } else { "Subtitle".into() });
             let selected = track
                 .get("selected")
                 .and_then(|v| v.as_bool())
@@ -295,12 +312,29 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 .get("external")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let label = track_label(
+                kind,
+                if kind == "audio" { audio.len() } else { subs.len() },
+                title.as_deref(),
+                lang.as_deref(),
+            );
+            let details = track_details(
+                kind,
+                &label,
+                track.get("codec").and_then(|v| v.as_str()),
+                track.get("demux-channels").and_then(|v| v.as_str()),
+                track
+                    .get("demux-channel-count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0),
+            );
             let entry = Track {
                 id,
                 label,
                 lang,
                 selected,
                 external,
+                details,
             };
             if kind == "audio" {
                 if selected {
@@ -316,6 +350,230 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
         }
     }
     (audio, subs, active_audio, active_sub)
+}
+
+/// mpv reports tracks as `eng`, `en`, `English` or `und`; all become a name.
+fn language_name(code: &str) -> Option<&'static str> {
+    let raw = code.trim().to_lowercase();
+    let primary = raw.split(['-', '_', '.', '/']).next().unwrap_or("");
+    Some(match primary {
+        "en" | "eng" | "english" => "English",
+        "hi" | "hin" | "hindi" => "Hindi",
+        "ta" | "tam" | "tamil" => "Tamil",
+        "te" | "tel" | "telugu" => "Telugu",
+        "ml" | "mal" | "malayalam" => "Malayalam",
+        "kn" | "kan" | "kannada" => "Kannada",
+        "bn" | "ben" | "bengali" => "Bengali",
+        "mr" | "mar" | "marathi" => "Marathi",
+        "pa" | "pan" | "pun" | "punjabi" => "Punjabi",
+        "ur" | "urd" | "urdu" => "Urdu",
+        "ar" | "ara" | "arabic" => "Arabic",
+        "fa" | "fas" | "per" | "persian" => "Persian",
+        "es" | "spa" | "spanish" => "Spanish",
+        "fr" | "fra" | "fre" | "french" => "French",
+        "de" | "deu" | "ger" | "german" => "German",
+        "it" | "ita" | "italian" => "Italian",
+        "pt" | "por" | "portuguese" => "Portuguese",
+        "ru" | "rus" | "russian" => "Russian",
+        "ja" | "jpn" | "japanese" => "Japanese",
+        "ko" | "kor" | "korean" => "Korean",
+        "zh" | "zho" | "chi" | "chinese" => "Chinese",
+        "tr" | "tur" | "turkish" => "Turkish",
+        "pl" | "pol" | "polish" => "Polish",
+        "nl" | "nld" | "dut" | "dutch" => "Dutch",
+        "sv" | "swe" | "swedish" => "Swedish",
+        "no" | "nor" | "norwegian" => "Norwegian",
+        "da" | "dan" | "danish" => "Danish",
+        "fi" | "fin" | "finnish" => "Finnish",
+        "cs" | "ces" | "cze" | "czech" => "Czech",
+        "sk" | "slk" | "slo" | "slovak" => "Slovak",
+        "hu" | "hun" | "hungarian" => "Hungarian",
+        "uk" | "ukr" | "ukrainian" => "Ukrainian",
+        "he" | "heb" | "hebrew" => "Hebrew",
+        "el" | "ell" | "gre" | "greek" => "Greek",
+        "ro" | "ron" | "rum" | "romanian" => "Romanian",
+        "th" | "tha" | "thai" => "Thai",
+        "vi" | "vie" | "vietnamese" => "Vietnamese",
+        "id" | "ind" | "indonesian" => "Indonesian",
+        "ms" | "msa" | "may" | "malay" => "Malay",
+        "fil" | "tgl" | "filipino" => "Filipino",
+        "is" | "isl" | "ice" | "icelandic" => "Icelandic",
+        "hr" | "hrv" | "croatian" => "Croatian",
+        "sr" | "srp" | "serbian" => "Serbian",
+        "bg" | "bul" | "bulgarian" => "Bulgarian",
+        "sl" | "slv" | "slovenian" => "Slovenian",
+        "et" | "est" | "estonian" => "Estonian",
+        "lv" | "lav" | "latvian" => "Latvian",
+        "lt" | "lit" | "lithuanian" => "Lithuanian",
+        "ca" | "cat" | "catalan" => "Catalan",
+        "eu" | "eus" | "baq" | "basque" => "Basque",
+        "gl" | "glg" | "galician" => "Galician",
+        "af" | "afr" | "afrikaans" => "Afrikaans",
+        "sw" | "swa" | "swahili" => "Swahili",
+        "zu" | "zul" | "zulu" => "Zulu",
+        "am" | "amh" | "amharic" => "Amharic",
+        "ne" | "nep" | "nepali" => "Nepali",
+        "si" | "sin" | "sinhala" => "Sinhala",
+        "km" | "khm" | "khmer" => "Khmer",
+        "lo" | "lao" => "Lao",
+        "my" | "mya" | "bur" | "burmese" => "Burmese",
+        "ka" | "kat" | "geo" | "georgian" => "Georgian",
+        "hy" | "hye" | "arm" | "armenian" => "Armenian",
+        "az" | "aze" | "azerbaijani" => "Azerbaijani",
+        "kk" | "kaz" | "kazakh" => "Kazakh",
+        "uz" | "uzb" | "uzbek" => "Uzbek",
+        _ => return None,
+    })
+}
+
+/// Falls back to the raw code so an unmapped language is never hidden.
+fn language_display(code: &str) -> String {
+    if let Some(name) = language_name(code) {
+        return name.to_string();
+    }
+    let raw = code.trim();
+    if raw.len() <= 3 {
+        raw.to_uppercase()
+    } else {
+        raw.to_string()
+    }
+}
+
+fn codec_name(codec: &str) -> Option<String> {
+    let raw = codec.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let lower = raw.to_lowercase();
+    let name = if lower.contains("eac3") || lower.contains("e-ac-3") || lower.contains("e ac-3") {
+        if lower.contains("joc") || lower.contains("atmos") {
+            "Dolby Atmos"
+        } else {
+            "Dolby Digital Plus"
+        }
+    } else if lower.contains("truehd") || lower.contains("true hd") {
+        "Dolby TrueHD"
+    } else if lower.contains("ac3") || lower.contains("ac-3") {
+        "Dolby Digital"
+    } else if lower.contains("dts-hd") || lower.contains("dtshd") || lower.contains("dts hd") {
+        "DTS-HD"
+    } else if lower.contains("dts") || lower == "dca" {
+        "DTS"
+    } else if lower.contains("aac") {
+        "AAC"
+    } else if lower.contains("opus") {
+        "Opus"
+    } else if lower.contains("vorbis") {
+        "Vorbis"
+    } else if lower.contains("flac") {
+        "FLAC"
+    } else if lower.contains("alac") {
+        "ALAC"
+    } else if lower.contains("mp3") || lower.contains("mpeg audio") {
+        "MP3"
+    } else if lower.contains("mp2") {
+        "MP2"
+    } else if lower.contains("pcm") || lower.contains("wav") {
+        "PCM"
+    } else if lower.contains("subrip") || lower == "srt" {
+        "SRT"
+    } else if lower.contains("ass") || lower.contains("ssa") {
+        "SSA"
+    } else if lower.contains("webvtt") || lower == "vtt" {
+        "VTT"
+    } else if lower.contains("pgs") || lower.contains("hdmv") {
+        "PGS"
+    } else {
+        raw
+    };
+    Some(name.to_string())
+}
+
+fn channel_layout(name: Option<&str>, count: i64) -> Option<String> {
+    if let Some(raw) = name.map(str::trim).filter(|s| !s.is_empty()) {
+        if !raw.eq_ignore_ascii_case("unknown") {
+            return Some(match raw.to_lowercase().as_str() {
+                "mono" => "Mono".to_string(),
+                "stereo" => "Stereo".to_string(),
+                _ => raw.to_string(),
+            });
+        }
+    }
+    match count {
+        1 => Some("Mono".into()),
+        2 => Some("Stereo".into()),
+        6 => Some("5.1".into()),
+        8 => Some("7.1".into()),
+        count if count > 0 => Some(format!("{count} channels")),
+        _ => None,
+    }
+}
+
+/// Language first, then the file's own title: "Hindi (Dubbed)".
+fn track_label(kind: &str, ordinal: usize, title: Option<&str>, lang: Option<&str>) -> String {
+    let language = lang.map(language_display).filter(|name| !name.is_empty());
+    let title = title.map(str::trim).filter(|text| !text.is_empty());
+    match (language, title) {
+        (Some(language), Some(title)) => {
+            let haystack = title.to_lowercase();
+            if haystack.contains(&language.to_lowercase()) {
+                title.to_string()
+            } else {
+                format!("{language} ({title})")
+            }
+        }
+        (Some(language), None) => language,
+        (None, Some(title)) => title.to_string(),
+        (None, None) => {
+            let fallback = if kind == "audio" { "Audio" } else { "Subtitle" };
+            format!("{fallback} {}", ordinal + 1)
+        }
+    }
+}
+
+fn track_details(
+    kind: &str,
+    label: &str,
+    codec: Option<&str>,
+    channels: Option<&str>,
+    channel_count: i64,
+) -> Option<String> {
+    if kind != "audio" {
+        return None;
+    }
+    let haystack = label.to_lowercase();
+    let mut parts = Vec::new();
+    if let Some(layout) = channel_layout(channels, channel_count) {
+        if !haystack.contains(&layout.to_lowercase()) {
+            parts.push(layout);
+        }
+    }
+    if let Some(codec) = codec.and_then(codec_name) {
+        if !haystack.contains(&codec.to_lowercase()) {
+            parts.push(codec);
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+fn parse_chapters(value: &Value) -> Vec<Chapter> {
+    value
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|chapter| {
+                    let start = chapter.get("time").and_then(|v| v.as_f64())?;
+                    let title = chapter
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    Some(Chapter { start, title })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +747,7 @@ impl Player {
             (8, "eof-reached"),
             (9, "media-title"),
             (10, "demuxer-cache-time"),
+            (11, "chapter-list"),
         ] {
             if let Err(error) = send(
                 &mut writer,
@@ -659,6 +918,30 @@ impl Player {
                     json!({"command": ["set_property", "sub-pos", position]}),
                 )
             }
+            "sub-bold" => {
+                let bold = bool_value(value.as_ref(), "Subtitle bold")?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "sub-bold", bold]}),
+                )
+            }
+            "sub-border-size" => {
+                let size = number_value(value.as_ref(), "Subtitle outline")?;
+                if !(0.0..=10.0).contains(&size) {
+                    return Err("Subtitle outline must be between 0 and 10".into());
+                }
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "sub-border-size", size]}),
+                )
+            }
+            "sub-border-color" => {
+                let color = color_value(value.as_ref(), "Subtitle outline colour")?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "sub-border-color", color]}),
+                )
+            }
             "sub-add" => {
                 let url = value
                     .as_ref()
@@ -802,6 +1085,7 @@ fn spawn_reader(
                             snap.active_audio = active_audio;
                             snap.active_sub = active_sub;
                         }
+                        "chapter-list" => snap.chapters = parse_chapters(&data),
                         _ => {}
                     }
                     drop(snap);
@@ -935,7 +1219,7 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 
 #[cfg(test)]
 mod tests {
-    use super::{color_value, number_value};
+    use super::{bool_value, color_value, number_value, parse_chapters, parse_tracks};
     use serde_json::json;
 
     #[test]
@@ -951,5 +1235,72 @@ mod tests {
         assert_eq!(number_value(Some(&delay), "d").unwrap(), -0.4);
         assert!(number_value(Some(&json!("0.4")), "d").is_err());
         assert!(number_value(None, "d").is_err());
+
+        let bold = json!(true);
+        assert!(bool_value(Some(&bold), "b").unwrap());
+        assert!(bool_value(Some(&json!("true")), "b").is_err());
+        assert!(bool_value(None, "b").is_err());
+    }
+
+    #[test]
+    fn audio_tracks_get_language_titles_and_details() {
+        let value = json!([
+            {
+                "type": "audio",
+                "id": 1,
+                "lang": "eng",
+                "title": "Surround",
+                "codec": "eac3",
+                "demux-channels": "5.1",
+                "demux-channel-count": 6,
+                "selected": true
+            },
+            {
+                "type": "audio",
+                "id": 2,
+                "lang": "hin",
+                "title": "Dubbed",
+                "codec": "ac3",
+                "demux-channels": "stereo",
+                "demux-channel-count": 2
+            },
+            { "type": "audio", "id": 3, "lang": "jpn", "codec": "aac" },
+            { "type": "sub", "id": 4, "lang": "eng", "title": "English SDH" }
+        ]);
+        let (audio, subs, active_audio, active_sub) = parse_tracks(&value);
+        assert_eq!(active_audio, Some(1));
+        assert_eq!(active_sub, None);
+        assert_eq!(audio.len(), 3);
+        assert_eq!(audio[0].label, "English (Surround)");
+        assert_eq!(audio[0].details.as_deref(), Some("5.1 · Dolby Digital Plus"));
+        assert_eq!(audio[1].label, "Hindi (Dubbed)");
+        assert_eq!(audio[1].details.as_deref(), Some("Stereo · Dolby Digital"));
+        assert_eq!(audio[2].label, "Japanese");
+        assert_eq!(audio[2].details.as_deref(), Some("AAC"));
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].label, "English SDH");
+        assert_eq!(subs[0].details, None);
+    }
+
+    #[test]
+    fn unnamed_tracks_still_get_a_readable_label() {
+        let value = json!([{ "type": "audio", "id": 7 }, { "type": "sub", "id": 9 }]);
+        let (audio, subs, _, _) = parse_tracks(&value);
+        assert_eq!(audio[0].label, "Audio 1");
+        assert_eq!(subs[0].label, "Subtitle 1");
+    }
+
+    #[test]
+    fn chapters_parse_time_and_title() {
+        let value = json!([
+            { "time": 0.0, "title": "Opening" },
+            { "time": 632.5, "title": "" },
+            { "time": "nope", "title": "Broken" }
+        ]);
+        let chapters = parse_chapters(&value);
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].title.as_deref(), Some("Opening"));
+        assert_eq!(chapters[1].start, 632.5);
+        assert_eq!(chapters[1].title, None);
     }
 }
