@@ -3,8 +3,8 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { WatchedItem } from "../lib/types";
 import { PosterCard } from "../components/media";
-import { EmptyState, IconButton, Spinner } from "../components/ui";
-import { seasonLabel, timeAgo, placeholderGradient } from "../lib/format";
+import { Button, EmptyState, IconButton, Spinner } from "../components/ui";
+import { seasonLabel, placeholderGradient } from "../lib/format";
 
 const MONTHS = [
   "January",
@@ -23,11 +23,56 @@ const MONTHS = [
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const DATE_LABEL = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const ID_LIKE = /^[a-z]{2}\d{5,}$/i;
+
+function titleOf(item: WatchedItem): string {
+  const name = item.name?.trim() ?? "";
+  if (!name || name === item.metaId || ID_LIKE.test(name)) {
+    return item.type === "series" ? "Untitled show" : "Untitled movie";
+  }
+  return name;
+}
+
+function watchedOn(timestamp: number): string {
+  const at = new Date(timestamp);
+  return Number.isFinite(at.getTime()) ? DATE_LABEL.format(at) : "";
+}
+
+function episodeCode(item: WatchedItem): string {
+  if (item.type !== "series") return "";
+  return seasonLabel(item.season, item.episode).replace(" · ", "");
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return "Watched history could not be read.";
+}
+
+function Thumb({ src, seed }: { src?: string | null; seed: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="calendar-thumb" style={{ background: placeholderGradient(seed) }}>
+      {src && !failed ? (
+        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : null}
+    </span>
+  );
+}
+
 // Everything finished, one card per title. The calendar is the default because
 // "when did I watch this" is the question a watched list usually answers.
 export function WatchedView() {
   const { navigate } = useApp();
   const [items, setItems] = useState<WatchedItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<"calendar" | "posters">("calendar");
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -36,18 +81,20 @@ export function WatchedView() {
 
   useEffect(() => {
     let alive = true;
+    setItems(null);
+    setError(null);
     api.watched
       .list()
       .then((rows) => {
         if (alive) setItems(rows);
       })
-      .catch(() => {
-        if (alive) setItems([]);
+      .catch((failure) => {
+        if (alive) setError(errorText(failure));
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [attempt]);
 
   const week = useMemo(() => {
     const year = month.getFullYear();
@@ -82,13 +129,21 @@ export function WatchedView() {
   const open = (item: WatchedItem) =>
     navigate({ name: "details", id: item.metaId, type: item.type });
 
+  const status = error
+    ? "History unavailable"
+    : items
+      ? items.length === 1
+        ? "1 title finished"
+        : `${items.length} titles finished`
+      : "Loading history";
+
   return (
     <div className="page">
       <header className="page-head">
         <div>
           <p className="kicker">Watched</p>
           <h1>Finished, not forgotten</h1>
-          <p className="page-sub">{items ? `${items.length} titles` : "Loading"}</p>
+          <p className="page-sub">{status}</p>
         </div>
         <div className="segmented" role="tablist" aria-label="Watched layout">
           {(
@@ -111,7 +166,18 @@ export function WatchedView() {
         </div>
       </header>
 
-      {!items ? (
+      {error ? (
+        <EmptyState
+          icon="info"
+          title="Watched history could not load"
+          body={error}
+          action={
+            <Button variant="primary" icon="refresh" onClick={() => setAttempt((count) => count + 1)}>
+              Try again
+            </Button>
+          }
+        />
+      ) : !items ? (
         <div className="page-loading">
           <Spinner label="Loading watched titles" />
         </div>
@@ -120,6 +186,11 @@ export function WatchedView() {
           icon="check"
           title="Nothing finished yet"
           body="Titles land here when you finish them, or when Nuvio marks them watched on another device."
+          action={
+            <Button variant="primary" icon="compass" onClick={() => navigate({ name: "discover" })}>
+              Browse catalogs
+            </Button>
+          }
         />
       ) : mode === "calendar" ? (
         <>
@@ -158,35 +229,28 @@ export function WatchedView() {
                   {cell.day ? (
                     <>
                       <span className="calendar-day-num">{cell.day}</span>
-                      {cell.entries.slice(0, 4).map((item) => (
-                        <button
-                          type="button"
-                          className="calendar-item"
-                          key={item.metaId}
-                          onClick={() => open(item)}
-                          title={item.name}
-                        >
-                          <span
-                            className="calendar-thumb"
-                            style={
-                              item.poster ? undefined : { background: placeholderGradient(item.name) }
-                            }
+                      {cell.entries.slice(0, 4).map((item) => {
+                        const title = titleOf(item);
+                        const code = episodeCode(item);
+                        const when = watchedOn(item.watchedAt);
+                        const label = [title, code, when].filter(Boolean).join(" · ");
+                        return (
+                          <button
+                            type="button"
+                            className="calendar-item"
+                            key={item.metaId}
+                            onClick={() => open(item)}
+                            title={label}
+                            aria-label={label}
                           >
-                            {item.poster ? <img src={item.poster} alt="" loading="lazy" /> : null}
-                          </span>
-                          <span className="calendar-item-text">
-                            {item.name}
-                            {item.type === "series" &&
-                            item.season != null &&
-                            item.episode != null ? (
-                              <span className="calendar-code">
-                                {" "}
-                                {seasonLabel(item.season, item.episode).replace(" · ", "")}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      ))}
+                            <Thumb src={item.poster} seed={title} />
+                            <span className="calendar-item-text">
+                              {title}
+                              {code ? <span className="calendar-code"> {code}</span> : null}
+                            </span>
+                          </button>
+                        );
+                      })}
                       {cell.entries.length > 4 ? (
                         <span className="calendar-more">+{cell.entries.length - 4} more</span>
                       ) : null}
@@ -199,24 +263,26 @@ export function WatchedView() {
         </>
       ) : (
         <div className="grid">
-          {items.map((item) => (
-            <div className="watched-cell" key={item.metaId}>
-              <PosterCard
-                item={{
-                  id: item.metaId,
-                  type: item.type,
-                  name: item.name,
-                  poster: item.poster,
-                  background: item.background,
-                }}
-                onOpen={() => open(item)}
-              />
-              <p className="watched-meta">
-                {item.type === "series" ? seasonLabel(item.season, item.episode) || "Show" : "Movie"}
-                {item.watchedAt ? ` · ${timeAgo(item.watchedAt)}` : ""}
-              </p>
-            </div>
-          ))}
+          {items.map((item) => {
+            const title = titleOf(item);
+            const meta = [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · ");
+            return (
+              <div className="watched-cell" key={item.metaId}>
+                <PosterCard
+                  item={{
+                    id: item.metaId,
+                    type: item.type,
+                    name: title,
+                    poster: item.poster,
+                    background: item.background,
+                  }}
+                  caption
+                  onOpen={() => open(item)}
+                />
+                {meta ? <p className="watched-meta">{meta}</p> : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
