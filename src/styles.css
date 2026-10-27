@@ -3331,13 +3331,22 @@ input[type="range"]::-webkit-slider-thumb {
   position: absolute;
   inset: 0;
   z-index: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   pointer-events: none;
 }
 
 .pv-wait .spinner-label {
   color: rgba(255, 255, 255, 0.8);
+}
+
+/* The wait layer ignores clicks so the video surface stays usable. Its Stop
+   button is the exception: a failed source must always be escapable. */
+.pv-wait .btn {
+  pointer-events: auto;
 }
 
 .pv-next {

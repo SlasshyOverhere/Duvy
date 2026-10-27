@@ -47,6 +47,8 @@ pub struct Snapshot {
     pub muted: bool,
     pub speed: f64,
     pub ended: bool,
+    /// Set when mpv cannot open or continue the source.
+    pub error: Option<String>,
     pub audio_tracks: Vec<Track>,
     pub sub_tracks: Vec<Track>,
     pub active_audio: Option<i64>,
@@ -67,6 +69,7 @@ impl Default for Snapshot {
             muted: false,
             speed: 1.0,
             ended: false,
+            error: None,
             audio_tracks: Vec::new(),
             sub_tracks: Vec::new(),
             active_audio: None,
@@ -742,6 +745,7 @@ fn spawn_reader(
                         snap.playing = true;
                         snap.paused = false;
                         snap.ended = false;
+                        snap.error = None;
                     }
                     crate::playback_log::mark("demuxer opened the stream");
                 }
@@ -750,9 +754,14 @@ fn spawn_reader(
                         .get("reason")
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
+                    let failed = reason == "error";
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = false;
-                        snap.ended = reason == "eof" || snap.ended;
+                        if failed {
+                            snap.error =
+                                Some("The stream ended before it could play.".to_string());
+                        }
+                        snap.ended = reason == "eof" || snap.ended || failed;
                     }
                     crate::playback_log::mark(format!("stream ended ({reason})"));
                     let _ = app.emit("player:ended", reason.to_string());

@@ -214,7 +214,8 @@ export function PlayerView() {
   const position = local?.position ?? 0;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
-  const loading = Boolean(local && !local.ended && duration <= 0);
+  const failed = local?.error ?? null;
+  const loading = Boolean(local && !local.ended && !failed && duration <= 0);
   const audioTracks = local?.audioTracks ?? [];
   const subTracks = local?.subTracks ?? [];
   const activeSub = subTracks.find((track) => track.id === local?.activeSub) ?? null;
@@ -224,6 +225,7 @@ export function PlayerView() {
   const showNext = Boolean(
     nextEpisode &&
       !nextOff &&
+      !failed &&
       (local?.ended || (duration > 60 && nextCountdown <= NEXT_LEAD)),
   );
 
@@ -277,13 +279,14 @@ export function PlayerView() {
     void api.window.fullscreen(false);
   }, []);
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(() => {
     const target = session
       ? ({ name: "details", id: session.metaId, type: session.type } as const)
       : ({ name: "home" } as const);
     leaveFullscreen();
-    await api.player.stop().catch(() => undefined);
+    // Leave the screen first: a stuck IPC call must not trap the user.
     navigate(target);
+    void api.player.stop().catch(() => undefined);
   }, [leaveFullscreen, navigate, session]);
 
   // Never leave the window frameless after the overlay goes away.
@@ -414,9 +417,10 @@ export function PlayerView() {
   const bump = useCallback(() => {
     setChrome(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    if (local?.paused || local?.ended || surface) return;
+    // Keep the close controls on screen while a source is opening or has failed.
+    if (loading || failed || local?.paused || local?.ended || surface) return;
     hideTimer.current = window.setTimeout(() => setChrome(false), 2600);
-  }, [local?.paused, local?.ended, surface]);
+  }, [loading, failed, local?.paused, local?.ended, surface]);
 
   useEffect(() => {
     bump();
@@ -668,12 +672,19 @@ export function PlayerView() {
   // Ended episodes advance on their own only when the setting allows it and
   // the card has not been dismissed.
   useEffect(() => {
-    if (!local?.ended || !settings?.autoPlayNext || !nextEpisode || advanced.current || nextOff) {
+    if (
+      !local?.ended ||
+      local.error ||
+      !settings?.autoPlayNext ||
+      !nextEpisode ||
+      advanced.current ||
+      nextOff
+    ) {
       return;
     }
     advanced.current = true;
     void playVideo(nextEpisode);
-  }, [local?.ended, settings?.autoPlayNext, nextEpisode, nextOff, playVideo]);
+  }, [local?.ended, local?.error, settings?.autoPlayNext, nextEpisode, nextOff, playVideo]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -798,7 +809,7 @@ export function PlayerView() {
 
   // A source that never opens would otherwise spin forever with no way out.
   useEffect(() => {
-    if (!local || local.ended || local.duration > 0) {
+    if (!local || local.ended || local.error || local.duration > 0) {
       setWaited(0);
       return;
     }
@@ -806,7 +817,7 @@ export function PlayerView() {
     setWaited(0);
     const timer = window.setInterval(() => setWaited((Date.now() - started) / 1000), 250);
     return () => window.clearInterval(timer);
-  }, [local?.duration, local?.ended]);
+  }, [local?.duration, local?.ended, local?.error]);
 
   if (!local) {
     return (
@@ -896,6 +907,21 @@ export function PlayerView() {
         </button>
       </header>
 
+      {failed ? (
+        <section className="pv-next" role="alert" aria-live="assertive">
+          <p className="pv-next-label">Playback stopped</p>
+          <h2>This source did not play.</h2>
+          <p className="pv-hint">
+            {failed} Check the source or pick another one from the title page.
+          </p>
+          <div className="pv-next-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void stop()}>
+              {session ? "Choose another source" : "Back to home"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {loading ? (
         <div className="pv-wait">
           <Spinner label={`Opening stream · ${waited.toFixed(1)}s`} />
@@ -959,7 +985,7 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {resumeAt != null && !loading && !showNext ? (
+      {resumeAt != null && !loading && !showNext && !failed ? (
         <section className="pv-resume" aria-label="Resume playback">
           <p className="pv-resume-label">Welcome back</p>
           <div className="pv-resume-actions">
@@ -1033,7 +1059,7 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {local.ended && !nextEpisode ? (
+      {local.ended && !nextEpisode && !failed ? (
         <section className="pv-next">
           <p className="pv-next-label">End of the line</p>
           <h2>Nothing queued after this one.</h2>

@@ -265,6 +265,8 @@ export interface PlayerSnapshot {
   muted: boolean;
   speed: number;
   ended: boolean;
+  /** Set when mpv cannot open or continue the source. */
+  error?: string | null;
   audioTracks: Track[];
   subTracks: Track[];
   activeAudio?: number | null;
