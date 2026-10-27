@@ -43,6 +43,9 @@ export type IconName =
   | "replay10"
   | "forward10"
   | "speed"
+  | "audio"
+  | "aspect"
+  | "more"
   | "next";
 
 const STROKE: Partial<Record<IconName, ReactNode>> = {
@@ -91,6 +94,25 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
     <>
       <path d="M6.5 5.6 15 12l-8.5 6.4z" />
       <path d="M18.6 5.4v13.2" />
+    </>
+  ),
+  audio: (
+    <>
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-6.6L7 19.7V16H6a2 2 0 0 1-2-2z" />
+      <path d="M9.2 8.4v4M12 7.2v6.4M14.8 8.4v4" />
+    </>
+  ),
+  aspect: (
+    <>
+      <rect x="3.2" y="5.2" width="17.6" height="13.6" rx="2.2" />
+      <path d="M6.4 8.4h11.2M6.4 15.6h11.2" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5.6" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="18.4" cy="12" r="1.5" fill="currentColor" stroke="none" />
     </>
   ),
   expand: (

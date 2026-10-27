@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { noSourceError, pickSource, useApp, usePlayer } from "../lib/store";
-import type { Details, PlayerSnapshot, SubtitleTrack, Video } from "../lib/types";
+import type { Details, PlayerSnapshot, SubtitleTrack, Track, Video } from "../lib/types";
 import { Icon, Spinner } from "../components/ui";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -14,6 +14,7 @@ import "../components/player/player.css";
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const NEXT_LEAD = 45;
 const SUB_STYLE_KEY = "betternuvio.subtitleStyle";
+const VIDEO_MODE_KEY = "betternuvio.videoMode";
 const SUB_COLORS = [
   { value: "#ffffff", label: "White" },
   { value: "#f1e2c6", label: "Warm white" },
@@ -21,13 +22,23 @@ const SUB_COLORS = [
   { value: "#8fd8ff", label: "Sky blue" },
 ];
 
-type Surface = "tracks" | "keys" | "stats" | null;
+/** How the picture sits in the window, in the order the button cycles them. */
+const VIDEO_MODES = [
+  { id: "fit", label: "Fit", hint: "Whole picture, bars where the shape differs" },
+  { id: "fill", label: "Fill", hint: "Crop the edges until the picture fills the window" },
+  { id: "stretch", label: "Stretch", hint: "Stretch to the window, nothing cropped" },
+] as const;
+type VideoMode = (typeof VIDEO_MODES)[number]["id"];
+
+type Surface = "audio" | "subs" | "speed" | "more" | "keys" | "stats" | null;
 
 interface SubtitleStyle {
   size: number;
   color: string;
   background: number;
   delay: number;
+  /** mpv `sub-pos`: 0 is the top edge, 100 the bottom edge. */
+  position: number;
 }
 
 interface Hud {
@@ -36,8 +47,99 @@ interface Hud {
   out: boolean;
 }
 
-const DEFAULT_SUB_STYLE: SubtitleStyle = { size: 46, color: "#ffffff", background: 55, delay: 0 };
+const DEFAULT_SUB_STYLE: SubtitleStyle = {
+  size: 46,
+  color: "#ffffff",
+  background: 55,
+  delay: 0,
+  position: 96,
+};
 const MAX_DELAY = 10;
+
+/** ISO codes and full names both arrive from mpv and from addons. */
+const LANG_NAMES: Record<string, string> = {
+  en: "English", eng: "English", english: "English",
+  hi: "Hindi", hin: "Hindi", hindi: "Hindi",
+  ta: "Tamil", tam: "Tamil", te: "Telugu", tel: "Telugu",
+  ml: "Malayalam", mal: "Malayalam", kn: "Kannada", kan: "Kannada",
+  bn: "Bengali", ben: "Bengali", mr: "Marathi", mar: "Marathi",
+  pa: "Punjabi", pun: "Punjabi", ur: "Urdu", ar: "Arabic", ara: "Arabic",
+  fa: "Persian", es: "Spanish", spa: "Spanish", fr: "French", fra: "French",
+  fre: "French", de: "German", deu: "German", ger: "German", it: "Italian",
+  ita: "Italian", pt: "Portuguese", por: "Portuguese", ru: "Russian",
+  rus: "Russian", ja: "Japanese", jpn: "Japanese", ko: "Korean", kor: "Korean",
+  zh: "Chinese", chi: "Chinese", tr: "Turkish", tur: "Turkish", pl: "Polish",
+  pol: "Polish", nl: "Dutch", dut: "Dutch", nld: "Dutch", sv: "Swedish",
+  swe: "Swedish", no: "Norwegian", nor: "Norwegian", da: "Danish", dan: "Danish",
+  fi: "Finnish", fin: "Finnish", cs: "Czech", ces: "Czech", cze: "Czech",
+  hu: "Hungarian", hun: "Hungarian", uk: "Ukrainian", ukr: "Ukrainian",
+  he: "Hebrew", heb: "Hebrew", el: "Greek", gre: "Greek", ell: "Greek",
+  ro: "Romanian", ron: "Romanian", rum: "Romanian", th: "Thai", tha: "Thai",
+  vi: "Vietnamese", vie: "Vietnamese", id: "Indonesian", ind: "Indonesian",
+  ms: "Malay", msa: "Malay", fil: "Filipino", tl: "Filipino",
+};
+
+function langLabel(lang?: string | null, fallback?: string | null): string {
+  const raw = (lang ?? "").trim();
+  if (!raw) {
+    const spare = (fallback ?? "").trim();
+    return spare || "Unknown";
+  }
+  const key = raw.toLowerCase().split(/[-_]/)[0];
+  if (LANG_NAMES[key]) return LANG_NAMES[key];
+  return raw.length <= 3 ? raw.toUpperCase() : raw;
+}
+
+function readVideoMode(): VideoMode {
+  const stored = window.localStorage.getItem(VIDEO_MODE_KEY);
+  return VIDEO_MODES.some((mode) => mode.id === stored) ? (stored as VideoMode) : "fit";
+}
+
+interface SubVariant {
+  key: string;
+  label: string;
+  source: string;
+  lang: string;
+  trackId?: number;
+  url?: string;
+}
+
+interface SubGroup {
+  lang: string;
+  variants: SubVariant[];
+}
+
+/** Embedded tracks and addon results, folded into one language-first list. */
+function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null): SubGroup[] {
+  const groups = new Map<string, SubGroup>();
+  const add = (variant: SubVariant) => {
+    const group = groups.get(variant.lang) ?? { lang: variant.lang, variants: [] };
+    if (!group.variants.some((known) => known.key === variant.key)) {
+      group.variants.push(variant);
+    }
+    groups.set(variant.lang, group);
+  };
+  for (const track of tracks) {
+    add({
+      key: `e${track.id}`,
+      label: track.label || langLabel(track.lang),
+      source: track.external ? "Loaded file" : "Embedded",
+      lang: langLabel(track.lang, track.label),
+      trackId: track.id,
+    });
+  }
+  for (const sub of addons ?? []) {
+    const lang = langLabel(sub.lang);
+    add({
+      key: `a${sub.id}${sub.url}`,
+      label: sub.lang || "Subtitle",
+      source: sub.addon,
+      lang,
+      url: sub.url,
+    });
+  }
+  return [...groups.values()];
+}
 
 function whole(value: unknown, min: number, max: number, fallback: number): number {
   const number = Number(value);
@@ -75,6 +177,7 @@ function readSubtitleStyle(): SubtitleStyle {
         : DEFAULT_SUB_STYLE.color,
       background: whole(stored.background, 0, 100, DEFAULT_SUB_STYLE.background),
       delay: tenths(stored.delay, DEFAULT_SUB_STYLE.delay),
+      position: whole(stored.position, 25, 100, DEFAULT_SUB_STYLE.position),
     };
   } catch {
     return DEFAULT_SUB_STYLE;
@@ -114,8 +217,15 @@ export function PlayerView() {
   const [hud, setHud] = useState<Hud | null>(null);
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
-  const [speedOpen, setSpeedOpen] = useState(false);
   const [showRemaining, setShowRemaining] = useState(false);
+  const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
+  const [selectedLang, setSelectedLang] = useState<string | null>(null);
+  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string } | null>(null);
+  // Pointer position over the seek bar, and the still fetched for it.
+  const [hover, setHover] = useState<{ time: number; ratio: number } | null>(null);
+  const [frame, setFrame] = useState<{ time: number; src: string } | null>(null);
+  const frameCache = useRef(new Map<number, string>());
+  const frameSeq = useRef(0);
   // Stored position offered by the resume prompt, and the seconds left before
   // it settles on Resume by itself.
   const [resumeAt, setResumeAt] = useState<number | null>(null);
@@ -422,44 +532,22 @@ export function PlayerView() {
     send("audio", audioTracks[(from + 1) % audioTracks.length].id);
   }, [audioTracks, local?.activeAudio, send]);
 
+  const cycleVideoMode = useCallback(() => {
+    const at = VIDEO_MODES.findIndex((mode) => mode.id === videoMode);
+    const next = VIDEO_MODES[(at + 1) % VIDEO_MODES.length];
+    setVideoMode(next.id);
+    try {
+      window.localStorage.setItem(VIDEO_MODE_KEY, next.id);
+    } catch {
+      // Storage can be blocked; the mode still applies to this session.
+    }
+    send("video-mode", next.id);
+    showHud("Picture", next.label);
+  }, [send, showHud, videoMode]);
+
   const toggleSurface = useCallback((next: Exclude<Surface, null>) => {
     setSurface((current) => (current === next ? null : next));
   }, []);
-
-  const bump = useCallback(() => {
-    setChrome(true);
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    // Keep the close controls on screen while a source is opening or has failed.
-    if (loading || failed || local?.paused || local?.ended || surface) return;
-    hideTimer.current = window.setTimeout(() => setChrome(false), 2600);
-  }, [loading, failed, local?.paused, local?.ended, surface]);
-
-  useEffect(() => {
-    bump();
-    return () => {
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    };
-  }, [bump]);
-
-  // The speed menu is part of the chrome, so it leaves with it.
-  useEffect(() => {
-    if (!chrome) setSpeedOpen(false);
-  }, [chrome]);
-
-  const dismissNext = useCallback(() => {
-    setNextOff(true);
-    // Keep the end-of-file handler from starting the episode the viewer
-    // explicitly waved off.
-    advanced.current = true;
-  }, []);
-
-  const applyResume = useCallback(
-    (target: number) => {
-      setResumeAt(null);
-      send("seek", Math.max(0, target));
-    },
-    [send],
-  );
 
   const loadSubtitles = useCallback(async () => {
     if (!session || subs) return;
@@ -477,6 +565,74 @@ export function PlayerView() {
     }
   }, [session, subs]);
 
+  const openSubs = useCallback(() => {
+    if (surface === "subs") {
+      setSurface(null);
+      return;
+    }
+    setSurface("subs");
+    void loadSubtitles();
+    const active = subTracks.find((track) => track.id === local?.activeSub);
+    setSelectedLang(active ? langLabel(active.lang, active.label) : loadedSub?.lang ?? null);
+  }, [loadSubtitles, loadedSub?.lang, local?.activeSub, subTracks, surface]);
+
+  const chooseSub = useCallback(
+    (variant: SubVariant) => {
+      if (variant.trackId != null) {
+        setLoadedSub(null);
+        send("sub", variant.trackId);
+        return;
+      }
+      if (!variant.url) return;
+      setLoadedSub({ lang: variant.lang, url: variant.url });
+      void api.player
+        .subtitle(variant.url, variant.lang)
+        .then(() => notify(`${variant.lang} subtitles`))
+        .catch((error) => notify(error instanceof Error ? error.message : String(error), "error"));
+    },
+    [notify, send],
+  );
+
+  const turnSubsOff = useCallback(() => {
+    setLoadedSub(null);
+    send("sub", null);
+  }, [send]);
+
+  const bump = useCallback(() => {
+    setChrome(true);
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    // Keep the close controls on screen while a source is opening or has failed.
+    if (loading || failed || local?.paused || local?.ended || surface) return;
+    hideTimer.current = window.setTimeout(() => setChrome(false), 2600);
+  }, [loading, failed, local?.paused, local?.ended, surface]);
+
+  useEffect(() => {
+    bump();
+    return () => {
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    };
+  }, [bump]);
+
+  // A panel belongs to the chrome; when the chrome leaves, so does the panel.
+  useEffect(() => {
+    if (!chrome) setSurface(null);
+  }, [chrome]);
+
+  const dismissNext = useCallback(() => {
+    setNextOff(true);
+    // Keep the end-of-file handler from starting the episode the viewer
+    // explicitly waved off.
+    advanced.current = true;
+  }, []);
+
+  const applyResume = useCallback(
+    (target: number) => {
+      setResumeAt(null);
+      send("seek", Math.max(0, target));
+    },
+    [send],
+  );
+
   // Each episode is a fresh session: clear everything that belonged to the
   // previous one, including a dismissed next-episode card.
   useEffect(() => {
@@ -487,6 +643,10 @@ export function PlayerView() {
     setThumbBroken(false);
     setResumeAt(null);
     setSurface(null);
+    setLoadedSub(null);
+    setHover(null);
+    setFrame(null);
+    frameCache.current.clear();
   }, [session?.key]);
 
   // Markers belong to the show, so one read per playback session covers every
@@ -630,9 +790,45 @@ export function PlayerView() {
       send("sub-color", subStyle.color);
       send("sub-back-color", mpvBackground(subStyle.background));
       send("sub-delay", subStyle.delay);
+      send("sub-pos", subStyle.position);
     }, 150);
     return () => window.clearTimeout(timer);
   }, [send, session?.key, subStyle]);
+
+  // The picture mode lives on the mpv process, so each new one gets it again.
+  useEffect(() => {
+    send("video-mode", videoMode);
+    // Only on a new session: the cycle button already pushes its own change.
+  }, [send, session?.key]);
+
+  // One still per five seconds of the bar, and only once the pointer rests, so
+  // sweeping the timeline does not spawn an mpv for every frame.
+  useEffect(() => {
+    if (!hover) return;
+    const bucket = Math.round(hover.time / 5) * 5;
+    if (bucket < 5) return;
+    const cached = frameCache.current.get(bucket);
+    if (cached) {
+      setFrame({ time: bucket, src: cached });
+      return;
+    }
+    const seq = ++frameSeq.current;
+    const timer = window.setTimeout(() => {
+      void api.player
+        .frame(bucket)
+        .then((src) => {
+          if (!src || frameSeq.current !== seq) return;
+          frameCache.current.set(bucket, src);
+          if (frameCache.current.size > 48) {
+            const oldest = frameCache.current.keys().next().value;
+            if (oldest != null) frameCache.current.delete(oldest);
+          }
+          setFrame({ time: bucket, src });
+        })
+        .catch(() => undefined);
+    }, 170);
+    return () => window.clearTimeout(timer);
+  }, [hover]);
 
   // Delay survives a restart, but the next episode starts on its own timing.
   const delaySession = useRef(false);
@@ -763,8 +959,7 @@ export function PlayerView() {
           toggleSurface("keys");
           break;
         case "Escape":
-          if (speedOpen) setSpeedOpen(false);
-          else if (surface) setSurface(null);
+          if (surface) setSurface(null);
           else if (resumeAt != null) setResumeAt(null);
           else if (showNext) dismissNext();
           else if (fsNow.current) void toggleFullscreen();
@@ -790,7 +985,6 @@ export function PlayerView() {
     resumeAt,
     seekRel,
     showNext,
-    speedOpen,
     step,
     stop,
     surface,
@@ -852,6 +1046,16 @@ export function PlayerView() {
   const title = session?.name ?? local.title;
   const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
   const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
+  const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
+  // Embedded tracks and addon results share one language-first list.
+  const subGroups = groupSubtitles(subTracks, subs);
+  const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
+  const currentLang = selectedLang ?? activeLang ?? subGroups[0]?.lang ?? null;
+  const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? [];
+  const hoverPercent = hover && duration > 0 ? Math.min(100, (hover.time / duration) * 100) : 0;
+  const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
+  const shot = frame && frame.time === hoverBucket ? frame.src : null;
+  const volumeFill = Math.min(100, Math.max(0, (local.volume / 130) * 100));
 
   const ratioFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -898,9 +1102,8 @@ export function PlayerView() {
           bump();
           return;
         }
-        if (surface || speedOpen) {
+        if (surface) {
           setSurface(null);
-          setSpeedOpen(false);
           return;
         }
         togglePause();
@@ -1150,179 +1353,292 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {surface === "tracks" ? (
-        <aside className="pv-panel" aria-label="Tracks and subtitles">
-          <div className="pv-panel-head">
-            <h2>Tracks</h2>
-            <button type="button" className="pv-icon" onClick={() => setSurface(null)} aria-label="Close">
+      {surface === "audio" ? (
+        <section className="pv-sheet pv-sheet--audio" aria-label="Audio tracks">
+          <div className="pv-sheet-head">
+            <h2>Audio</h2>
+            <button
+              type="button"
+              className="pv-icon"
+              onClick={() => setSurface(null)}
+              aria-label="Close audio tracks"
+            >
               <Icon name="x" size={15} />
             </button>
           </div>
+          <div className="pv-list" role="listbox" aria-label="Audio track">
+            {audioTracks.length === 0 ? (
+              <p className="pv-hint">This source has no separate audio tracks.</p>
+            ) : (
+              audioTracks.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  role="option"
+                  aria-selected={local.activeAudio === track.id}
+                  className={`pv-list-item${local.activeAudio === track.id ? " is-on" : ""}`}
+                  onClick={() => send("audio", track.id)}
+                >
+                  <span>{track.label}</span>
+                  <em>{track.external ? "Loaded file" : "Embedded"}</em>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
 
-          <label className="pv-field">
-            <span>Audio</span>
-            <select
-              value={local.activeAudio ?? 0}
-              onChange={(event) => send("audio", Number(event.target.value))}
+      {surface === "subs" ? (
+        <section className="pv-sheet pv-sheet--subs" aria-label="Subtitles">
+          <div className="pv-cols">
+            <div className="pv-col">
+              <h3>Languages</h3>
+              <div className="pv-list" role="listbox" aria-label="Subtitle language">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={!activeLang && !loadedSub}
+                  className={`pv-list-item${!activeLang && !loadedSub ? " is-on" : ""}`}
+                  onClick={turnSubsOff}
+                >
+                  <span>Off</span>
+                </button>
+                {subGroups.map((group) => (
+                  <button
+                    key={group.lang}
+                    type="button"
+                    role="option"
+                    aria-selected={currentLang === group.lang}
+                    className={`pv-list-item${currentLang === group.lang ? " is-on" : ""}`}
+                    onClick={() => setSelectedLang(group.lang)}
+                  >
+                    <span>{group.lang}</span>
+                    {activeLang === group.lang ? <span className="pv-dot" /> : null}
+                  </button>
+                ))}
+              </div>
+              {subs === null ? <Spinner label="Finding subtitles" /> : null}
+            </div>
+
+            <div className="pv-col">
+              <h3>Variants</h3>
+              <div className="pv-list" role="listbox" aria-label="Subtitle variant">
+                {currentVariants.length === 0 ? (
+                  <p className="pv-hint">No tracks in this language yet.</p>
+                ) : (
+                  currentVariants.map((variant) => {
+                    const on =
+                      variant.trackId != null
+                        ? local.activeSub === variant.trackId
+                        : loadedSub?.url === variant.url;
+                    return (
+                      <button
+                        key={variant.key}
+                        type="button"
+                        role="option"
+                        aria-selected={on}
+                        className={`pv-list-item${on ? " is-on" : ""}`}
+                        onClick={() => chooseSub(variant)}
+                      >
+                        <span>{variant.label}</span>
+                        <em>{variant.source}</em>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <button type="button" className="pv-file" onClick={() => void loadSubtitleFile()}>
+                <Icon name="plus" size={13} /> Load a file
+              </button>
+            </div>
+
+            <div className="pv-col">
+              <h3>Settings</h3>
+              <div className="pv-subpreview">
+                <span
+                  style={{
+                    color: subStyle.color,
+                    background: `rgba(0, 0, 0, ${subStyle.background / 100})`,
+                    fontSize: `${Math.round(10 + (subStyle.size - 30) * 0.2)}px`,
+                  }}
+                >
+                  Subtitles look like this
+                </span>
+              </div>
+
+              <div className="pv-field">
+                <span>Delay</span>
+                <div className="pv-stepper">
+                  <button
+                    type="button"
+                    onClick={() => nudgeDelay(-0.1)}
+                    aria-label="Subtitles 0.1 seconds earlier"
+                  >
+                    −
+                  </button>
+                  <b>{delayLabel(subStyle.delay)}</b>
+                  <button
+                    type="button"
+                    onClick={() => nudgeDelay(0.1)}
+                    aria-label="Subtitles 0.1 seconds later"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="pv-field">
+                <span>Size</span>
+                <div className="pv-stepper">
+                  <button
+                    type="button"
+                    onClick={() => patchSubStyle({ size: whole(subStyle.size - 4, 30, 90, 46) })}
+                    aria-label="Smaller subtitles"
+                  >
+                    −
+                  </button>
+                  <b>{Math.round((subStyle.size / 46) * 100)}%</b>
+                  <button
+                    type="button"
+                    onClick={() => patchSubStyle({ size: whole(subStyle.size + 4, 30, 90, 46) })}
+                    aria-label="Larger subtitles"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="pv-field">
+                <span>Position</span>
+                <div className="pv-stepper">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      patchSubStyle({ position: whole(subStyle.position - 5, 25, 100, 96) })
+                    }
+                    aria-label="Move subtitles up"
+                  >
+                    −
+                  </button>
+                  <b>{subStyle.position}%</b>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      patchSubStyle({ position: whole(subStyle.position + 5, 25, 100, 96) })
+                    }
+                    aria-label="Move subtitles down"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="pv-field">
+                <span>Colour</span>
+                <div className="pv-swatches">
+                  {SUB_COLORS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`pv-swatch${subStyle.color === option.value ? " is-on" : ""}`}
+                      style={{ background: option.value }}
+                      aria-label={option.label}
+                      aria-pressed={subStyle.color === option.value}
+                      onClick={() => patchSubStyle({ color: option.value })}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {surface === "speed" ? (
+        <section className="pv-sheet pv-sheet--speed" aria-label="Playback speed">
+          <div className="pv-sheet-head">
+            <h2>Speed</h2>
+            <button
+              type="button"
+              className="pv-icon"
+              onClick={() => setSurface(null)}
+              aria-label="Close speed"
             >
-              {audioTracks.length === 0 ? <option value={0}>Default</option> : null}
-              {audioTracks.map((track) => (
-                <option key={track.id} value={track.id}>
-                  {track.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="pv-field">
-            <span>Subtitles</span>
-            <select
-              value={local.activeSub ?? 0}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                send("sub", value === 0 ? null : value);
-              }}
-            >
-              <option value={0}>Off</option>
-              {subTracks.map((track) => (
-                <option key={track.id} value={track.id}>
-                  {track.label}
-                  {track.external ? " (external)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="pv-style">
-            <p className="pv-field-label">Subtitle style</p>
-            <div className="pv-subpreview">
-              <span
-                style={{
-                  color: subStyle.color,
-                  background: `rgba(0, 0, 0, ${subStyle.background / 100})`,
-                  fontSize: `${Math.round(15 + (subStyle.size - 30) * 0.24)}px`,
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+          <div className="pv-list" role="listbox" aria-label="Playback speed">
+            {SPEEDS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="option"
+                aria-selected={Math.abs(local.speed - value) < 0.01}
+                className={`pv-list-item${Math.abs(local.speed - value) < 0.01 ? " is-on" : ""}`}
+                onClick={() => {
+                  speedRef.current = value;
+                  send("speed", value);
+                  setSurface(null);
                 }}
               >
-                Subtitles appear like this
-              </span>
-            </div>
-            <label className="pv-range">
-              <span>
-                Font size <b>{subStyle.size}</b>
-              </span>
-              <input
-                type="range"
-                min={30}
-                max={90}
-                step={1}
-                value={subStyle.size}
-                aria-label="Subtitle font size"
-                onChange={(event) => patchSubStyle({ size: Number(event.target.value) })}
-              />
-            </label>
-            <label className="pv-field">
-              <span>Text colour</span>
-              <select
-                value={subStyle.color}
-                onChange={(event) => patchSubStyle({ color: event.target.value })}
-              >
-                {SUB_COLORS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="pv-range">
-              <span>
-                Background <b>{subStyle.background}%</b>
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={subStyle.background}
-                aria-label="Subtitle background opacity"
-                onChange={(event) => patchSubStyle({ background: Number(event.target.value) })}
-              />
-            </label>
-            <p className="pv-hint">Saved on this device and applied to the picture.</p>
+                <span>{value}×</span>
+              </button>
+            ))}
           </div>
+        </section>
+      ) : null}
 
-          <div className="pv-style">
-            <p className="pv-field-label">Subtitle delay</p>
-            <div className="pv-row">
-              <button type="button" className="pv-file" onClick={() => nudgeDelay(-0.1)}>
-                −0.1s
-              </button>
-              <button type="button" className="pv-file" onClick={() => patchSubStyle({ delay: 0 })}>
-                Reset
-              </button>
-              <button type="button" className="pv-file" onClick={() => nudgeDelay(0.1)}>
-                +0.1s
-              </button>
-            </div>
-            <p className="pv-hint">
-              {delayLabel(subStyle.delay)} · positive shows subtitles later, and each episode starts
-              at zero.
-            </p>
+      {surface === "more" ? (
+        <section className="pv-sheet pv-sheet--more" aria-label="Playback options">
+          <div className="pv-sheet-head">
+            <h2>More</h2>
+            <button
+              type="button"
+              className="pv-icon"
+              onClick={() => setSurface(null)}
+              aria-label="Close options"
+            >
+              <Icon name="x" size={15} />
+            </button>
           </div>
-
-          <div className="pv-style">
-            <p className="pv-field-label">Skip intro</p>
+          <div className="pv-list">
+            <button type="button" className="pv-list-item" onClick={() => setSurface("stats")}>
+              <Icon name="info" size={16} />
+              <span>Playback stats</span>
+            </button>
+            <button type="button" className="pv-list-item" onClick={() => setSurface("keys")}>
+              <Icon name="key" size={16} />
+              <span>Keyboard</span>
+            </button>
+            <button type="button" className="pv-list-item" onClick={() => void loadSubtitleFile()}>
+              <Icon name="plus" size={16} />
+              <span>Load subtitle file</span>
+            </button>
+          </div>
+          <div className="pv-more-marks">
+            <p className="pv-hint">Skip intro markers for this show</p>
             <div className="pv-row">
               <button
                 type="button"
                 className="pv-file"
                 onClick={() => void saveMarker({ introStart: posRef.current }, "Intro start")}
               >
-                Set intro here
+                Set start here
               </button>
               <button
                 type="button"
                 className="pv-file"
                 onClick={() => void saveMarker({ introEnd: posRef.current }, "Intro end")}
               >
-                Set intro end
+                Set end here
               </button>
             </div>
-            <p className="pv-hint">
-              {markMsg ?? "Applies to every episode of this show."}
-            </p>
+            {markMsg ? <p className="pv-hint">{markMsg}</p> : null}
           </div>
-
-          <div className="pv-addonsubs">
-            <p className="pv-field-label">From addons</p>
-            {subs === null ? (
-              <Spinner label="Asking subtitle addons" />
-            ) : subs.length === 0 ? (
-              <p className="pv-hint">No subtitle addon returned tracks.</p>
-            ) : (
-              <div className="pv-sublist">
-                {subs.map((track) => (
-                  <button
-                    key={track.id}
-                    type="button"
-                    onClick={() => {
-                      void api.player.subtitle(track.url, track.lang);
-                      notify(`Loading ${track.lang} subtitles`);
-                    }}
-                  >
-                    <span>{track.lang || "Unknown"}</span>
-                    <em>{track.addon}</em>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button type="button" className="pv-file" onClick={() => void loadSubtitleFile()}>
-              <Icon name="plus" size={13} /> Load a file
-            </button>
-          </div>
-        </aside>
+        </section>
       ) : null}
 
-      {!loading && !failed ? (
+      {!loading && !failed && local.paused ? (
         <div className="pv-center">
           <button
             type="button"
@@ -1330,15 +1646,15 @@ export function PlayerView() {
             onClick={() => seekRel(-10)}
             aria-label="Back 10 seconds"
           >
-            <Icon name="replay10" size={32} />
+            <Icon name="replay10" size={30} />
           </button>
           <button
             type="button"
             className="pv-center-btn pv-center-btn--play"
             onClick={togglePause}
-            aria-label={local.paused ? "Play" : "Pause"}
+            aria-label="Play"
           >
-            <Icon name={local.paused ? "play" : "pause"} size={42} />
+            <Icon name="play" size={32} />
           </button>
           <button
             type="button"
@@ -1346,53 +1662,103 @@ export function PlayerView() {
             onClick={() => seekRel(10)}
             aria-label="Forward 10 seconds"
           >
-            <Icon name="forward10" size={32} />
+            <Icon name="forward10" size={30} />
           </button>
         </div>
       ) : null}
 
       <footer className="pv-deck">
-        <div
-          className="pv-track"
-          role="slider"
-          tabIndex={0}
-          aria-label="Seek"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(duration)}
-          aria-valuenow={Math.round(shownPosition)}
-          aria-valuetext={formatTime(shownPosition)}
-          onPointerDown={(event) => {
-            if (!duration) return;
-            dragging.current = true;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            setScrub(ratioFromEvent(event) * duration);
-          }}
-          onPointerMove={(event) => {
-            if (!dragging.current || !duration) return;
-            setScrub(ratioFromEvent(event) * duration);
-          }}
-          onPointerUp={(event) => {
-            if (!dragging.current) return;
-            dragging.current = false;
-            const target = ratioFromEvent(event) * duration;
-            setScrub(null);
-            seekTo(target);
-          }}
-          onPointerCancel={() => {
-            dragging.current = false;
-            setScrub(null);
-          }}
-          onLostPointerCapture={() => {
-            dragging.current = false;
-            setScrub(null);
-          }}
-        >
-          <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
-          <span className="pv-played" style={{ width: `${percent}%` }} />
+        <div className="pv-scrub">
+          <span className="pv-time">{formatTime(shownPosition)}</span>
+
+          <div
+            className={`pv-track${dragging.current ? " is-dragging" : ""}`}
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(shownPosition)}
+            aria-valuetext={formatTime(shownPosition)}
+            onPointerDown={(event) => {
+              if (!duration) return;
+              dragging.current = true;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              const ratio = ratioFromEvent(event);
+              setScrub(ratio * duration);
+              setHover({ time: ratio * duration, ratio });
+            }}
+            onPointerMove={(event) => {
+              if (!duration) return;
+              const ratio = ratioFromEvent(event);
+              setHover({ time: ratio * duration, ratio });
+              if (dragging.current) setScrub(ratio * duration);
+            }}
+            onPointerLeave={() => {
+              if (!dragging.current) setHover(null);
+            }}
+            onPointerUp={(event) => {
+              if (!dragging.current) return;
+              dragging.current = false;
+              const target = ratioFromEvent(event) * duration;
+              setScrub(null);
+              seekTo(target);
+            }}
+            onPointerCancel={() => {
+              dragging.current = false;
+              setScrub(null);
+            }}
+            onLostPointerCapture={() => {
+              dragging.current = false;
+              setScrub(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+              event.preventDefault();
+              seekRel((event.key === "ArrowLeft" ? -1 : 1) * step);
+            }}
+          >
+            <span className="pv-rail" />
+            <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
+            <span className="pv-hover-fill" style={{ width: `${hoverPercent}%` }} />
+            <span className="pv-played" style={{ width: `${percent}%` }} />
+            <span className="pv-knob" style={{ left: `${percent}%` }} />
+
+            {hover ? (
+              <span
+                className="pv-tip"
+                style={{ left: `${Math.min(94, Math.max(6, hover.ratio * 100))}%` }}
+              >
+                <span className="pv-tip-shot">
+                  {shot ? <img src={shot} alt="" draggable={false} /> : null}
+                </span>
+                <b>{formatTime(hover.time)}</b>
+              </span>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            className="pv-time pv-time--end"
+            onClick={() => setShowRemaining((current) => !current)}
+            aria-label={showRemaining ? "Show total length" : "Show time remaining"}
+            title={showRemaining ? "Total length" : "Time remaining"}
+          >
+            {showRemaining ? `−${formatTime(remaining)}` : formatTime(duration)}
+          </button>
         </div>
 
         <div className="pv-bar">
           <div className="pv-actions">
+            <button
+              type="button"
+              className="pv-action pv-action--play"
+              onClick={togglePause}
+              aria-label={local.paused ? "Play" : "Pause"}
+            >
+              <Icon name={local.paused ? "play" : "pause"} size={21} />
+            </button>
+
             {prevEpisode ? (
               <button
                 type="button"
@@ -1400,8 +1766,9 @@ export function PlayerView() {
                 disabled={busy}
                 onClick={() => void playVideo(prevEpisode)}
                 aria-label="Previous episode"
+                title="Previous episode"
               >
-                <Icon name="next" size={22} />
+                <Icon name="next" size={20} />
               </button>
             ) : null}
             {nextEpisode ? (
@@ -1411,87 +1778,21 @@ export function PlayerView() {
                 disabled={busy}
                 onClick={() => void playVideo(nextEpisode)}
                 aria-label="Next episode"
+                title="Next episode"
               >
-                <Icon name="next" size={22} />
+                <Icon name="next" size={20} />
               </button>
             ) : null}
 
-            <button
-              type="button"
-              className={`pv-action${surface === "tracks" ? " is-on" : ""}`}
-              onClick={() => {
-                toggleSurface("tracks");
-                void loadSubtitles();
-              }}
-              aria-label="Audio and subtitles"
-              aria-expanded={surface === "tracks"}
-            >
-              <Icon name="subtitle" size={22} />
-            </button>
-
-            <div className="pv-speed">
-              <button
-                type="button"
-                className={`pv-action${speedOpen ? " is-on" : ""}`}
-                onClick={() => setSpeedOpen((current) => !current)}
-                aria-label={`Playback speed ${local.speed} times`}
-                aria-haspopup="menu"
-                aria-expanded={speedOpen}
-              >
-                <Icon name="speed" size={22} />
-              </button>
-              {speedOpen ? (
-                <div className="pv-menu" role="menu" aria-label="Playback speed">
-                  {SPEEDS.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={Math.abs(local.speed - value) < 0.01}
-                      className={`pv-menu-item${Math.abs(local.speed - value) < 0.01 ? " is-on" : ""}`}
-                      onClick={() => {
-                        speedRef.current = value;
-                        send("speed", value);
-                        setSpeedOpen(false);
-                      }}
-                    >
-                      {value}×
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              className={`pv-action${surface === "stats" ? " is-on" : ""}`}
-              onClick={() => toggleSurface("stats")}
-              aria-label="Playback statistics"
-              aria-expanded={surface === "stats"}
-            >
-              <Icon name="info" size={22} />
-            </button>
-
-            <button
-              type="button"
-              className={`pv-action${surface === "keys" ? " is-on" : ""}`}
-              onClick={() => toggleSurface("keys")}
-              aria-label="Keyboard shortcuts"
-              aria-expanded={surface === "keys"}
-            >
-              <Icon name="key" size={22} />
-            </button>
-          </div>
-
-          <div className="pv-bar-right">
             <div className="pv-vol">
               <button
                 type="button"
                 className="pv-action"
                 aria-label={local.muted ? "Unmute" : "Mute"}
+                title={local.muted ? "Unmute" : "Mute"}
                 onClick={toggleMute}
               >
-                <Icon name={local.muted ? "mute" : "volume"} size={22} />
+                <Icon name={local.muted ? "mute" : "volume"} size={20} />
               </button>
               <input
                 type="range"
@@ -1499,19 +1800,68 @@ export function PlayerView() {
                 max={130}
                 value={Math.round(local.volume)}
                 aria-label="Volume"
+                style={{
+                  background: `linear-gradient(to right, var(--accent) ${volumeFill}%, rgba(255, 255, 255, 0.24) ${volumeFill}%)`,
+                }}
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
             </div>
 
             <button
               type="button"
-              className="pv-runtime"
-              onClick={() => setShowRemaining((current) => !current)}
-              aria-label="Switch between elapsed and remaining time"
+              className={`pv-action${surface === "audio" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("audio")}
+              aria-label="Audio tracks"
+              title="Audio tracks"
+              aria-expanded={surface === "audio"}
             >
-              {showRemaining
-                ? `−${formatTime(remaining)}`
-                : `${formatTime(shownPosition)} / ${formatTime(duration)}`}
+              <Icon name="audio" size={21} />
+            </button>
+          </div>
+
+          <div className="pv-bar-right">
+            <button
+              type="button"
+              className={`pv-action${surface === "subs" || activeSub != null ? " is-on" : ""}`}
+              onClick={openSubs}
+              aria-label="Subtitles"
+              title="Subtitles"
+              aria-expanded={surface === "subs"}
+            >
+              <Icon name="subtitle" size={21} />
+            </button>
+
+            <button
+              type="button"
+              className={`pv-chip${videoMode !== "fit" ? " is-on" : ""}`}
+              onClick={cycleVideoMode}
+              aria-label={`Picture mode: ${mode.label}`}
+              title={mode.hint}
+            >
+              <Icon name="aspect" size={17} />
+              <span>{mode.label}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`pv-action${surface === "speed" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("speed")}
+              aria-label="Playback speed"
+              title="Playback speed"
+              aria-expanded={surface === "speed"}
+            >
+              <Icon name="speed" size={21} />
+            </button>
+
+            <button
+              type="button"
+              className={`pv-action${surface === "more" ? " is-on" : ""}`}
+              onClick={() => toggleSurface("more")}
+              aria-label="More options"
+              title="More options"
+              aria-expanded={surface === "more"}
+            >
+              <Icon name="more" size={21} />
             </button>
           </div>
         </div>
