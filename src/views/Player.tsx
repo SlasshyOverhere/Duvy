@@ -908,7 +908,7 @@ export function PlayerView() {
       </header>
 
       {failed ? (
-        <section className="pv-next" role="alert" aria-live="assertive">
+        <section className="pv-next pv-next--failed" role="alert" aria-live="assertive">
           <p className="pv-next-label">Playback stopped</p>
           <h2>This source did not play.</h2>
           <p className="pv-hint">
@@ -1243,7 +1243,7 @@ export function PlayerView() {
         </aside>
       ) : null}
 
-      {!loading ? (
+      {!loading && !failed ? (
         <div className="pv-center">
           <button
             type="button"
