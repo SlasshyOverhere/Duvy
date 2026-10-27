@@ -472,7 +472,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 28px 44px 64px;
+  padding: 28px 44px 32px;
   background:
     linear-gradient(to right, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0) 72%),
     linear-gradient(
@@ -485,7 +485,10 @@
     rgba(0, 0, 0, 0.34);
 }
 
+/* The padding on .pv-overlay is the gutter: 100% here can never reach the edge. */
 .pv .pv-overlay-body {
+  display: flex;
+  flex-direction: column;
   width: min(940px, 100%);
   max-height: 100%;
   min-height: 0;
@@ -515,16 +518,22 @@
 
 /* ---- rails -------------------------------------------------------------- */
 
+/* Columns share the panel height, so all three bottoms sit on one line. */
 .pv .pv-rails {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1 1 auto;
   gap: 14px;
   min-width: 0;
+  min-height: 0;
 }
 
 .pv .pv-rail {
-  flex: none;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 
 .pv .pv-rail--lang {
@@ -537,12 +546,10 @@
 
 .pv .pv-rail--style {
   width: 280px;
-  max-height: min(60vh, 480px);
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .pv .pv-rail > h3 {
+  flex: none;
   margin: 0 0 8px;
   padding: 0 6px;
   font-size: 12.5px;
@@ -558,9 +565,16 @@
 }
 
 .pv .pv-rail-list[role="listbox"] {
-  max-height: min(52vh, 440px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+/* Rows keep their own height so the list scrolls instead of squashing them. */
+.pv .pv-rail-list > *,
+.pv .pv-style > * {
+  flex: none;
 }
 
 .pv .pv-rail-list--menu {
@@ -699,8 +713,12 @@
 .pv .pv-style {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 14px;
+  min-height: 0;
   padding: 2px 4px 4px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .pv .pv-style-section h4 {
@@ -1552,7 +1570,7 @@
   }
 
   .pv .pv-overlay {
-    padding: 24px 24px 56px;
+    padding: 24px 24px 24px;
   }
 
   .pv-resume,
@@ -1561,9 +1579,27 @@
     bottom: 176px;
     width: min(400px, calc(100vw - 48px));
   }
+}
 
+/* Three 808px columns plus the gutters stop fitting below ~856px. */
+@media (max-width: 860px) {
+  /* Stacked columns: the panel is the one scroller instead of three tiny ones. */
   .pv .pv-rails {
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pv .pv-rail--lang,
+  .pv .pv-rail--variants,
+  .pv .pv-rail--style {
+    width: 100%;
+  }
+
+  .pv .pv-rail-list[role="listbox"],
+  .pv .pv-style {
+    flex: 0 0 auto;
+    overflow: visible;
   }
 }
 
@@ -1577,13 +1613,7 @@
   }
 
   .pv .pv-overlay {
-    padding: 16px 16px 48px;
-  }
-
-  .pv .pv-rail--lang,
-  .pv .pv-rail--variants,
-  .pv .pv-rail--style {
-    width: 100%;
+    padding: 16px 16px 24px;
   }
 
   .pv .pv-keys,
