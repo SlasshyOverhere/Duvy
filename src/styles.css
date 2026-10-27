@@ -73,6 +73,15 @@ body,
 html {
   color-scheme: dark;
   accent-color: var(--accent);
+  /* The shell owns the viewport; a transient document scrollbar must never
+     draw a strip over the picture in fullscreen. */
+  overflow: hidden;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 body {

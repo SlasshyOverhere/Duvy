@@ -88,6 +88,44 @@ pub fn raise_webview(host: isize) {
 #[cfg(not(windows))]
 pub fn raise_webview(_host: isize) {}
 
+/// Remove the accent frame Windows 11 paints around a window. A borderless
+/// window stretched over the whole monitor otherwise keeps a light edge along
+/// the bottom that reads as a strip in fullscreen.
+#[cfg(windows)]
+fn set_window_frame(hwnd: isize, borderless: bool) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    };
+    const COLOR_DEFAULT: u32 = 0xFFFF_FFFF;
+    const CORNER_DEFAULT: u32 = 0;
+    let color: u32 = if borderless { DWMWA_COLOR_NONE } else { COLOR_DEFAULT };
+    let corner: u32 = if borderless {
+        DWMWCP_DONOTROUND as u32
+    } else {
+        CORNER_DEFAULT
+    };
+    let size = std::mem::size_of::<u32>() as u32;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd as HWND,
+            DWMWA_BORDER_COLOR as u32,
+            &color as *const u32 as *const _,
+            size,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd as HWND,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &corner as *const u32 as *const _,
+            size,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn set_window_frame(_hwnd: isize, _borderless: bool) {}
+
 /// Toggle a borderless, monitor-filling window.
 ///
 /// The framework's own fullscreen path rewrites the window flags while the
@@ -163,6 +201,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 bottom - top,
                 SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
+            set_window_frame(host, true);
             true
         } else {
             let saved = SAVED.lock().ok().and_then(|mut guard| guard.take());
@@ -186,6 +225,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 0,
                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
+            set_window_frame(saved_hwnd as isize, false);
             true
         }
     }
