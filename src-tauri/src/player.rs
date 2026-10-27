@@ -786,9 +786,9 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
     }
     if snap.position / snap.duration >= 0.92 {
         let _ = db::set_watched(&conn, &session.key, &session.meta_id, true);
-        let _ = db::clear_progress(&conn, &session.key);
-        return;
     }
+    // Keep the row at completion: it carries the name, poster and episode the
+    // Watched list shows. Continue watching excludes >=90% rows on its own.
     let item = ProgressItem {
         key: session.key.clone(),
         meta_id: session.meta_id.clone(),

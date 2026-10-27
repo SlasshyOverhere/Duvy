@@ -236,6 +236,49 @@ fn continue_watching_hides_finished_and_merges_episodes() {
 }
 
 #[test]
+fn watched_items_keep_metadata_after_completion() {
+    let (conn, path) = temp_database();
+    // A finished episode: same row persist() leaves behind at >=92%.
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt42:2:5".into(),
+            meta_id: "tt42".into(),
+            media_type: "series".into(),
+            name: "Finished Show".into(),
+            poster: Some("https://example.test/p.jpg".into()),
+            background: Some("https://example.test/b.jpg".into()),
+            season: Some(2),
+            episode: Some(5),
+            episode_title: Some("Finale".into()),
+            position: 1000.0,
+            duration: 1000.0,
+            updated_at: 0,
+        },
+    )
+    .expect("save");
+    db::set_watched(&conn, "tt42:2:5", "tt42", true).expect("watched");
+
+    let watched = db::list_watched_items(&conn).expect("list");
+    assert_eq!(watched.len(), 1);
+    let row = &watched[0];
+    assert_eq!(row.meta_id, "tt42");
+    assert_eq!(row.name, "Finished Show");
+    assert_eq!(row.media_type, "series");
+    assert_eq!(row.poster.as_deref(), Some("https://example.test/p.jpg"));
+    assert_eq!(row.background.as_deref(), Some("https://example.test/b.jpg"));
+    assert_eq!(row.season, Some(2));
+    assert_eq!(row.episode, Some(5));
+
+    // No library entry exists, so nothing was borrowed and no id fallback fired.
+    assert!(db::list_library(&conn).unwrap().is_empty());
+    // The kept row must not resurface in Continue watching.
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn settings_patch_merges_and_resets() {
     let (conn, path) = temp_database();
     let mut settings = Settings::default();

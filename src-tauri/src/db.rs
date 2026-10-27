@@ -481,7 +481,7 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
          latest AS (SELECT meta_id, MAX(at) AS at FROM marks GROUP BY meta_id)
          SELECT l.meta_id, l.at,
                 COALESCE(p.media_type, b.media_type, 'movie'),
-                COALESCE(NULLIF(p.name, ''), b.name, l.meta_id),
+                COALESCE(NULLIF(p.name, ''), NULLIF(b.name, ''), l.meta_id),
                 COALESCE(p.poster, b.poster),
                 COALESCE(p.background, b.background),
                 p.season, p.episode
