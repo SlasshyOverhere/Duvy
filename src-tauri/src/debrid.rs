@@ -21,6 +21,13 @@ const PROVIDERS: [(&str, &str); 4] = [
     ("torbox", "TorBox"),
 ];
 
+/// Domains whose links a provider can unrestrict. Anything else is already playable.
+const UNRESTRICT_HOSTS: [(&str, &[&str]); 3] = [
+    ("realdebrid", &["real-debrid.com"]),
+    ("alldebrid", &["alldebrid.com", "alldebrid.fr"]),
+    ("premiumize", &["premiumize.me"]),
+];
+
 const RD_API: &str = "https://api.real-debrid.com/rest/1.0";
 const AD_API: &str = "https://api.alldebrid.com/v4";
 const PM_API: &str = "https://www.premiumize.me/api";
@@ -155,15 +162,16 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
     }
 
     let accounts = stored_keys(state.inner());
-    if accounts.is_empty() {
-        return Err("No debrid account is connected. Add a key on the Debrid screen.".into());
-    }
-
-    let http = state.http.clone();
 
     if is_http(&source) {
+        // A plain stream is already playable; only provider-hosted links need a round trip.
+        let targets = unrestrict_targets(accounts, &source);
+        if targets.is_empty() {
+            return Ok(source);
+        }
+        let http = state.http.clone();
         let mut last = String::new();
-        for (id, key) in &accounts {
+        for (id, key) in &targets {
             match unrestrict(&http, id, key, &source).await {
                 Ok(link) => return Ok(link),
                 Err(message) => last = message,
@@ -175,6 +183,11 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
             last
         });
     }
+
+    if accounts.is_empty() {
+        return Err("No debrid account is connected. Add a key on the Debrid screen.".into());
+    }
+    let http = state.http.clone();
 
     let magnet = to_magnet(&source);
     if !is_magnet(&magnet) {
@@ -958,6 +971,38 @@ async fn unrestrict(
     }
 }
 
+/// True when the link lives on a domain the provider itself hands out.
+fn can_unrestrict(provider: &str, link: &str) -> bool {
+    let Ok(url) = url::Url::parse(link.trim()) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    UNRESTRICT_HOSTS
+        .iter()
+        .find(|(id, _)| *id == provider)
+        .is_some_and(|(_, domains)| {
+            domains
+                .iter()
+                .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+        })
+}
+
+fn unrestrict_targets(
+    accounts: Vec<(String, String)>,
+    link: &str,
+) -> Vec<(String, String)> {
+    accounts
+        .into_iter()
+        .filter(|(id, _)| can_unrestrict(id, link))
+        .collect()
+}
+
 async fn is_cached(http: &reqwest::Client, provider: &str, key: &str, source: &str) -> bool {
     let hash = info_hash(source);
     let (url, query): (String, Vec<(&str, &str)>) = match provider {
@@ -1247,5 +1292,53 @@ mod tests {
         assert!(canonical("Real-Debrid").is_some());
         assert_eq!(canonical("real_debrid"), Some("realdebrid"));
         assert_eq!(canonical("torrentio"), None);
+    }
+
+    fn sample_accounts() -> Vec<(String, String)> {
+        PROVIDERS
+            .iter()
+            .map(|(id, _)| ((*id).to_string(), format!("{id}-key")))
+            .collect()
+    }
+
+    #[test]
+    fn direct_http_streams_pass_through_untouched() {
+        assert!(unrestrict_targets(sample_accounts(), "https://cdn.example.com/Movie.1080p.mkv").is_empty());
+        assert!(unrestrict_targets(
+            sample_accounts(),
+            "http://stream.example.net:8080/live/index.m3u8?token=abc"
+        )
+        .is_empty());
+        // TorBox links are already direct downloads, so they are never un-restricted.
+        assert!(unrestrict_targets(sample_accounts(), "https://nexus.torbox.app/x/Show.mkv").is_empty());
+    }
+
+    #[test]
+    fn debrid_hosted_links_are_still_resolvable() {
+        let links = [
+            ("realdebrid", "https://real-debrid.com/d/ABCDEF"),
+            ("alldebrid", "https://alldebrid.com/f/AAA"),
+            ("premiumize", "https://download.premiumize.me/file/b.mkv"),
+        ];
+        for (provider, link) in links {
+            assert!(can_unrestrict(provider, link), "{provider} should handle {link}");
+            let targets = unrestrict_targets(sample_accounts(), link);
+            assert_eq!(targets.len(), 1);
+            assert_eq!(targets[0].0, provider);
+        }
+    }
+
+    #[test]
+    fn unhandled_links_never_reach_the_provider() {
+        assert!(!can_unrestrict("torbox", "https://real-debrid.com/d/ABCDEF"));
+        assert!(!can_unrestrict("realdebrid", "https://alldebrid.com/f/AAA"));
+        // Spoofed hosts and odd schemes are not provider links.
+        assert!(!can_unrestrict("realdebrid", "https://real-debrid.com.evil.test/d/x"));
+        assert!(!can_unrestrict("premiumize", "ftp://premiumize.me/file/a.mkv"));
+        assert!(!can_unrestrict("realdebrid", "not a url"));
+        assert_eq!(
+            unrestrict_targets(vec![("torbox".into(), "k".into())], "https://real-debrid.com/d/ABCDEF"),
+            Vec::new()
+        );
     }
 }
