@@ -115,7 +115,7 @@ function errorMessage(error: unknown): string {
 }
 
 /** The preferred quality when one matches, otherwise the best source offered. */
-function pickSource(options: StreamOption[], quality: string): StreamOption | undefined {
+export function pickSource(options: StreamOption[], quality: string): StreamOption | undefined {
   const playable = options.filter((stream) => stream.playable);
   if (quality && quality !== "auto") {
     const wanted = quality.toLowerCase();
