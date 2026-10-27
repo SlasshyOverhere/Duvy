@@ -140,9 +140,9 @@ address visible to the swarm. Debrid accounts have their own terms.
   reporting.
 - Credentials (TMDB key, Trakt tokens, debrid keys, Jellyfin/Emby tokens, Nuvio session) are kept
   in the local settings table. Each value is encrypted with Windows DPAPI for the current user
-  before it is written, so a copy of the database cannot be read by another Windows account or
-  on another machine. The app can still read them while you are signed in, so treat the data
-  directory like any other credential store.
+  before it is written (existing plaintext rows are upgraded on the next launch), so a copy of
+  the database cannot be read by another Windows account or on another machine. The app can still
+  read them while you are signed in, so treat the data directory like any other credential store.
 - Network requests go to the addons you install, image hosts, and the optional services you
   configure (TMDB, Trakt, Nuvio, debrid, Jellyfin/Emby). Addon developers and service operators
   see requests from your IP.

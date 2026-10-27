@@ -367,6 +367,29 @@ fn credentials_are_encrypted_at_rest() {
 }
 
 #[test]
+fn legacy_plaintext_rows_are_encrypted_on_open() {
+    let path = temp_path();
+    let conn = db::open(&path).expect("first open");
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('legacy', ?1)",
+        rusqlite::params![json!({ "old": true }).to_string()],
+    )
+    .expect("legacy insert");
+    drop(conn);
+
+    let conn = db::open(&path).expect("second open");
+    let raw: String = conn
+        .query_row("SELECT value FROM settings WHERE key = 'legacy'", [], |row| row.get(0))
+        .expect("raw value");
+    assert!(raw.starts_with("enc1:"), "legacy row must be upgraded: {raw}");
+    assert_eq!(
+        db::read_kv(&conn, "legacy").unwrap(),
+        Some(json!({ "old": true }))
+    );
+    cleanup(conn, path);
+}
+
+#[test]
 fn settings_patch_merges_and_resets() {
     let (conn, path) = temp_database();
     let mut settings = Settings::default();

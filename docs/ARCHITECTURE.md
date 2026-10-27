@@ -144,8 +144,8 @@ query touches a small number of rows, so a pool would add latency, not remove it
 
 - No telemetry, analytics or crash reporting is built in.
 - Credential values in the local settings table are encrypted with Windows DPAPI for the current
-  user before they are written. Legacy plaintext rows are read once and re-encrypted on the next
-  write. A database copied to another Windows account or machine cannot be decrypted.
+  user before they are written, and legacy plaintext rows are upgraded when the database opens.
+  A database copied to another Windows account or machine cannot be decrypted.
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
   binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
   opt-in.

@@ -88,7 +88,29 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch(PRAGMAS)?;
     migrate(&conn)?;
+    encrypt_legacy_settings(&conn)?;
     Ok(conn)
+}
+
+/// Rows written before DPAPI protection existed are plaintext. Upgrade them on
+/// open so an existing profile does not wait for each setting to be saved again.
+fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+    for (key, value) in rows {
+        if !value.starts_with("enc1:") {
+            conn.execute(
+                "UPDATE settings SET value = ?2 WHERE key = ?1",
+                params![key, secret::encode(&value)],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
