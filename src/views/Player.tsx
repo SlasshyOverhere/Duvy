@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { noSourceError, pickSource, useApp, usePlayer } from "../lib/store";
 import type { Details, PlayerSnapshot, SubtitleTrack, Video } from "../lib/types";
@@ -897,6 +898,43 @@ export function PlayerView() {
       <div className="pv-shade" aria-hidden="true" />
 
       <header className="pv-top">
+        {isTauri() && !fullscreen ? (
+          <div className="pv-window">
+            <button
+              type="button"
+              className="pv-round"
+              onClick={() => void getCurrentWindow().minimize()}
+              aria-label="Minimise window"
+              title="Minimise"
+            >
+              <svg viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M1 5h8" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="pv-round"
+              onClick={() => void getCurrentWindow().toggleMaximize()}
+              aria-label="Maximise window"
+              title="Maximise"
+            >
+              <svg viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M1.5 1.5h7v7h-7z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="pv-round pv-round--close"
+              onClick={() => void getCurrentWindow().close()}
+              aria-label="Close window"
+              title="Close window"
+            >
+              <svg viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+              </svg>
+            </button>
+          </div>
+        ) : null}
         <button
           type="button"
           className="pv-round"

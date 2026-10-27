@@ -39,6 +39,32 @@
   background: rgba(0, 0, 0, 0.55);
 }
 
+/* Window controls stay reachable while the picture owns the window; the app
+   titlebar is underneath the player layer. */
+.pv .pv-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.pv .pv-window .pv-round {
+  width: 34px;
+  height: 34px;
+}
+
+.pv .pv-window svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+
+.pv .pv-round--close:hover {
+  background: var(--danger);
+}
+
 .pv .pv-round:focus-visible,
 .pv .pv-center-btn:focus-visible,
 .pv .pv-action:focus-visible,
