@@ -27,6 +27,12 @@ export function progressPercent(position: number, duration: number): number {
   return Math.min(100, Math.max(0, (position / duration) * 100));
 }
 
+/** Share of the timeline cached: playhead plus the seconds mpv has buffered ahead. */
+export function bufferPercent(position: number, buffered: number, duration: number): number {
+  if (![position, buffered, duration].every(Number.isFinite) || duration <= 0) return 0;
+  return Math.min(100, Math.max(0, ((position + buffered) / duration) * 100));
+}
+
 export function seasonLabel(season?: number | null, episode?: number | null): string {
   if (season == null || episode == null) return "";
   return `S${season} · E${episode}`;

@@ -15,7 +15,7 @@ import type {
 } from "../lib/types";
 import { Icon, Spinner, type IconName } from "../components/ui";
 import { findSkip, type SkipEntry } from "../components/player/skip";
-import { episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
+import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -1321,10 +1321,7 @@ export function PlayerView() {
 
   const percent = progressPercent(shownPosition, duration);
   // mpv reports the cache relative to the playhead; the bar wants where it ends.
-  const bufferedPercent =
-    duration > 0 && local.buffered
-      ? Math.min(100, ((position + local.buffered) / duration) * 100)
-      : 0;
+  const bufferedPercent = bufferPercent(position, local.buffered ?? 0, duration);
   const title = session?.name ?? local.title;
   const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
   const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
