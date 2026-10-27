@@ -192,7 +192,7 @@ async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPrevi
 }
 
 /// Percent-encode a search term so it stays one catalog-extra value.
-fn escape(query: &str) -> String {
+pub(crate) fn escape(query: &str) -> String {
     let mut out = String::with_capacity(query.len());
     for byte in query.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -231,6 +231,23 @@ async fn get(
         pairs.append_pair("api_key", key);
     }
     fetch(client, url.as_str()).await
+}
+
+/// More like this: Cinemeta's genre catalog, minus the title being viewed.
+pub async fn similar(
+    client: &reqwest::Client,
+    media_type: &str,
+    genre: &str,
+    exclude: &str,
+) -> Vec<MetaPreview> {
+    let kind = if media_type == "series" { "series" } else { "movie" };
+    let path = format!("{kind}/top/genre={}", escape(genre));
+    cinemeta_catalog(client, &path)
+        .await
+        .into_iter()
+        .filter(|item| item.id != exclude)
+        .take(18)
+        .collect()
 }
 
 /// (mirror path, Cinemeta catalog, TMDB path, row title)
@@ -462,6 +479,8 @@ pub async fn details(
         videos: vec![],
         cast,
         director: vec![],
+        writer: vec![],
+        country: vec![],
         trailer,
         imdb_id,
         tmdb_id: tmdb_id.parse().ok(),

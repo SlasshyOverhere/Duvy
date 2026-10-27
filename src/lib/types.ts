@@ -50,6 +50,8 @@ export interface Details {
   videos: Video[];
   cast: CastMember[];
   director: string[];
+  writer: string[];
+  country: string[];
   trailer?: string | null;
   imdbId?: string | null;
   tmdbId?: number | null;

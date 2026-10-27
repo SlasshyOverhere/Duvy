@@ -262,6 +262,8 @@ pub fn run() {
             commands::catalog,
             commands::search,
             commands::meta_details,
+            commands::cast_photos,
+            commands::similar,
             commands::streams,
             commands::subtitles,
             commands::library_list,

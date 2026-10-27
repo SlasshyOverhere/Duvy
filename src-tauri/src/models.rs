@@ -52,6 +52,8 @@ pub struct MetaDetails {
     pub videos: Vec<Video>,
     pub cast: Vec<CastMember>,
     pub director: Vec<String>,
+    pub writer: Vec<String>,
+    pub country: Vec<String>,
     pub trailer: Option<String>,
     pub imdb_id: Option<String>,
     pub tmdb_id: Option<i64>,

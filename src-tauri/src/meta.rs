@@ -25,7 +25,20 @@ fn text(value: Option<&Value>) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .map(clean)
+}
+
+/// Cinemeta HTML-escapes names ("Emma D&apos;Arcy"), which then fails to match
+/// anything else. Seven entities cover the whole catalogue.
+pub(crate) fn clean(value: &str) -> String {
+    value
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
 }
 
 fn image(value: &Value, field: &str, size: &str) -> Option<String> {
@@ -160,6 +173,8 @@ async fn balloon(
         videos: Vec::new(),
         cast,
         director,
+        writer: Vec::new(),
+        country: Vec::new(),
         trailer,
         imdb_id: Some(imdb.to_string()),
         tmdb_id: value.get("id").and_then(Value::as_i64),
@@ -231,6 +246,21 @@ async fn cinemeta(
         .map(|list| list.iter().filter_map(|name| text(Some(name))).collect())
         .unwrap_or_default();
 
+    // Cinemeta calls these lists `writer` and `country`; both are plain names,
+    // and `country` arrives as one string for series and an array for films.
+    let names = |field: &str| -> Vec<String> {
+        meta.get(field)
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(|name| text(Some(name))).collect())
+            .unwrap_or_default()
+    };
+    let writer = names("writer");
+    let country = match meta.get("country") {
+        Some(Value::Array(_)) => names("country"),
+        Some(Value::String(_)) => text(meta.get("country")).into_iter().collect(),
+        _ => Vec::new(),
+    };
+
     let trailer = meta
         .get("trailers")
         .and_then(Value::as_array)
@@ -270,6 +300,8 @@ async fn cinemeta(
         videos,
         cast,
         director,
+        writer,
+        country,
         trailer,
         imdb_id: Some(imdb.to_string()),
         tmdb_id: None,
@@ -316,6 +348,53 @@ pub async fn videos(client: &reqwest::Client, imdb: &str, media_type: &str) -> V
         .unwrap_or_default()
 }
 
+const IMDB_SUGGEST: &str = "https://v2.sg.media-imdb.com/suggestion/x";
+
+/// Lowercase, letters and digits only: IMDb labels and our names have to meet
+/// on the same ground before a face is allowed to stand in for a person.
+fn bare(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Headshot for a cast name, or `None` when the match is not certain.
+///
+/// Keyless: IMDb's own suggestion endpoint. A face is only accepted on an exact
+/// full-name hit, and the person whose "known for" line names this title wins -
+/// that is what tells four Michael Johnstons apart.
+pub async fn headshot(client: &reqwest::Client, name: &str, title: &str) -> Option<String> {
+    let value = json(
+        client,
+        &format!("{IMDB_SUGGEST}/{}.json", crate::tmdb::escape(name)),
+    )
+    .await
+    .ok()?;
+    let wanted = bare(name);
+    let known = bare(title);
+    let matches: Vec<&Value> = value
+        .get("d")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|entry| {
+            text(entry.get("id")).is_some_and(|id| id.starts_with("nm"))
+                && text(entry.get("l")).is_some_and(|label| bare(&label) == wanted)
+                && entry.pointer("/i/imageUrl").is_some()
+        })
+        .collect();
+    let pick = matches
+        .iter()
+        .find(|entry| {
+            !known.is_empty()
+                && text(entry.get("s"))
+                    .is_some_and(|line| bare(&line).contains(&known))
+        })
+        .or_else(|| matches.first())?;
+    text(pick.pointer("/i/imageUrl"))
+}
+
 /// Fill the title and art that a synced progress title never carried.
 /// Input is `(meta_id, media_type)`; output adds name, poster, backdrop.
 pub async fn fill_missing(
@@ -346,8 +425,7 @@ pub async fn fill_missing(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests {    use super::*;
     use serde_json::json;
 
     #[test]
@@ -376,5 +454,13 @@ mod tests {
         assert!(is_tv("series"));
         assert!(is_tv("tv"));
         assert!(!is_tv("movie"));
+    }
+
+    #[test]
+    fn names_are_compared_without_case_or_punctuation() {
+        assert_eq!(bare("Michael Johnston"), bare("michael  johnston"));
+        assert_eq!(bare("Jean-Luc Picard"), "jeanlucpicard");
+        // A near miss must stay a miss: a wrong face is worse than none.
+        assert_ne!(bare("Michael Johnston"), bare("Michael Johnstone"));
     }
 }

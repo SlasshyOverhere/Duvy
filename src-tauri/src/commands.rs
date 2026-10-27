@@ -93,7 +93,7 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
         .into_iter()
         .take(14)
         .map(|name| CastMember {
-            name,
+            name: crate::meta::clean(&name),
             character: String::new(),
             photo: None,
         })
@@ -123,7 +123,26 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
         status: None,
         videos: meta.videos.clone(),
         cast,
-        director: meta.director.clone().unwrap_or_default(),
+        director: meta
+            .director
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|name| crate::meta::clean(name))
+            .collect(),
+        writer: meta
+            .writer
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|name| crate::meta::clean(name))
+            .collect(),
+        country: meta
+            .country
+            .clone()
+            .map(|name| crate::meta::clean(&name))
+            .into_iter()
+            .collect(),
         trailer,
         imdb_id,
         tmdb_id: None,
@@ -152,6 +171,15 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
     if base.cast.is_empty() {
         base.cast = rich.cast;
+    }
+    if base.director.is_empty() {
+        base.director = rich.director;
+    }
+    if base.writer.is_empty() {
+        base.writer = rich.writer;
+    }
+    if base.country.is_empty() {
+        base.country = rich.country;
     }
     if base.trailer.is_none() {
         base.trailer = rich.trailer;
@@ -501,6 +529,67 @@ pub async fn catalog(
 }
 
 #[tauri::command]
+pub async fn cast_photos(
+    names: Vec<String>,
+    title: String,
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut photos: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut pending: Vec<(String, String)> = Vec::new();
+    {
+        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        for name in names.into_iter().take(16) {
+            let key = format!("{title}|{name}");
+            match db::people_photo(&conn, &key) {
+                Ok(Some(photo)) => {
+                    if !photo.is_empty() {
+                        photos.insert(name, photo);
+                    }
+                }
+                _ => pending.push((name, key)),
+            }
+        }
+    }
+    if pending.is_empty() {
+        return Ok(photos);
+    }
+
+    // One tap each, in parallel, then remembered - including the misses, so a
+    // title never pays for the same lookup twice.
+    let mut set = tokio::task::JoinSet::new();
+    for (name, key) in pending {
+        let client = state.http.clone();
+        let title = title.clone();
+        set.spawn(async move {
+            let photo = crate::meta::headshot(&client, &name, &title).await;
+            (name, key, photo)
+        });
+    }
+    while let Some(joined) = set.join_next().await {
+        let Ok((name, key, photo)) = joined else {
+            continue;
+        };
+        if let Some(photo) = photo.as_ref() {
+            photos.insert(name, photo.clone());
+        }
+        if let Ok(conn) = state.db.0.lock() {
+            let _ = db::set_people_photo(&conn, &key, photo.as_deref().unwrap_or(""));
+        }
+    }
+    Ok(photos)
+}
+
+#[tauri::command]
+pub async fn similar(
+    media_type: String,
+    genre: String,
+    exclude: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<MetaPreview>, String> {
+    Ok(tmdb::similar(&state.http, &media_type, &genre, &exclude).await)
+}
+
+#[tauri::command]
 pub async fn search(
     query: String,
     state: State<'_, AppState>,
@@ -657,6 +746,21 @@ pub async fn meta_details(
             .or_else(|| id.starts_with("tt").then(|| id.clone()));
         if let Some(imdb) = imdb {
             details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
+        }
+    }
+
+    // Some addons ship a full episode list but no people. Cinemeta carries the
+    // cast in the same document, so ask once before the page arrives empty.
+    if details.cast.is_empty() {
+        let imdb = details
+            .imdb_id
+            .clone()
+            .or_else(|| id.starts_with("tt").then(|| id.clone()));
+        if let Some(imdb) = imdb {
+            if let Some(rich) = crate::meta::details(&state.http, &imdb, &details.media_type).await
+            {
+                merge_details(&mut details, rich);
+            }
         }
     }
 

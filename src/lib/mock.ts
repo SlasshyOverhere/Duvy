@@ -249,6 +249,8 @@ function detailsFor(id: string): Details {
       { name: "Daniel Reyes", character: "Guest", photo: null },
     ],
     director: ["J. Marchetti"],
+    writer: ["J. Marchetti", "Lena Hart"],
+    country: ["United States"],
     trailer: null,
     imdbId: meta.id,
     tmdbId: null,
@@ -471,6 +473,10 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     }
     case "watched_set":
       return null;
+    case "cast_photos":
+      return {};
+    case "similar":
+      return [];
     case "watched_list": {
       const seen = new Set<string>();
       return progress

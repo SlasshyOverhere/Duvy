@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import type { Details, StreamOption, Video } from "../lib/types";
+import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
+import { PosterCard, Row } from "../components/media";
 import { Badge, Button, EmptyState, Icon, Spinner } from "../components/ui";
 import {
   episodeCode,
@@ -32,6 +33,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [season, setSeason] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
+  const [photos, setPhotos] = useState<Record<string, string>>({});
+  const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
+  const [similar, setSimilar] = useState<MetaPreview[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -60,6 +64,37 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       alive = false;
     };
   }, [id, type]);
+
+  // Photos and neighbours land after the page paints: the title is readable
+  // immediately, and both requests are decoration, never a blocker.
+  useEffect(() => {
+    if (!details) return;
+    let alive = true;
+    const cast = details.cast ?? [];
+    if (cast.length > 0) {
+      api
+        .castPhotos(
+          cast.map((member) => member.name),
+          details.name,
+        )
+        .then((map) => {
+          if (alive) setPhotos(map);
+        })
+        .catch(() => {});
+    }
+    const genre = (details.genres ?? [])[0];
+    if (genre) {
+      api
+        .similar(details.type, genre, details.id)
+        .then((items) => {
+          if (alive) setSimilar(items);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [details]);
 
   const seriesProgress = useMemo(
     () =>
@@ -253,13 +288,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   <span>Director</span> {(details.director ?? []).join(", ")}
                 </p>
               ) : null}
-              {(details.cast ?? []).length ? (
+              {(details.writer ?? []).length ? (
                 <p>
-                  <span>Cast</span>{" "}
-                  {details.cast
-                    .slice(0, 5)
-                    .map((member) => member.name)
-                    .join(", ")}
+                  <span>Writer</span> {(details.writer ?? []).join(", ")}
+                </p>
+              ) : null}
+              {(details.country ?? []).length ? (
+                <p>
+                  <span>Country</span> {(details.country ?? []).join(", ")}
                 </p>
               ) : null}
               {details.source === "tmdb" ? (
@@ -330,20 +366,49 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <section className="cast-section">
           <h2>Cast</h2>
           <div className="cast-row">
-            {(details.cast ?? []).map((member) => (
-              <div className="cast-card" key={`${member.name}-${member.character}`}>
-                <div className="cast-photo">
-                  {member.photo ? (
-                    <img src={member.photo} alt="" loading="lazy" />
-                  ) : (
-                    <span>{member.name.slice(0, 1)}</span>
-                  )}
+            {(details.cast ?? []).map((member) => {
+              const photo = brokenPhotos[member.name]
+                ? undefined
+                : member.photo ?? photos[member.name];
+              return (
+                <div className="cast-card" key={`${member.name}-${member.character}`}>
+                  <div className="cast-photo">
+                    {photo ? (
+                      <img
+                        src={photo}
+                        alt=""
+                        loading="lazy"
+                        onError={() =>
+                          setBrokenPhotos((current) => ({ ...current, [member.name]: true }))
+                        }
+                      />
+                    ) : (
+                      <span>{member.name.slice(0, 1)}</span>
+                    )}
+                  </div>
+                  <span className="cast-name">{member.name}</span>
+                  {member.character ? <span className="cast-role">{member.character}</span> : null}
                 </div>
-                <span className="cast-name">{member.name}</span>
-                {member.character ? <span className="cast-role">{member.character}</span> : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
+        </section>
+      ) : null}
+
+      {similar.length > 0 ? (
+        <section className="similar-section">
+          <Row
+            title="More like this"
+            detail={<span className="row-detail">{(details.genres ?? [])[0] ?? "Discover"}</span>}
+          >
+            {similar.map((item) => (
+              <PosterCard
+                key={item.id}
+                item={item}
+                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              />
+            ))}
+          </Row>
         </section>
       ) : null}
 

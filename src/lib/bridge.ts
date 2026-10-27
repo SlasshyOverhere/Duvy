@@ -77,6 +77,10 @@ export const api = {
   search: (query: string) => call<MetaPreview[]>("search", { query }),
 
   details: (id: string, type: string) => call<Details>("meta_details", { id, mediaType: type }),
+  castPhotos: (names: string[], title: string) =>
+    call<Record<string, string>>("cast_photos", { names, title }),
+  similar: (mediaType: string, genre: string, exclude: string) =>
+    call<MetaPreview[]>("similar", { mediaType, genre, exclude }),
   streams: (args: {
     id: string;
     mediaType: string;

@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS people (
+  key        TEXT PRIMARY KEY,
+  photo      TEXT NOT NULL,
+  checked_at INTEGER NOT NULL
+);
 "#;
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -477,6 +483,26 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
         })
     })?;
     rows.collect()
+}
+
+// ---------------------------------------------------------------------------
+// People (headshots)
+// ---------------------------------------------------------------------------
+
+/// Headshots are keyed by title and name, because a lookup that missed is worth
+/// remembering too: an empty string means "asked, nothing found".
+pub fn people_photo(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT photo FROM people WHERE key = ?1", params![key], |r| r.get(0))
+        .optional()
+}
+
+pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO people (key, photo, checked_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET photo = ?2, checked_at = ?3",
+        params![key, photo, now()],
+    )?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
