@@ -7,7 +7,6 @@ import {
   useMotionValue,
   useReducedMotion,
   useSpring,
-  useTransform,
 } from "motion/react";
 import { api, isTauri } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -30,11 +29,6 @@ const PROVIDERS: Array<{ id: Provider; name: string; note: string }> = [
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** mpv reports its whole banner; the status bar only has room for the version. */
-function versionOf(report: string): string {
-  return report.match(/v\d[\w.+-]*/)?.[0] ?? report;
 }
 
 /**
@@ -123,7 +117,6 @@ export function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [player, setPlayer] = useState<PlayerSetup | null>(null);
-  const [progress, setProgress] = useState(0);
   const stage = useRef<HTMLDivElement>(null);
   const still = useReducedMotion() ?? false;
 
@@ -141,7 +134,6 @@ export function Onboarding({
         unlisten = await listen<{ state: PlayerSetup["state"]; progress: number; error: string }>(
           "player-setup",
           (event) => {
-            setProgress(event.payload.progress);
             setPlayer((current) =>
               current
                 ? { ...current, state: event.payload.state, error: event.payload.error }
@@ -417,100 +409,6 @@ export function Onboarding({
         </AnimatePresence>
       </main>
 
-      {step === "account" ? (
-        <PlayerStrip
-          player={player}
-          progress={progress}
-          still={still}
-          onRetry={() => {
-            setProgress(0);
-            void api.playerSetup.start().catch(() => undefined);
-          }}
-        />
-      ) : null}
     </div>
-  );
-}
-
-/** The player's state as a system bar along the bottom of the window. */
-function PlayerStrip({
-  player,
-  progress,
-  still,
-  onRetry,
-}: {
-  player: PlayerSetup | null;
-  progress: number;
-  still: boolean;
-  onRetry: () => void;
-}) {
-  const state = player?.state ?? "checking";
-  // An already-installed player never emits progress, so a ready state is full.
-  const target = state === "ready" ? 1 : progress;
-  const smooth = useSpring(
-    target,
-    still ? { stiffness: 2000, damping: 200 } : { stiffness: 90, damping: 24, restDelta: 0.001 },
-  );
-  const percent = useTransform(smooth, (v) => `${Math.round(v * 100)}%`);
-
-  const label =
-    state === "ready"
-      ? "Player ready"
-      : state === "downloading"
-        ? "Downloading the player"
-        : state === "failed"
-          ? "Player download failed"
-          : state === "missing"
-            ? "Player not set up yet"
-            : "Checking the player";
-
-  return (
-    <footer className="ob-status" data-state={state}>
-      <div className="ob-status-row">
-        <span className="ob-status-label">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={state}
-              className="ob-status-icon"
-              initial={{ scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.6, opacity: 0 }}
-              transition={{ duration: still ? 0 : 0.22, ease: EASE }}
-            >
-              <Icon
-                name={state === "ready" ? "check" : state === "failed" ? "alert" : "download"}
-                size={14}
-              />
-            </motion.span>
-          </AnimatePresence>
-          {label}
-        </span>
-
-        <span className="ob-status-meta">
-          {state === "failed" ? (
-            <button type="button" className="ob-skip" onClick={onRetry}>
-              Try again
-            </button>
-          ) : state === "ready" ? (
-            player ? versionOf(player.version) : null
-          ) : state === "downloading" ? (
-            <motion.span>{percent}</motion.span>
-          ) : (
-            "120 MB"
-          )}
-        </span>
-      </div>
-
-      <div
-        className="ob-status-track"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(target * 100)}
-        aria-label="Player download"
-      >
-        <motion.span className="ob-status-fill" style={{ width: percent }} />
-      </div>
-    </footer>
   );
 }
