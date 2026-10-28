@@ -95,6 +95,15 @@ body {
   text-rendering: optimizeLegibility;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 h1,
