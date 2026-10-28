@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import { Badge, Button, Icon, Spinner, Toggle, type IconName } from "../components/ui";
+import { Badge, Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
 import { StremioSync } from "./settings/StremioSync";
 import { AddonsPanel } from "./Addons";
@@ -71,12 +71,12 @@ const SECTIONS: Section[] = [
     keywords: "nuvio cloud stremio account sync profile backup",
   },
   {
-    id: "about",
-    label: "About",
-    icon: "info",
+    id: "update",
+    label: "Update",
+    icon: "download",
     group: "System",
-    blurb: "Version, updates and the playback log.",
-    keywords: "version update release diagnostics log license platform data directory",
+    blurb: "Check for a new release and install it without leaving the app.",
+    keywords: "update release version download install changelog",
   },
 ];
 
@@ -226,24 +226,8 @@ export function SettingsView({ section }: { section?: string }) {
   const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
   const [mpvPath, setMpvPath] = useState(settings?.mpvPath ?? "");
-  const [log, setLog] = useState<string[]>([]);
   const [p2pReview, setP2pReview] = useState(false);
   const [p2pAck, setP2pAck] = useState(false);
-
-  const loadLog = async () => {
-    if (!isTauri()) return;
-    try {
-      setLog(await api.playbackLog(80));
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e), "error");
-    }
-  };
-
-  useEffect(() => {
-    if (tab === "about") void loadLog();
-    // Reloads when the tab is opened; the button below refreshes on demand.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
 
   useEffect(() => {
     if (section) setTab(section);
@@ -260,8 +244,8 @@ export function SettingsView({ section }: { section?: string }) {
 
   if (!settings) {
     return (
-      <div className="page page-loading">
-        <Spinner label="Loading settings" />
+      <div className="page">
+        <Loading variant="list" label="Loading settings" count={6} />
       </div>
     );
   }
@@ -768,90 +752,7 @@ export function SettingsView({ section }: { section?: string }) {
 
           {tab === "addons" ? <AddonsPanel /> : null}
 
-          {tab === "about" ? (
-            <>
-              <Card
-                title="BetterNuvio"
-                description="An unofficial, performance-first reimplementation inspired by Nuvio Desktop. Not affiliated with or endorsed by Nuvio Media."
-              >
-                <dl className="about-list">
-                  <div>
-                    <dt>Version</dt>
-                    <dd>{appInfo?.version ?? "unknown"}</dd>
-                  </div>
-                  <div>
-                    <dt>Platform</dt>
-                    <dd>{appInfo?.platform ?? "unknown"}</dd>
-                  </div>
-                  <div>
-                    <dt>Data directory</dt>
-                    <dd>
-                      <code>{appInfo?.dataDir ?? "—"}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>mpv</dt>
-                    <dd>
-                      {appInfo?.mpv ? (
-                        <code>{appInfo.mpv.path}</code>
-                      ) : (
-                        "Not found. Set a path in Playback."
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>License</dt>
-                    <dd>MIT (original code)</dd>
-                  </div>
-                </dl>
-                <div className="about-actions">
-                  <Button
-                    icon="external"
-                    onClick={() => openLink("https://github.com/NuvioMedia/NuvioDesktop")}
-                  >
-                    Upstream project
-                  </Button>
-                  <Button icon="external" onClick={() => openLink("https://www.stremio.com/")}>
-                    Addon protocol
-                  </Button>
-                </div>
-              </Card>
-
-              <Updates />
-
-              <Card
-                title="Diagnostics"
-                description="Every step between pressing play and the first frame, with the time since the request and the gap since the step above."
-              >
-                <details className="settings-disclosure">
-                  <summary>
-                    <span>Recent playback log</span>
-                    <Icon name="chevron" size={14} />
-                  </summary>
-                  {log.length ? (
-                    <pre className="log-view">{log.join("\n")}</pre>
-                  ) : (
-                    <p className="settings-hint">
-                      {isTauri()
-                        ? "Nothing logged yet. Play something, then refresh."
-                        : "The playback log is only available in the desktop app."}
-                    </p>
-                  )}
-                </details>
-                <div className="about-actions">
-                  <Button icon="refresh" disabled={!isTauri()} onClick={() => void loadLog()}>
-                    Refresh log
-                  </Button>
-                </div>
-                <p className="settings-note">
-                  <Icon name="info" size={14} />
-                  <span>
-                    The same lines are written to <code>playback.log</code> next to the database.
-                  </span>
-                </p>
-              </Card>
-            </>
-          ) : null}
+          {tab === "update" ? <Updates /> : null}
         </div>
       </div>
     </div>
