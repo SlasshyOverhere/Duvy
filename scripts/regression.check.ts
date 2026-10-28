@@ -1,0 +1,102 @@
+// Updater regression guards. Run with: bun scripts/regression.check.ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const read = (rel: string) => readFileSync(root + rel, "utf8");
+
+const updates = read("src-tauri/src/updates.rs");
+
+/** Slice a top-level Rust function: from `fn name` to the next `}` in column 0. */
+function rustFn(src: string, name: string): string {
+  const at = src.search(new RegExp(`(?:pub\\s+)?(?:async\\s+)?fn\\s+${name}\\b`));
+  if (at < 0) return "";
+  const end = src.indexOf("\n}", at);
+  return end < 0 ? src.slice(at) : src.slice(at, end + 2);
+}
+
+const checks: Array<{ name: string; fn: () => string[] }> = [];
+const run = (name: string, fn: () => string[]) => checks.push({ name, fn });
+
+run("update check runs at launch", () => {
+  const out: string[] = [];
+  const watch = rustFn(updates, "watch");
+  if (!watch) return ["updates.rs: watch() not found"];
+  // Only a numeric sleep before the loop can delay the first check.
+  const first = [...watch.matchAll(/from_secs\((\d+)\)/g)].map((m) => Number(m[1]))[0];
+  if (first != null && first > 5) {
+    out.push(`watch() waits ${first}s before the first update check`);
+  }
+  return out;
+});
+
+run("update check cannot hang", () => {
+  const out: string[] = [];
+  const fetch = rustFn(updates, "fetch");
+  if (!fetch) return ["updates.rs: fetch() not found"];
+  if (!fetch.includes("updater_builder")) {
+    out.push("fetch() uses the plugin default with no timeout");
+  }
+  if (!/\.timeout\(/.test(fetch)) {
+    out.push("fetch() sets no request timeout");
+  }
+  return out;
+});
+
+run("failed update check retries soon", () => {
+  const out: string[] = [];
+  const watch = rustFn(updates, "watch");
+  if (!watch.includes("retry_after(")) {
+    out.push("watch() sleeps the full recheck interval after a failed check");
+  }
+  if (!/\bErr\(/.test(watch)) {
+    out.push("watch() swallows a failed check without retrying");
+  }
+  if (!/fn\s+retry_after\b/.test(updates)) {
+    out.push("updates.rs: no retry_after() backoff for a failed check");
+  }
+  return out;
+});
+
+run("install reuses the checked release", () => {
+  const out: string[] = [];
+  const install = rustFn(updates, "update_install");
+  if (!install) return ["updates.rs: update_install() not found"];
+  const cachedAt = install.indexOf("cached()");
+  const fetchAt = install.indexOf("fetch(");
+  if (cachedAt < 0) {
+    out.push("update_install() does not reuse the release the check found");
+  }
+  // A network re-check may only happen as the fallback when nothing was cached.
+  if (fetchAt >= 0 && fetchAt < cachedAt) {
+    out.push("update_install() re-checks the feed before downloading");
+  }
+  return out;
+});
+
+run("download progress is throttled", () => {
+  const install = rustFn(updates, "update_install");
+  if (!/elapsed\(\)/.test(install)) {
+    return ["update:progress is emitted for every network chunk"];
+  }
+  return [];
+});
+
+let failed = 0;
+for (const { name, fn } of checks) {
+  let detail: string[];
+  try {
+    detail = fn();
+  } catch (error) {
+    detail = [`threw: ${(error as Error).message}`];
+  }
+  if (detail.length === 0) {
+    console.log(`PASS  ${name}`);
+  } else {
+    failed += 1;
+    console.log(`FAIL  ${name}`);
+    for (const line of detail) console.log(`      - ${line}`);
+  }
+}
+console.log(`\n${checks.length - failed} passed, ${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);
