@@ -135,6 +135,7 @@ async fn decode(mpv: &str, source: &str, at: f64, dir: &Path) -> Result<String, 
         .arg("--vo=image")
         .arg("--vo-image-format=jpg")
         .arg(format!("--vo-image-outdir={}", dir.display()))
+        .arg("--")
         .arg(source)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

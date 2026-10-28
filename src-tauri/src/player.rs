@@ -48,6 +48,8 @@ pub struct Chapter {
 pub struct Snapshot {
     pub playing: bool,
     pub paused: bool,
+    /// True once mpv reported a position, so the picture exists.
+    pub started: bool,
     pub position: f64,
     pub duration: f64,
     /// Seconds of media buffered ahead of the playhead.
@@ -72,6 +74,7 @@ impl Default for Snapshot {
         Self {
             playing: false,
             paused: false,
+            started: false,
             position: 0.0,
             duration: 0.0,
             buffered: 0.0,
@@ -107,6 +110,10 @@ pub struct Player {
     writer: Arc<Mutex<Box<dyn Duplex>>>,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
+    app: AppHandle,
+    session: Arc<Mutex<Option<PlaybackSession>>>,
+    /// The final save must run once, whichever of kill and drop comes first.
+    final_saved: AtomicBool,
     /// Exactly what mpv was handed, so frame previews decode the same stream.
     source: String,
     #[cfg_attr(windows, allow(dead_code))]
@@ -118,8 +125,37 @@ pub struct Player {
 // ---------------------------------------------------------------------------
 
 pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
-    let mut candidates: Vec<String> = Vec::new();
+    // Probing spawns `mpv --version`; a seek-hover preview asks constantly, so
+    // one answer per (explicit path, resource dir) is cached.
+    static CACHE: Mutex<Option<(String, Option<MpvInfo>)>> = Mutex::new(None);
     let explicit = explicit.trim();
+    let key = format!(
+        "{explicit}\u{1}{}",
+        resource_dir
+            .map(|dir| dir.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    if let Ok(cache) = CACHE.lock() {
+        if let Some((seen, found)) = cache.as_ref() {
+            if *seen == key {
+                return found.clone();
+            }
+        }
+    }
+    let found = locate_mpv(explicit, resource_dir);
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((key, found.clone()));
+    }
+    found
+}
+
+/// Detection ignores the cache: mpv may have been installed since the last try.
+pub fn detect_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
+    locate_mpv(explicit.trim(), resource_dir)
+}
+
+fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
+    let mut candidates: Vec<String> = Vec::new();
     if !explicit.is_empty() {
         candidates.push(explicit.to_string());
     }
@@ -580,6 +616,30 @@ fn parse_chapters(value: &Value) -> Vec<Chapter> {
 // Player
 // ---------------------------------------------------------------------------
 
+/// Only remote HTTP(S) and file sources may reach mpv.
+fn validate_media_url(url: &str) -> Result<(), String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("No media URL supplied".into());
+    }
+    let scheme = url
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+        .unwrap_or_default();
+    if matches!(scheme.as_str(), "http" | "https" | "file") {
+        return Ok(());
+    }
+    Err("Only http, https and file sources can be played".into())
+}
+
+/// English is the fallback only when the user configured no language.
+fn language_arg(configured: &str) -> &str {
+    match configured.trim() {
+        "" => "en,english",
+        value => value,
+    }
+}
+
 impl Player {
     pub fn spawn(
         app: AppHandle,
@@ -588,6 +648,7 @@ impl Player {
         host: Option<isize>,
         resource_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
+        validate_media_url(&request.url)?;
         let mpv = find_mpv(&settings.mpv_path, resource_dir).ok_or_else(|| {
             "mpv was not found. Reinstall BetterNuvio, or point it at an mpv.exe in Settings → Playback."
                 .to_string()
@@ -617,7 +678,7 @@ impl Player {
             .arg("--osd-font-size=34")
             .arg("--osd-duration=2500")
             .arg("--sub-font-size=46")
-            .arg("--sub-auto=fuzzy")
+            .arg("--sub-auto=exact")
             .arg("--sub-visibility=yes")
             .arg("--volume=100")
             .arg("--volume-max=200")
@@ -626,12 +687,12 @@ impl Player {
             .arg("--demuxer-readahead-secs=30")
             .arg("--network-timeout=20")
             .arg(format!(
-                "--alang={},en,english",
-                settings.audio_language.trim()
+                "--alang={}",
+                language_arg(&settings.audio_language)
             ))
             .arg(format!(
-                "--slang={},en,english",
-                settings.subtitle_language.trim()
+                "--slang={}",
+                language_arg(&settings.subtitle_language)
             ))
             .arg(format!(
                 "--hwdec={}",
@@ -789,10 +850,10 @@ impl Player {
             Arc::clone(&stop),
         );
         spawn_ticker(
-            app,
+            app.clone(),
             Arc::clone(&snapshot),
             Arc::clone(&stop),
-            session,
+            Arc::clone(&session),
             host,
         );
 
@@ -801,6 +862,9 @@ impl Player {
             writer: Arc::new(Mutex::new(writer)),
             snapshot,
             stop,
+            app,
+            session,
+            final_saved: AtomicBool::new(false),
             source: request.url.clone(),
             pipe,
         })
@@ -826,8 +890,19 @@ impl Player {
             .unwrap_or(true)
     }
 
+    /// The ticker saves every 5s; quitting in between must not lose that gap.
+    fn save_final(&self) {
+        if self.final_saved.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let snap = self.snapshot();
+        let session = self.session.lock().ok().and_then(|guard| guard.clone());
+        persist(&self.app, &snap, session.as_ref());
+    }
+
     /// Stop mpv now; reaping it can happen later on another thread.
     pub fn kill(&mut self) {
+        self.save_final();
         self.stop.store(true, Ordering::Relaxed);
         let _ = self.child.kill();
     }
@@ -860,14 +935,23 @@ impl Player {
                 let delta = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
                 send(
                     &mut writer,
-                    json!({"command": ["seek", delta, "relative"]}),
+                    json!({"command": ["seek", delta, "relative+exact"]}),
                 )
             }
             "volume" => {
                 let volume = value.and_then(|v| v.as_f64()).unwrap_or(100.0);
                 send(&mut writer, json!({"command": ["set_property", "volume", volume]}))
             }
-            "mute" => send(&mut writer, json!({"command": ["cycle", "mute"]})),
+            "mute" => {
+                let muted = value
+                    .as_ref()
+                    .and_then(Value::as_bool)
+                    .ok_or("mute needs a boolean")?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "mute", muted]}),
+                )
+            }
             "speed" => {
                 let speed = value.and_then(|v| v.as_f64()).unwrap_or(1.0);
                 send(&mut writer, json!({"command": ["set_property", "speed", speed]}))
@@ -955,6 +1039,7 @@ impl Player {
                     .and_then(|v| v.get("url"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
+                    .trim()
                     .to_string();
                 let label = value
                     .as_ref()
@@ -964,6 +1049,10 @@ impl Player {
                     .to_string();
                 if url.is_empty() {
                     return Err("No subtitle URL supplied".into());
+                }
+                let lower = url.to_ascii_lowercase();
+                if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+                    return Err("Subtitle URL must be http or https".into());
                 }
                 send(
                     &mut writer,
@@ -1007,6 +1096,7 @@ impl Player {
 
 impl Drop for Player {
     fn drop(&mut self) {
+        self.save_final();
         // Terminate mpv directly. A graceful `quit` over the IPC pipe can
         // block forever if mpv's IPC thread is parked (after end-of-file, for
         // instance), and dropping a player must never freeze the UI.
@@ -1058,7 +1148,11 @@ fn spawn_reader(
                             }
                         }
                         "demuxer-cache-time" => {
-                            snap.buffered = data.as_f64().unwrap_or(0.0);
+                            // The property is an absolute timestamp, not a lead.
+                            if let Some(time) = data.as_f64() {
+                                let position = snap.position;
+                                snap.buffered = (time - position).max(0.0);
+                            }
                         }
                         "pause" => snap.paused = data.as_bool().unwrap_or(false),
                         "volume" => {
@@ -1141,6 +1235,43 @@ fn spawn_reader(
     });
 }
 
+/// The cheap subset of a snapshot: when two ticks match here, nothing moved.
+#[derive(PartialEq)]
+struct Tick {
+    position: i64,
+    paused: bool,
+    duration: i64,
+    volume: i64,
+    muted: bool,
+    speed: i64,
+    ended: bool,
+    buffered: i64,
+    active_audio: Option<i64>,
+    active_sub: Option<i64>,
+    tracks: usize,
+    error: Option<String>,
+}
+
+impl Tick {
+    fn of(snap: &Snapshot) -> Self {
+        let quarter = |value: f64| (value * 4.0).round() as i64;
+        Self {
+            position: quarter(snap.position),
+            paused: snap.paused,
+            duration: quarter(snap.duration),
+            volume: quarter(snap.volume),
+            muted: snap.muted,
+            speed: quarter(snap.speed),
+            ended: snap.ended,
+            buffered: quarter(snap.buffered),
+            active_audio: snap.active_audio,
+            active_sub: snap.active_sub,
+            tracks: snap.audio_tracks.len() + snap.sub_tracks.len(),
+            error: snap.error.clone(),
+        }
+    }
+}
+
 fn spawn_ticker(
     app: AppHandle,
     snapshot: Arc<Mutex<Snapshot>>,
@@ -1151,6 +1282,8 @@ fn spawn_ticker(
     thread::spawn(move || {
         let mut ticks: u64 = 0;
         let mut started = false;
+        let mut last_emit: Option<Tick> = None;
+        let mut last_saved: Option<(f64, bool, bool)> = None;
         while !stop.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(500));
             if stop.load(Ordering::Relaxed) {
@@ -1165,22 +1298,42 @@ fn spawn_ticker(
                 }
             }
             let snap = match snapshot.lock() {
-                Ok(snap) => snap.clone(),
+                Ok(mut snap) => {
+                    // The first tick with a real position is the moment the
+                    // picture exists; everything before it is the source being slow.
+                    if !started && snap.position > 0.0 {
+                        started = true;
+                        snap.started = true;
+                        crate::playback_log::mark(format!("first frame at {:.2}s", snap.position));
+                    }
+                    snap.clone()
+                }
                 Err(_) => break,
             };
-            // The first tick with a real position is the moment the picture
-            // exists; everything before it is the source being slow.
-            if !started && snap.position > 0.0 {
-                started = true;
-                crate::playback_log::mark(format!("first frame at {:.2}s", snap.position));
+            let tick = Tick::of(&snap);
+            if last_emit.as_ref() != Some(&tick) {
+                last_emit = Some(tick);
+                let _ = app.emit("player:tick", &snap);
             }
-            let _ = app.emit("player:tick", &snap);
+            // Save every 5s, but only when the picture moved: a paused player
+            // was rewriting the same row ten times a minute.
             if ticks % 10 == 0 {
-                let session = match session.lock() {
-                    Ok(guard) => guard.clone(),
-                    Err(_) => None,
+                let due = match last_saved {
+                    Some((position, paused, ended)) => {
+                        (snap.position - position).abs() > 0.5
+                            || snap.paused != paused
+                            || snap.ended != ended
+                    }
+                    None => true,
                 };
-                persist(&app, &snap, session.as_ref());
+                if due {
+                    last_saved = Some((snap.position, snap.paused, snap.ended));
+                    let session = match session.lock() {
+                        Ok(guard) => guard.clone(),
+                        Err(_) => None,
+                    };
+                    persist(&app, &snap, session.as_ref());
+                }
             }
         }
         // Final save when the window closes.
@@ -1227,7 +1380,8 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 #[cfg(test)]
 mod tests {
     use super::{
-        bool_value, color_value, number_value, parse_chapters, parse_tracks, Duplex, Player,
+        bool_value, color_value, number_value, parse_chapters, parse_tracks, validate_media_url,
+        Duplex, Player,
     };
     use serde_json::{json, Value};
     use std::io::{Read, Write};
@@ -1298,6 +1452,39 @@ mod tests {
             written_lines(&buffer),
             vec![json!({"command": ["cycle", "pause"]})]
         );
+    }
+
+    #[test]
+    fn mute_sets_the_requested_state_and_needs_a_boolean() {
+        let (writer, buffer) = fake_player();
+        Player::send_action(&writer, "mute", Some(json!(true))).unwrap();
+        Player::send_action(&writer, "mute", Some(json!(false))).unwrap();
+        assert_eq!(
+            written_lines(&buffer),
+            vec![
+                json!({"command": ["set_property", "mute", true]}),
+                json!({"command": ["set_property", "mute", false]}),
+            ]
+        );
+        assert!(Player::send_action(&writer, "mute", None).is_err());
+    }
+
+    #[test]
+    fn relative_seek_is_exact() {
+        let (writer, buffer) = fake_player();
+        Player::send_action(&writer, "seek-rel", Some(json!(10))).unwrap();
+        assert_eq!(
+            written_lines(&buffer),
+            vec![json!({"command": ["seek", 10.0, "relative+exact"]})]
+        );
+    }
+
+    #[test]
+    fn media_urls_must_be_http_https_or_file() {
+        assert!(validate_media_url("https://cdn.example/movie.mkv").is_ok());
+        assert!(validate_media_url(" file:///C:/movie.mkv ").is_ok());
+        assert!(validate_media_url("magnet:?xt=urn:btih:abc").is_err());
+        assert!(validate_media_url("   ").is_err());
     }
 
     #[test]

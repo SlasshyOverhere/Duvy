@@ -87,24 +87,36 @@ pub fn skip_set(
     if meta_id.trim().is_empty() {
         return Err("missing meta id".into());
     }
+    validate(&entry)?;
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     let mut store = load(&conn);
-    let stored = store.get(&meta_id).cloned().unwrap_or_default();
-    let merged = SkipEntry {
-        intro_start: entry.intro_start.or(stored.intro_start),
-        intro_end: entry.intro_end.or(stored.intro_end),
-        outro_start: entry.outro_start.or(stored.outro_start),
-    };
 
-    if merged.is_empty() {
+    if entry.is_empty() {
         store.remove(&meta_id);
         save(&conn, &store)?;
         return Ok(None);
     }
 
-    store.insert(meta_id, merged.clone());
+    store.insert(meta_id, entry.clone());
     save(&conn, &store)?;
-    Ok(Some(merged))
+    Ok(Some(entry))
+}
+
+fn validate(entry: &SkipEntry) -> Result<(), String> {
+    for value in [entry.intro_start, entry.intro_end, entry.outro_start]
+        .into_iter()
+        .flatten()
+    {
+        if !value.is_finite() || value < 0.0 {
+            return Err("skip markers must be finite and non-negative".into());
+        }
+    }
+    if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end) {
+        if end <= start {
+            return Err("the intro must end after it starts".into());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -117,6 +129,18 @@ mod tests {
             intro_end: Some(intro.1),
             outro_start: outro,
         }
+    }
+
+    #[test]
+    fn invalid_markers_are_rejected() {
+        assert!(validate(&entry((10.0, 70.0), None)).is_ok());
+        assert!(validate(&SkipEntry {
+            intro_start: Some(-1.0),
+            ..SkipEntry::default()
+        })
+        .is_err());
+        assert!(validate(&entry((f64::NAN, 70.0), None)).is_err());
+        assert!(validate(&entry((70.0, 70.0), None)).is_err());
     }
 
     #[test]

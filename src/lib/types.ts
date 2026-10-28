@@ -266,6 +266,8 @@ export interface PlaybackSession {
 export interface PlayerSnapshot {
   playing: boolean;
   paused: boolean;
+  /** True once the first frame has been decoded. */
+  started?: boolean;
   position: number;
   duration: number;
   /** Seconds fetched ahead of the playhead. */

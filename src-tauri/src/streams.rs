@@ -211,6 +211,20 @@ fn detect_badges(text: &str) -> Vec<String> {
     badges
 }
 
+/// `xt=urn:btih:<hash>` from a magnet link.
+fn magnet_hash(url: &str) -> Option<String> {
+    let lower = url.to_ascii_lowercase();
+    if !lower.starts_with("magnet:") {
+        return None;
+    }
+    let start = lower.find("urn:btih:")? + "urn:btih:".len();
+    let hash: String = url[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
+    (!hash.is_empty()).then_some(hash)
+}
+
 pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     let name = stream.name.clone().unwrap_or_default();
     let title = stream.title.clone().unwrap_or_default();
@@ -242,10 +256,18 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     let url = stream.url.clone();
     // A magnet/hash row is playable too: the torrent engine turns it into a
     // local HTTP stream at playback time.
-    let playable = stream.info_hash.is_some()
+    let magnet = url
+        .as_deref()
+        .is_some_and(|u| u.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:")));
+    let info_hash = stream
+        .info_hash
+        .clone()
+        .or_else(|| url.as_deref().and_then(magnet_hash));
+    let playable = magnet
+        || info_hash.is_some()
         || url
             .as_deref()
-            .map(|u| u.starts_with("http://") || u.starts_with("https://") || u.starts_with("file://"))
+            .map(|u| u.starts_with("http://") || u.starts_with("https://"))
             .unwrap_or(false);
 
     StreamOption {
@@ -254,7 +276,7 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
         title: stream.title.clone(),
         description: stream.description.clone(),
         url,
-        info_hash: stream.info_hash.clone(),
+        info_hash,
         file_idx: stream.file_idx,
         external_url: stream.external_url.clone(),
         quality,
@@ -304,6 +326,25 @@ mod tests {
         let option = normalize("A", &torrent);
         assert!(option.playable);
         assert!(option.info_hash.is_some());
+
+        let magnet = Stream {
+            url: Some(
+                "magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862&dn=film".into(),
+            ),
+            ..Default::default()
+        };
+        let option = normalize("A", &magnet);
+        assert!(option.playable);
+        assert_eq!(
+            option.info_hash.as_deref(),
+            Some("cab507494d02ebb1178b38f2e9d7be299c86b862")
+        );
+
+        let local = Stream {
+            url: Some("file:///C:/movie.mkv".into()),
+            ..Default::default()
+        };
+        assert!(!normalize("A", &local).playable);
     }
 
     #[test]
