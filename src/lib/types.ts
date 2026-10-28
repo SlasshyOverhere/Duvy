@@ -69,6 +69,7 @@ export interface StreamOption {
   externalUrl?: string | null;
   quality: string;
   size?: string | null;
+  sizeBytes?: number | null;
   seeders?: number | null;
   languages: string[];
   badges: string[];

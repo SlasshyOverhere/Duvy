@@ -1,23 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
-import { Badge, Button, ContextMenu, EmptyState, Icon } from "./ui";
+import { Button, ContextMenu, EmptyState, Icon } from "./ui";
 
 const FILTER_KEY = "streams.filter";
-
-// The play button keeps the row's column layout; the action menu sits beside it.
-const ROW_GRID: CSSProperties = { gridTemplateColumns: "minmax(0, 1fr) auto" };
-const PLAY_GRID: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "76px minmax(0, 1fr) 26px",
-  gap: 14,
-  alignItems: "start",
-  padding: 0,
-  border: 0,
-  background: "none",
-  textAlign: "left",
-};
 
 function readFilter(): string {
   try {
@@ -36,14 +23,6 @@ function copyText(text: string) {
   if (!clipboard) return Promise.reject(new Error("Clipboard unavailable"));
   return clipboard.writeText(text);
 }
-
-const QUALITY_TONE: Record<string, "accent" | "good" | "neutral" | "warn"> = {
-  "4K": "accent",
-  "1080p": "good",
-  "720p": "neutral",
-  "480p": "neutral",
-  CAM: "warn",
-};
 
 type Group = {
   addon: string;
@@ -227,6 +206,7 @@ export function StreamDrawer({
 
   const total = groups.reduce((sum, group) => sum + group.streams.length, 0);
   const settled = groups.every((group) => group.state !== "loading");
+  const pending = groups.filter((group) => group.state === "loading").length;
   const ranked = (group: Group) =>
     group.streams.length ? 0 : group.state === "error" ? 2 : 1;
   const visible = (filter === "all" ? groups : groups.filter((group) => group.addon === filter))
@@ -322,67 +302,71 @@ export function StreamDrawer({
                 <ul className="stream-list">
                   {group.streams.map((stream, index) => {
                     const url = stream.url?.trim() || null;
+                    const label = stream.title || stream.name || "Source";
+                    const audio = stream.languages.length
+                      ? stream.languages.includes("Multi")
+                        ? "Multi audio"
+                        : stream.languages.slice(0, 3).join(", ")
+                      : null;
                     return (
                       <li key={`${group.addon}-${index}`}>
-                        <div className="stream-row" style={ROW_GRID}>
+                        <div className="stream-row">
                           <button
                             type="button"
-                            style={{ ...PLAY_GRID, opacity: stream.playable ? 1 : 0.4 }}
+                            className="stream-play"
                             onClick={() => stream.playable && onPlay(stream)}
                             disabled={!stream.playable}
-                            aria-label={`Play ${stream.name || stream.title || "source"}`}
+                            aria-label={`Play ${label}`}
                           >
-                            <span className="stream-quality">
-                              <span
-                                className={`quality quality-${QUALITY_TONE[stream.quality] ?? "neutral"}`}
-                              >
-                                {stream.quality}
-                              </span>
-                              {stream.cached ? <Badge tone="good">Cached</Badge> : null}
+                            <span
+                              className={`stream-quality${
+                                stream.quality === "4K"
+                                  ? " is-top"
+                                  : stream.quality === "CAM"
+                                    ? " is-warn"
+                                    : ""
+                              }`}
+                            >
+                              {stream.quality}
                             </span>
                             <span className="stream-main">
-                              <span className="stream-title">
-                                {stream.name || stream.title || "Source"}
-                              </span>
+                              <span className="stream-title">{label}</span>
                               <span className="stream-meta">
-                                {stream.size ? <span>{stream.size}</span> : null}
-                                {stream.seeders != null ? <span>{stream.seeders} seeds</span> : null}
-                                {stream.languages.length ? (
-                                  <span>{stream.languages.join(", ")}</span>
+                                {stream.size ? (
+                                  <span className="stream-size">{stream.size}</span>
+                                ) : null}
+                                {stream.seeders != null ? (
+                                  <span>{stream.seeders.toLocaleString()} seeds</span>
+                                ) : null}
+                                {audio ? <span>{audio}</span> : null}
+                                {stream.badges.map((badge) => (
+                                  <span key={badge}>{badge}</span>
+                                ))}
+                                {stream.cached ? (
+                                  <span className="stream-cached">Cached</span>
                                 ) : null}
                               </span>
-                              {stream.badges.length ? (
-                                <span className="stream-badges">
-                                  {stream.badges.map((badge) => (
-                                    <Badge key={badge}>{badge}</Badge>
-                                  ))}
-                                </span>
-                              ) : null}
                             </span>
                             <span className="stream-action">
-                              {stream.playable ? (
-                                <Icon name="play" size={16} />
-                              ) : (
-                                <span className="stream-locked">P2P soon</span>
-                              )}
+                              {stream.playable ? <Icon name="play" size={14} /> : null}
                             </span>
                           </button>
                           {url ? (
                             <button
                               type="button"
-                              className="icon-btn"
+                              className="icon-btn stream-more"
                               aria-label="Stream link actions"
                               title="Stream link actions"
                               onClick={(event) =>
                                 setMenu({
                                   x: event.clientX,
                                   y: event.clientY,
-                                  title: stream.name || stream.title || "Stream",
+                                  title: label,
                                   url,
                                 })
                               }
                             >
-                              <Icon name="more" size={16} />
+                              <Icon name="more" size={15} />
                             </button>
                           ) : null}
                         </div>
@@ -426,7 +410,23 @@ export function StreamDrawer({
         </div>
 
         <footer className="drawer-foot">
-          <span>Streams are provided by your own addons. BetterNuvio ships no content.</span>
+          {pending > 0 ? (
+            <span className="drawer-progress">
+              <span className="drawer-track">
+                <span
+                  className="drawer-fill"
+                  style={{
+                    width: `${Math.round(((groups.length - pending) / groups.length) * 100)}%`,
+                  }}
+                />
+              </span>
+              <span>
+                {pending} {pending === 1 ? "addon" : "addons"} still loading
+              </span>
+            </span>
+          ) : (
+            <span>Streams are provided by your own addons. BetterNuvio ships no content.</span>
+          )}
         </footer>
       </aside>
     </div>

@@ -19,6 +19,7 @@ pub struct StreamOption {
     pub external_url: Option<String>,
     pub quality: String,
     pub size: Option<String>,
+    pub size_bytes: Option<u64>,
     pub seeders: Option<i64>,
     pub languages: Vec<String>,
     pub badges: Vec<String>,
@@ -211,6 +212,53 @@ fn detect_badges(text: &str) -> Vec<String> {
     badges
 }
 
+/// Addon titles carry emoji metadata and hard line breaks; a row wants the
+/// release name alone. Anything unprintable is dropped, never sliced.
+fn clean_label(raw: &str) -> String {
+    const NOISE: &[char] = &[
+        '\u{1F4BE}', '\u{1F464}', '\u{1F465}', '\u{26A1}', '\u{1F517}', '\u{1F4E6}',
+        '\u{1F3AC}', '\u{1F310}', '\u{2B50}', '\u{2601}', '\u{FE0F}', '\u{1F4C1}',
+        '\u{1F4E1}', '\u{1F9F2}', '\u{1F4C0}',
+    ];
+    let collapse = |text: &str| {
+        let joined = text
+            .chars()
+            .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        joined
+            .trim_matches(|c: char| " -|·•:".contains(c))
+            .trim()
+            .to_string()
+    };
+    // Everything from the first metadata emoji on is machine text, not a name.
+    let head = collapse(raw.split(|c| NOISE.contains(&c)).next().unwrap_or(raw));
+    if head.is_empty() { collapse(raw) } else { head }
+}
+
+/// `behaviorHints.videoSize` is bytes; addons that send it are exact, so it
+/// beats guessing from the title text.
+fn format_bytes(bytes: u64) -> String {
+    let gb = bytes as f64 / 1_000_000_000.0;
+    if gb >= 1.0 {
+        format!("{gb:.1} GB")
+    } else {
+        format!("{:.0} MB", bytes as f64 / 1_000_000.0)
+    }
+}
+
+fn video_size(stream: &Stream) -> Option<u64> {
+    stream
+        .behavior_hints
+        .as_ref()?
+        .get("videoSize")?
+        .as_u64()
+        .filter(|value| *value > 0)
+}
+
+
 /// `xt=urn:btih:<hash>` from a magnet link.
 fn magnet_hash(url: &str) -> Option<String> {
     let lower = url.to_ascii_lowercase();
@@ -232,7 +280,8 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     let combined = format!("{name} {title} {description}");
 
     let (quality, mut score) = detect_quality(&combined);
-    let size = find_size(&combined);
+    let size_bytes = video_size(stream);
+    let size = size_bytes.map(format_bytes).or_else(|| find_size(&combined));
     let seeders = find_seeders(&combined);
     let languages = detect_languages(&combined);
     let badges = detect_badges(&combined);
@@ -272,15 +321,16 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
 
     StreamOption {
         addon: addon.to_string(),
-        name: stream.name.clone(),
-        title: stream.title.clone(),
-        description: stream.description.clone(),
+        name: stream.name.as_deref().map(clean_label),
+        title: stream.title.as_deref().map(clean_label),
+        description: stream.description.as_deref().map(clean_label),
         url,
         info_hash,
         file_idx: stream.file_idx,
         external_url: stream.external_url.clone(),
         quality,
         size,
+        size_bytes,
         seeders,
         languages,
         badges,
@@ -366,6 +416,30 @@ mod tests {
             },
         );
         assert!(good.score > bad.score);
+    }
+
+    #[test]
+    fn strips_addon_metadata_from_labels() {
+        assert_eq!(
+            clean_label("The.Invite.2026.2160p\n👤 1888 💾 1.99 GB ⚡"),
+            "The.Invite.2026.2160p"
+        );
+        assert_eq!(clean_label("[TB+] Torrentio\n1080p"), "[TB+] Torrentio 1080p");
+        assert_eq!(clean_label("  "), "");
+    }
+
+    #[test]
+    fn prefers_behavior_hint_size() {
+        let stream = Stream {
+            url: Some("https://x/y.mp4".into()),
+            title: Some("Movie 1080p\n👤 12 💾 1.2 GB".into()),
+            behavior_hints: Some(serde_json::json!({ "videoSize": 19_170_000_000u64 })),
+            ..Default::default()
+        };
+        let option = normalize("A", &stream);
+        assert_eq!(option.size.as_deref(), Some("19.2 GB"));
+        assert_eq!(option.size_bytes, Some(19_170_000_000));
+        assert_eq!(option.title.as_deref(), Some("Movie 1080p"));
     }
 
     // Titles from addons are arbitrary Unicode; parsing one must never slice a
