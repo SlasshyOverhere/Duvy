@@ -1,10 +1,49 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api } from "../lib/bridge";
 import { cachedRecos, saveRecos } from "../lib/feed";
 import { useApp } from "../lib/store";
 import type { HomeRow, MetaPreview } from "../lib/types";
 import { PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
+
+const RECENT_KEY = "search.recent";
+const RECENT_MAX = 8;
+const chipText: CSSProperties = { border: 0, background: "none", padding: 0, color: "inherit" };
+const chipRemove: CSSProperties = {
+  ...chipText,
+  display: "grid",
+  placeItems: "center",
+  width: 18,
+  height: 18,
+  margin: "-3px -7px -3px 0",
+  color: "var(--faint)",
+};
+
+function readRecent(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").slice(0, RECENT_MAX)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeRecent(items: string[]) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(items));
+  } catch {
+    // Storage can be blocked; recents then last for the session only.
+  }
+}
+
+function withRecent(list: string[], raw: string): string[] {
+  const entry = raw.trim();
+  if (!entry) return list;
+  const rest = list.filter((item) => item.toLowerCase() !== entry.toLowerCase());
+  return [entry, ...rest].slice(0, RECENT_MAX);
+}
 
 export function SearchView({ query }: { query?: string }) {
   const { navigate, playItem, addons } = useApp();
@@ -15,6 +54,23 @@ export function SearchView({ query }: { query?: string }) {
   const [recos, setRecos] = useState<HomeRow[]>(cachedRecos);
   const [recoState, setRecoState] = useState<"loading" | "ready" | "error">("loading");
   const input = useRef<HTMLInputElement>(null);
+  const [recent, setRecent] = useState<string[]>(readRecent);
+
+  const remember = (raw: string) => {
+    const next = raw.trim();
+    if (!next) return;
+    const list = withRecent(recent, next);
+    setRecent(list);
+    storeRecent(list);
+    setValue(next);
+    navigate({ name: "search", query: next });
+  };
+
+  const forget = (entry: string) => {
+    const list = recent.filter((item) => item !== entry);
+    setRecent(list);
+    storeRecent(list);
+  };
 
   useEffect(() => {
     setValue(query ?? "");
@@ -90,8 +146,7 @@ export function SearchView({ query }: { query?: string }) {
         className="search-page-form"
         onSubmit={(event) => {
           event.preventDefault();
-          const next = value.trim();
-          if (next) navigate({ name: "search", query: next });
+          remember(value);
         }}
       >
         <Icon name="search" size={20} />
@@ -118,6 +173,34 @@ export function SearchView({ query }: { query?: string }) {
           </button>
         ) : null}
       </form>
+
+      {!query && !value && recent.length > 0 ? (
+        <div className="season-tabs" role="group" aria-label="Recent searches">
+          {recent.map((entry) => (
+            <span className="chip" key={entry}>
+              <button style={chipText} onClick={() => remember(entry)}>
+                {entry}
+              </button>
+              <button
+                style={chipRemove}
+                aria-label={`Remove ${entry} from recent searches`}
+                onClick={() => forget(entry)}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          ))}
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setRecent([]);
+              storeRecent([]);
+            }}
+          >
+            Clear
+          </Button>
+        </div>
+      ) : null}
 
       {query ? (
         <div className="search-results">
