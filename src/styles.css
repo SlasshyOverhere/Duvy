@@ -592,25 +592,34 @@ button.pill:hover {
 
 /* Library and Watched are two tabs of one page. */
 .page-tabs {
-  display: flex;
-  gap: 22px;
-  margin-bottom: 10px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: var(--pill);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .page-tabs button {
-  padding: 0;
+  padding: 9px 22px;
   border: 0;
+  border-radius: var(--pill);
   background: none;
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--faint);
-  transition: color 0.12s linear;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
 
-.page-tabs button:hover,
-.page-tabs button.is-active {
+.page-tabs button:hover {
   color: var(--text);
+}
+
+.page-tabs button.is-active {
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .page-head {
