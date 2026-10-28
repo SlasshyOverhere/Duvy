@@ -10,10 +10,9 @@
 //! Dedupe is by normalised manifest URL everywhere: the same addon on Stremio,
 //! Nuvio and this machine is stored once, never three times.
 //!
-//! ponytail: series watched state is a positional bitfield keyed by Cinemeta's
-//! episode order, which needs a full meta lookup to decode. Movies use
-//! `flagged_watched`/`times_watched`; series rely on resume progress. Add the
-//! bitfield decode when per-episode watched badges must cross devices.
+//! ponytail: only the latest watched episode is imported. Stremio's per-episode
+//! history is a positional bitfield keyed by Cinemeta's episode order; decode it
+//! when every watched badge must cross devices.
 
 use crate::db;
 use crate::AppState;
@@ -338,11 +337,11 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
         }
 
         let Some(state) = row.get("state") else { continue };
-        let offset = int(state, "time_offset");
+        let offset = int(state, "timeOffset");
         let duration = int(state, "duration");
         let video_id = text(state, "video_id");
         let (key, season, episode) = episode_key(&id, &video_id);
-        let last_watched = time_ms(state.get("last_watched").unwrap_or(&Value::Null));
+        let last_watched = time_ms(state.get("lastWatched").unwrap_or(&Value::Null));
         let updated = if last_watched > 0 { last_watched } else { mtime }.max(1);
 
         if duration > 0 && offset > 0 {
@@ -376,8 +375,8 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
             progress += 1;
         }
 
-        let times = int(state, "times_watched");
-        let flagged = int(state, "flagged_watched");
+        let times = int(state, "timesWatched");
+        let flagged = int(state, "flaggedWatched");
         let finished = duration > 0 && offset * 10 >= duration * 9;
         // A series without a `video_id` has no episode to blame, so it must not
         // mark the whole show watched.
@@ -812,6 +811,70 @@ mod tests {
             ("tt1:2:5".into(), Some(2), Some(5))
         );
         assert_eq!(episode_key("tt1", ""), ("tt1".into(), None, None));
+    }
+
+    #[test]
+    fn camel_case_state_imports_progress_and_watched() {
+        let path = std::env::temp_dir().join(format!("duvy-stremio-{}.db", db::now()));
+        let conn = db::open(&path).expect("test database opens");
+        let rows = vec![
+            json!({
+                "_id": "tt1",
+                "name": "Film",
+                "type": "movie",
+                "poster": "poster",
+                "removed": false,
+                "temp": false,
+                "_ctime": "2026-10-01T00:00:00Z",
+                "_mtime": "2026-10-02T00:00:00Z",
+                "state": {
+                    "lastWatched": "2026-10-02T00:00:00Z",
+                    "timeWatched": 5_400_000,
+                    "timeOffset": 5_400_000,
+                    "overallTimeWatched": 5_400_000,
+                    "timesWatched": 1,
+                    "flaggedWatched": 1,
+                    "duration": 5_400_000,
+                    "video_id": "tt1",
+                    "watched": null,
+                    "noNotif": false
+                }
+            }),
+            json!({
+                "_id": "tt2",
+                "name": "Show",
+                "type": "series",
+                "removed": false,
+                "temp": false,
+                "_mtime": "2026-10-03T00:00:00Z",
+                "state": {
+                    "lastWatched": "2026-10-03T00:00:00Z",
+                    "timesWatched": 1,
+                    "flaggedWatched": 1,
+                    "video_id": "tt2:1:2"
+                }
+            }),
+        ];
+        let (_, progress, watched) = merge_library(&conn, &rows).expect("merge");
+        assert_eq!(progress, 1, "a Stremio resume point must become progress");
+        assert_eq!(watched, 2, "a Stremio watched mark must become a watched row");
+        let film = db::get_progress(&conn, "tt1").unwrap().expect("film progress");
+        assert_eq!(film.position, 5400.0);
+        assert_eq!(film.duration, 5400.0);
+        let marks = db::list_watched(&conn).unwrap();
+        assert!(marks.contains(&"tt1".to_string()));
+        assert!(marks.contains(&"tt2:1:2".to_string()));
+        let listed = db::list_watched_items(&conn).unwrap();
+        assert!(
+            listed.iter().any(|item| item.meta_id == "tt1" && item.name == "Film"),
+            "a watched movie must appear in the Watched list"
+        );
+        assert!(
+            listed.iter().any(|item| item.meta_id == "tt2" && item.name == "Show"),
+            "a watched series must appear in the Watched list"
+        );
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
