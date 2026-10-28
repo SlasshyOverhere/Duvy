@@ -2125,8 +2125,8 @@ button.pill:hover {
   z-index: 80;
   display: flex;
   justify-content: flex-end;
-  align-items: flex-end;
-  padding: clamp(14px, 2vh, 24px);
+  align-items: center;
+  padding: clamp(14px, 2vh, 24px) 0;
 }
 
 .drawer-backdrop {
@@ -2139,8 +2139,8 @@ button.pill:hover {
   animation: fade-in 0.18s var(--ease);
 }
 
-/* A floating card, not a slab welded to the window edge: it stops short of the
-   top and bottom so the page stays visible, and the list scrolls inside it. */
+/* Docked to the right edge, centred vertically, sized to its list: the page
+   stays visible above and below, and the sources scroll inside. */
 .drawer {
   position: relative;
   width: min(560px, 94vw);
@@ -2149,7 +2149,8 @@ button.pill:hover {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
   background: var(--panel);
   animation: drawer-in 0.22s var(--ease);
 }
