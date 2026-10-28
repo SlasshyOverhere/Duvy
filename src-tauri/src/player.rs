@@ -124,10 +124,18 @@ pub struct Player {
 // mpv discovery
 // ---------------------------------------------------------------------------
 
+// Probing spawns `mpv --version`; a seek-hover preview asks constantly, so
+// one answer per (explicit path, resource dir) is cached.
+static MPV_CACHE: Mutex<Option<(String, Option<MpvInfo>, Instant)>> = Mutex::new(None);
+
+/// Drop the cached answer: a fresh install must be seen without waiting out the TTL.
+pub fn reset_mpv_cache() {
+    if let Ok(mut cache) = MPV_CACHE.lock() {
+        *cache = None;
+    }
+}
+
 pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
-    // Probing spawns `mpv --version`; a seek-hover preview asks constantly, so
-    // one answer per (explicit path, resource dir) is cached.
-    static CACHE: Mutex<Option<(String, Option<MpvInfo>, Instant)>> = Mutex::new(None);
     // A miss is cached briefly: mpv may be installed while the app is running.
     const MISS_TTL: Duration = Duration::from_secs(5);
     let explicit = explicit.trim();
@@ -137,7 +145,7 @@ pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Optio
             .map(|dir| dir.to_string_lossy().to_string())
             .unwrap_or_default()
     );
-    if let Ok(cache) = CACHE.lock() {
+    if let Ok(cache) = MPV_CACHE.lock() {
         if let Some((seen, found, at)) = cache.as_ref() {
             if *seen == key && (found.is_some() || at.elapsed() < MISS_TTL) {
                 return found.clone();
@@ -145,7 +153,7 @@ pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Optio
         }
     }
     let found = locate_mpv(explicit, resource_dir);
-    if let Ok(mut cache) = CACHE.lock() {
+    if let Ok(mut cache) = MPV_CACHE.lock() {
         *cache = Some((key, found.clone(), Instant::now()));
     }
     found
@@ -700,8 +708,12 @@ impl Player {
     ) -> Result<Self, String> {
         validate_media_url(&request.url)?;
         let mpv = find_mpv(&settings.mpv_path, resource_dir).ok_or_else(|| {
-            "mpv was not found. Reinstall Duvy, or point it at an mpv.exe in Settings → Playback."
-                .to_string()
+            if crate::player_setup::running() {
+                "The player is still downloading. Try again in a moment.".to_string()
+            } else {
+                "mpv was not found. Reinstall Duvy, or point it at an mpv.exe in Settings → Playback."
+                    .to_string()
+            }
         })?;
 
         crate::playback_log::mark(format!("mpv found: {}", mpv.path));

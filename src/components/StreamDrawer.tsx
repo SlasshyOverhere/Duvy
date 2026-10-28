@@ -15,6 +15,7 @@ function copyText(text: string) {
 }
 
 type Group = {
+  key: string;
   addon: string;
   streams: StreamOption[];
   state: "loading" | "done" | "error";
@@ -101,7 +102,9 @@ export function StreamDrawer({
       return;
     }
     const dx = event.clientX - drag.current.x;
-    if (Math.abs(dx) > 4) drag.current.moved = true;
+    // A click drifts a few pixels; only a real drag may pan the row.
+    if (!drag.current.moved && Math.abs(dx) < 8) return;
+    drag.current.moved = true;
     node.scrollLeft = drag.current.left - dx;
   };
 
@@ -110,7 +113,10 @@ export function StreamDrawer({
   };
 
   const chooseFilter = (next: string) => {
-    if (drag.current.moved) return;
+    if (drag.current.moved) {
+      drag.current.moved = false;
+      return;
+    }
     // The chip you are already on clears the filter: there is no All chip.
     setFilter(next === filter ? "all" : next);
   };
@@ -128,21 +134,21 @@ export function StreamDrawer({
   // Every addon is asked on its own, so the first answer can be shown while
   // the rest are still scraping. One dead addon only costs its own section.
   const load = useCallback(
-    (addon: string) => {
+    (key: string) => {
       if (!request) return;
       const run = runId.current;
       setGroups((current) =>
         current.map((group) =>
-          group.addon === addon ? { ...group, state: "loading", error: null } : group,
+          group.key === key ? { ...group, state: "loading", error: null } : group,
         ),
       );
       api
-        .streams({ ...request, addon })
+        .streams({ ...request, addon: key })
         .then((rows) => {
           if (run !== runId.current) return;
           setGroups((current) =>
             current.map((group) =>
-              group.addon === addon ? { ...group, streams: rows, state: "done" } : group,
+              group.key === key ? { ...group, streams: rows, state: "done" } : group,
             ),
           );
         })
@@ -150,7 +156,7 @@ export function StreamDrawer({
           if (run !== runId.current) return;
           setGroups((current) =>
             current.map((group) =>
-              group.addon === addon
+              group.key === key
                 ? { ...group, state: "error", error: errorText(error) }
                 : group,
             ),
@@ -164,10 +170,10 @@ export function StreamDrawer({
     () =>
       installed
         .filter((addon) => addon.enabled && addon.resources.includes("stream"))
-        .map((addon) => addon.name),
+        .map((addon) => ({ key: addon.url, name: addon.name })),
     [installed],
   );
-  const signature = targets.join("|");
+  const signature = targets.map((target) => target.key).join("|");
 
   useEffect(() => {
     if (!open || !request) return;
@@ -177,9 +183,15 @@ export function StreamDrawer({
     setFilter("all");
     setMenu(null);
     setGroups(
-      targets.map((addon) => ({ addon, streams: [], state: "loading", error: null })),
+      targets.map((target) => ({
+        key: target.key,
+        addon: target.name,
+        streams: [],
+        state: "loading",
+        error: null,
+      })),
     );
-    targets.forEach(load);
+    targets.forEach((target) => load(target.key));
     // The request is compared by its parts, not by identity: it is rebuilt on
     // every render by the screen that owns this drawer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,7 +208,7 @@ export function StreamDrawer({
   // A filter that can no longer show anything must not leave an empty panel.
   useEffect(() => {
     if (!open || filter === "all") return;
-    const group = groups.find((item) => item.addon === filter);
+    const group = groups.find((item) => item.key === filter);
     if (!group || (group.state !== "loading" && !group.streams.length)) setFilter("all");
   }, [open, filter, groups]);
 
@@ -246,7 +258,7 @@ export function StreamDrawer({
   const pending = groups.filter((group) => group.state === "loading").length;
   const ranked = (group: Group) =>
     group.streams.length ? 0 : group.state === "error" ? 2 : 1;
-  const visible = (filter === "all" ? groups : groups.filter((group) => group.addon === filter))
+  const visible = (filter === "all" ? groups : groups.filter((group) => group.key === filter))
     .slice()
     // Answers come first, so a slow or failing addon never sits on top of a
     // list that is already ready to play.
@@ -290,7 +302,7 @@ export function StreamDrawer({
             <button
               type="button"
               className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
-              onClick={() => targets.forEach(load)}
+              onClick={() => targets.forEach((target) => load(target.key))}
               aria-label="Refresh sources"
               title="Refresh sources"
             >
@@ -300,13 +312,13 @@ export function StreamDrawer({
               .filter((group) => group.streams.length > 0 || group.state === "loading")
               .map((group) => (
                 <button
-                  key={group.addon}
+                  key={group.key}
                   type="button"
-                  className={`chip${filter === group.addon ? " is-active" : ""}`}
-                  aria-pressed={filter === group.addon}
-                  onClick={() => chooseFilter(group.addon)}
+                  className={`chip${filter === group.key ? " is-active" : ""}`}
+                  aria-pressed={filter === group.key}
+                  onClick={() => chooseFilter(group.key)}
                   title={
-                    filter === group.addon ? "Show every addon" : `Only ${group.addon}`
+                    filter === group.key ? "Show every addon" : `Only ${group.addon}`
                   }
                 >
                   {group.addon}
@@ -351,7 +363,7 @@ export function StreamDrawer({
           ) : null}
 
           {visible.map((group) => (
-            <section className="stream-group" key={group.addon}>
+            <section className="stream-group" key={group.key}>
               {group.error ? (
                 <p className="stream-group-error">
                   {group.addon}: {group.error}
@@ -389,7 +401,7 @@ export function StreamDrawer({
                         stream.cached,
                     );
                     return (
-                      <li key={`${group.addon}-${index}`}>
+                      <li key={`${group.key}-${index}`}>
                         <div className="stream-card">
                           <button
                             type="button"

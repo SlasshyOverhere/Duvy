@@ -1164,8 +1164,8 @@ pub async fn streams(
     let mut tasks = Vec::new();
     for addon in addons.iter().filter(|a| a.enabled) {
         // The UI asks each addon on its own so the first answer can be shown
-        // while the others are still working.
-        if only.as_deref().is_some_and(|wanted| wanted != addon.name) {
+        // while the others are still working. Matched by url: names repeat.
+        if only.as_deref().is_some_and(|wanted| wanted != addon.url) {
             continue;
         }
         let manifest = parse_manifest(addon);
