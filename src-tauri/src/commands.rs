@@ -28,11 +28,7 @@ fn parse_manifest(addon: &StoredAddon) -> Manifest {
 }
 
 fn load_settings(state: &AppState) -> Settings {
-    match state.db.0.lock() {
-        Ok(conn) => Settings::load(&conn),
-        // A poisoned lock means an earlier panic; recovering keeps the app up.
-        Err(poisoned) => Settings::load(&poisoned.into_inner()),
-    }
+    crate::settings::load_cached(state)
 }
 
 async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
@@ -239,21 +235,34 @@ async fn addon_meta(
     id: &str,
     media_type: &str,
 ) -> Option<Meta> {
-    for addon in addons.iter().filter(|a| a.enabled) {
+    let mut set: JoinSet<(usize, Option<Meta>)> = JoinSet::new();
+    for (index, addon) in addons.iter().filter(|a| a.enabled).enumerate() {
         let manifest = parse_manifest(addon);
         if !manifest.resource_for("meta", media_type, id) {
             continue;
         }
         let url = addons::meta_url(&addon.url, media_type, id);
-        if let Ok(value) = fetch_json(client, &url).await {
-            if let Ok(response) = serde_json::from_value::<MetaResponse>(value) {
-                if let Some(meta) = response.meta {
-                    return Some(meta);
-                }
+        let client = client.clone();
+        set.spawn(async move {
+            let meta = match fetch_json(&client, &url).await {
+                Ok(value) => serde_json::from_value::<MetaResponse>(value)
+                    .ok()
+                    .and_then(|response| response.meta),
+                Err(_) => None,
+            };
+            (index, meta)
+        });
+    }
+
+    let mut best: Option<(usize, Meta)> = None;
+    while let Some(joined) = set.join_next().await {
+        if let Ok((index, Some(meta))) = joined {
+            if best.as_ref().is_none_or(|(first, _)| index < *first) {
+                best = Some((index, meta));
             }
         }
     }
-    None
+    best.map(|(_, meta)| meta)
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +287,8 @@ pub async fn app_info(app: AppHandle, state: State<'_, AppState>) -> Result<AppI
         version: env!("CARGO_PKG_VERSION").to_string(),
         platform: std::env::consts::OS.to_string(),
         data_dir,
-        mpv: player::find_mpv(&settings.mpv_path, mpv_dir(&app).as_deref()),
+        mpv: player::find_mpv_async(settings.mpv_path.clone(), mpv_dir(&app))
+            .await,
     })
 }
 
@@ -292,16 +302,18 @@ pub async fn mpv_detect(app: AppHandle, path: Option<String>) -> Option<crate::m
 }
 
 #[tauri::command]
-pub fn settings_get(state: State<'_, AppState>) -> Result<Settings, String> {
+pub async fn settings_get(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(load_settings(&state))
 }
 
 #[tauri::command]
-pub fn settings_set(patch: Value, state: State<'_, AppState>) -> Result<Settings, String> {
+pub async fn settings_set(patch: Value, state: State<'_, AppState>) -> Result<Settings, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     let mut settings = Settings::load(&conn);
     settings.apply_patch(patch)?;
     settings.save(&conn)?;
+    drop(conn);
+    crate::settings::invalidate(&state);
     Ok(settings)
 }
 
@@ -381,7 +393,7 @@ async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, 
 }
 
 #[tauri::command]
-pub fn addons_list(state: State<'_, AppState>) -> Result<Vec<AddonInfo>, String> {
+pub async fn addons_list(state: State<'_, AppState>) -> Result<Vec<AddonInfo>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
     Ok(addons.iter().map(addon_info).collect())
@@ -457,23 +469,23 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
         )
     };
 
-    let mut rows: Vec<HomeRow> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
     let key = settings.tmdb_api_key.trim().to_string();
     let mut discover_error: Option<String> = None;
     // Six catalogs walk three sources each; cap them so a dead network cannot
     // hold the home screen hostage.
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(14),
-        tmdb::home_rows(&state.http, &key),
-    )
-    .await
-    {
-        Ok(Ok(mut discover_rows)) => rows.append(&mut discover_rows),
-        Ok(Err(e)) => discover_error = Some(format!("Discover: {e}")),
-        Err(_) => discover_error = Some("Discover timed out".into()),
-    }
+    let discover = {
+        let client = state.http.clone();
+        let key = key.clone();
+        tokio::spawn(async move {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(14),
+                tmdb::home_rows(&client, &key),
+            )
+            .await
+        })
+    };
 
     struct Task {
         order: usize,
@@ -488,11 +500,15 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
 
     let mut tasks: Vec<Task> = Vec::new();
     let mut order = 0usize;
+    let limit = settings.home_rows_limit.clamp(1, 24) as usize;
     for addon in addons.iter().filter(|a| a.enabled) {
+        if tasks.len() >= limit {
+            break;
+        }
         let manifest = parse_manifest(addon);
         let mut taken = 0;
         for catalog in &manifest.catalogs {
-            if taken >= 4 {
+            if taken >= 4 || tasks.len() >= limit {
                 break;
             }
             if catalog.media_type != "movie" && catalog.media_type != "series" {
@@ -579,9 +595,24 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
             row.title = format!("{} · {suffix}", row.title);
         }
     }
+    // Discover rows lead; its request ran alongside the catalog fan-out.
+    let mut rows = match discover.await {
+        Ok(Ok(Ok(rows))) => rows,
+        Ok(Ok(Err(_))) => {
+            discover_error = Some("Discover timed out".into());
+            Vec::new()
+        }
+        Ok(Err(_)) => {
+            discover_error = Some("Discover failed".into());
+            Vec::new()
+        }
+        Err(_) => {
+            discover_error = Some("Discover failed".into());
+            Vec::new()
+        }
+    };
     rows.extend(addon_rows.into_iter().map(|(_, row)| row));
 
-    let limit = settings.home_rows_limit.clamp(1, 24) as usize;
     rows.truncate(limit);
     errors.truncate(6);
     // A dead discovery source only matters when it left the page empty; with
@@ -658,6 +689,7 @@ pub async fn cast_photos(
             (name, key, photo)
         });
     }
+    let mut writes: Vec<(String, String)> = Vec::new();
     while let Some(joined) = set.join_next().await {
         let Ok((name, key, photo)) = joined else {
             continue;
@@ -665,8 +697,15 @@ pub async fn cast_photos(
         if let Some(photo) = photo.as_ref() {
             photos.insert(name, photo.clone());
         }
-        if let Ok(conn) = state.db.0.lock() {
-            let _ = db::set_people_photo(&conn, &key, photo.as_deref().unwrap_or(""));
+        writes.push((key, photo.unwrap_or_default()));
+    }
+    // One transaction for the batch instead of a lock and commit per headshot.
+    if let Ok(conn) = state.db.0.lock() {
+        if let Ok(tx) = conn.unchecked_transaction() {
+            for (key, photo) in &writes {
+                let _ = db::set_people_photo(&tx, key, photo);
+            }
+            let _ = tx.commit();
         }
     }
     Ok(photos)
@@ -735,11 +774,30 @@ pub async fn recommendation_rows(
     // rest of the row. Anything watched or started never makes the cut.
     const PER_GENRE: usize = 8;
     const TOTAL: usize = 24;
+
+    let mut similar_set: JoinSet<(usize, Vec<MetaPreview>)> = JoinSet::new();
+    for (slot, (seed, media_type, genre)) in seeds.iter().enumerate() {
+        let http = http.clone();
+        let media_type = media_type.clone();
+        let genre = genre.clone();
+        let exclude = seed.meta_id.clone();
+        similar_set.spawn(async move {
+            let items = tmdb::similar(&http, &media_type, &genre, &exclude).await;
+            (slot, items)
+        });
+    }
+    let mut similar_rows: Vec<Option<Vec<MetaPreview>>> = vec![None; seeds.len()];
+    while let Some(joined) = similar_set.join_next().await {
+        if let Ok((slot, items)) = joined {
+            similar_rows[slot] = Some(items);
+        }
+    }
+
     let mut items = Vec::new();
     let mut used: HashSet<String> = HashSet::new();
-    for (seed, media_type, genre) in seeds {
+    for rows in similar_rows.into_iter().flatten() {
         let mut taken = 0;
-        for item in tmdb::similar(http, &media_type, &genre, &seed.meta_id).await {
+        for item in rows {
             if seen.contains(&item.id) || !used.insert(item.id.clone()) {
                 continue;
             }
@@ -797,6 +855,16 @@ pub async fn search(
 
     let mut results: Vec<MetaPreview> = Vec::new();
     let mut set: JoinSet<(String, Result<CatalogResponse, String>)> = JoinSet::new();
+    let key = settings.tmdb_api_key.trim().to_string();
+    let tmdb_task = if key.is_empty() {
+        None
+    } else {
+        let client = state.http.clone();
+        let query = query.clone();
+        Some(tokio::spawn(async move {
+            tmdb::search(&client, &key, &query).await
+        }))
+    };
 
     for addon in addons.iter().filter(|a| a.enabled) {
         let manifest = parse_manifest(addon);
@@ -831,9 +899,8 @@ pub async fn search(
         }
     }
 
-    let key = settings.tmdb_api_key.trim().to_string();
-    if !key.is_empty() {
-        if let Ok(mut tmdb_results) = tmdb::search(&state.http, &key, &query).await {
+    if let Some(task) = tmdb_task {
+        if let Ok(Ok(mut tmdb_results)) = task.await {
             results.append(&mut tmdb_results);
         }
     }
@@ -926,49 +993,42 @@ pub async fn meta_details(
         );
     };
 
-    // An addon can describe a series yet send no episode list. Cinemeta has
-    // the whole thing in one request, which beats a page of "Untitled".
-    if details.videos.is_empty() && details.media_type == "series" {
-        let imdb = details
-            .imdb_id
-            .clone()
-            .or_else(|| id.starts_with("tt").then(|| id.clone()));
-        if let Some(imdb) = imdb {
-            details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
-        }
-    }
+    // One Cinemeta document carries both the episode list and the cast, so a
+    // single fetch fills whichever is missing. TMDB runs beside it.
+    let imdb = details
+        .imdb_id
+        .clone()
+        .or_else(|| id.starts_with("tt").then(|| id.clone()));
+    let needs_videos = details.videos.is_empty() && details.media_type == "series";
+    let needs_cast = details.cast.is_empty();
+    let needs_tmdb =
+        details.background.is_none() || details.cast.is_empty() || details.trailer.is_none();
 
-    // Some addons ship a full episode list but no people. Cinemeta carries the
-    // cast in the same document, so ask once before the page arrives empty.
-    if details.cast.is_empty() {
-        let imdb = details
-            .imdb_id
-            .clone()
-            .or_else(|| id.starts_with("tt").then(|| id.clone()));
-        if let Some(imdb) = imdb {
-            if let Some(rich) = crate::meta::details(&state.http, &imdb, &details.media_type).await
-            {
-                merge_details(&mut details, rich);
-            }
+    let cinemeta = async {
+        if !needs_videos && !needs_cast {
+            return None;
         }
-    }
+        let imdb = imdb.as_deref()?;
+        crate::meta::details(&state.http, imdb, &details.media_type).await
+    };
+    let rich = async {
+        if key.is_empty() || !needs_tmdb {
+            return None;
+        }
+        let imdb = imdb.as_deref()?;
+        let (kind, tmdb_id) = tmdb::find_by_imdb(&state.http, &key, imdb).await.ok()??;
+        tmdb::details(&state.http, &key, &kind, &tmdb_id).await.ok()
+    };
+    let (cinemeta, rich) = tokio::join!(cinemeta, rich);
 
-    if !key.is_empty() {
-        let imdb = details
-            .imdb_id
-            .clone()
-            .or_else(|| id.starts_with("tt").then(|| id.clone()));
-        if let Some(imdb) = imdb {
-            if details.background.is_none() || details.cast.is_empty() || details.trailer.is_none() {
-                if let Ok(Some((kind, tmdb_id))) =
-                    tmdb::find_by_imdb(&state.http, &key, &imdb).await
-                {
-                    if let Ok(rich) = tmdb::details(&state.http, &key, &kind, &tmdb_id).await {
-                        merge_details(&mut details, rich);
-                    }
-                }
-            }
+    if let Some(mut cinemeta) = cinemeta {
+        if needs_videos {
+            details.videos = std::mem::take(&mut cinemeta.videos);
         }
+        merge_details(&mut details, cinemeta);
+    }
+    if let Some(rich) = rich {
+        merge_details(&mut details, rich);
     }
 
     Ok(details)
@@ -1025,9 +1085,9 @@ pub async fn streams(
 
     let mut set: JoinSet<(String, Result<StreamResponse, String>)> = JoinSet::new();
     // 45s when one addon was asked for on its own (nothing else waits on it,
-    // and scraping addons can take half a minute cold), 20s in the all-addons
+    // and scraping addons can take half a minute cold), 8s in the all-addons
     // fan-out so one dead source cannot stall the list.
-    let cap = if only.is_some() { 45 } else { 20 };
+    let cap = if only.is_some() { 45 } else { 8 };
     for task in tasks {
         set.spawn(async move {
             let result = fetch_json_within(
@@ -1043,9 +1103,11 @@ pub async fn streams(
         });
     }
 
-    let mut options: Vec<StreamOption> = Vec::new();
-    let mut errors: Vec<String> = Vec::new();
-    while let Some(joined) = set.join_next().await {
+    fn collect(
+        options: &mut Vec<StreamOption>,
+        errors: &mut Vec<String>,
+        joined: Result<(String, Result<StreamResponse, String>), tokio::task::JoinError>,
+    ) {
         match joined {
             Ok((addon, Ok(response))) => {
                 for stream in response.streams {
@@ -1060,6 +1122,22 @@ pub async fn streams(
             Ok((addon, Err(e))) => errors.push(format!("{addon}: {e}")),
             Err(_) => {}
         }
+    }
+
+    let mut options: Vec<StreamOption> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        collect(&mut options, &mut errors, joined);
+        if only.is_some() || options.is_empty() {
+            continue;
+        }
+        // First answer is up: give the stragglers a short grace period.
+        while let Ok(Some(joined)) =
+            tokio::time::timeout(std::time::Duration::from_millis(400), set.join_next()).await
+        {
+            collect(&mut options, &mut errors, joined);
+        }
+        break;
     }
 
     if options.is_empty() && !errors.is_empty() {
@@ -1156,7 +1234,7 @@ pub async fn subtitles(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn library_list(state: State<'_, AppState>) -> Result<Vec<LibraryItem>, String> {
+pub async fn library_list(state: State<'_, AppState>) -> Result<Vec<LibraryItem>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     db::list_library(&conn).map_err(|e| e.to_string())
 }
@@ -1181,13 +1259,13 @@ pub fn library_toggle(item: LibraryItem, state: State<'_, AppState>) -> Result<b
 }
 
 #[tauri::command]
-pub fn progress_list(state: State<'_, AppState>) -> Result<Vec<ProgressItem>, String> {
+pub async fn progress_list(state: State<'_, AppState>) -> Result<Vec<ProgressItem>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     db::list_progress(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedItem>, String> {
+pub async fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedItem>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     db::list_watched_items(&conn).map_err(|e| e.to_string())
 }
@@ -1305,7 +1383,8 @@ pub async fn player_frame(
         player.source().to_string()
     };
     let settings = load_settings(&state);
-    let mpv = player::find_mpv(&settings.mpv_path, mpv_dir(&app).as_deref())
+    let mpv = player::find_mpv_async(settings.mpv_path.clone(), mpv_dir(&app))
+        .await
         .ok_or("mpv was not found")?;
     crate::frame::preview(&mpv.path, &source, seconds).await
 }

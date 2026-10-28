@@ -321,23 +321,26 @@ fn other(media_type: &str) -> &'static str {
 /// Best available record for an IMDb id, or `None` when nothing answers.
 ///
 /// Cinemeta is the default: no key, one request, and the whole episode list
-/// comes back with it. The mirror is only asked for ids Cinemeta missed.
+/// comes back with it. The mirror is only asked for ids Cinemeta missed. Each
+/// attempt is bounded, so a hung source cannot hold the page.
 pub async fn details(
     client: &reqwest::Client,
     imdb: &str,
     media_type: &str,
 ) -> Option<MetaDetails> {
-    if let Some(found) = cinemeta(client, imdb, media_type).await {
-        return Some(found);
-    }
+    let cap = std::time::Duration::from_secs(3);
     // Synced rows sometimes carry the wrong kind; the id is what counts.
-    if let Some(found) = cinemeta(client, imdb, other(media_type)).await {
-        return Some(found);
+    for kind in [media_type, other(media_type)] {
+        if let Ok(Some(found)) = tokio::time::timeout(cap, cinemeta(client, imdb, kind)).await {
+            return Some(found);
+        }
     }
-    match balloon(client, imdb, media_type).await {
-        Ok(found) => Some(found),
-        Err(_) => balloon(client, imdb, other(media_type)).await.ok(),
+    for kind in [media_type, other(media_type)] {
+        if let Ok(Ok(found)) = tokio::time::timeout(cap, balloon(client, imdb, kind)).await {
+            return Some(found);
+        }
     }
+    None
 }
 
 /// Episode list only: used to repair series whose addon sent no videos.
@@ -401,27 +404,42 @@ pub async fn fill_missing(
     client: &reqwest::Client,
     rows: Vec<(String, String)>,
 ) -> Vec<(String, String, Option<String>, Option<String>)> {
-    let mut filled = Vec::new();
+    // Six in flight keeps the burst polite; slots restore the input order.
+    const IN_FLIGHT: usize = 6;
+    let mut pending = rows
+        .into_iter()
+        .filter(|(meta_id, _)| meta_id.starts_with("tt"))
+        .enumerate();
+    let mut set = tokio::task::JoinSet::new();
+    let mut filled: Vec<(usize, String, String, Option<String>, Option<String>)> = Vec::new();
     let mut failures = 0;
-    for (meta_id, media_type) in rows {
-        if !meta_id.starts_with("tt") {
-            continue;
+    loop {
+        while set.len() < IN_FLIGHT && failures < 3 {
+            let Some((index, (meta_id, media_type))) = pending.next() else {
+                break;
+            };
+            let client = client.clone();
+            set.spawn(async move {
+                let found = details(&client, &meta_id, &media_type).await;
+                (index, meta_id, found)
+            });
         }
-        match details(client, &meta_id, &media_type).await {
-            Some(found) => {
-                failures = 0;
-                filled.push((meta_id, found.name, found.poster, found.background));
+        let Some(joined) = set.join_next().await else {
+            break;
+        };
+        match joined {
+            Ok((index, meta_id, Some(found))) => {
+                filled.push((index, meta_id, found.name, found.poster, found.background));
             }
-            None => {
-                // Both sources down: stop hammering them and try again later.
-                failures += 1;
-                if failures >= 3 {
-                    break;
-                }
-            }
+            // Both sources down: stop hammering them and try again later.
+            _ => failures += 1,
         }
     }
+    filled.sort_by_key(|(index, ..)| *index);
     filled
+        .into_iter()
+        .map(|(_, meta_id, name, poster, background)| (meta_id, name, poster, background))
+        .collect()
 }
 
 #[cfg(test)]
