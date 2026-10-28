@@ -3,7 +3,16 @@ import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "re
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
-import { noSourceError, pickSource, rememberSource, rememberedSource, useApp, usePlayer } from "../lib/store";
+import {
+  noSourceError,
+  pickSource,
+  rememberSource,
+  rememberSubtitle,
+  rememberedSource,
+  rememberedSubtitle,
+  useApp,
+  usePlayer,
+} from "../lib/store";
 import { rememberedLogo } from "../lib/art";
 import type {
   Details,
@@ -94,6 +103,20 @@ const DEFAULT_SUB_STYLE: SubtitleStyle = {
   position: 96,
 };
 const MAX_DELAY = 60;
+
+/** True once a control is off its default, which is when ASS styling steps aside. */
+function customStyle(style: SubtitleStyle): boolean {
+  return (
+    style.size !== DEFAULT_SUB_STYLE.size ||
+    style.color !== DEFAULT_SUB_STYLE.color ||
+    style.opacity !== DEFAULT_SUB_STYLE.opacity ||
+    style.background !== DEFAULT_SUB_STYLE.background ||
+    style.outline !== DEFAULT_SUB_STYLE.outline ||
+    style.outlineColor !== DEFAULT_SUB_STYLE.outlineColor ||
+    style.bold !== DEFAULT_SUB_STYLE.bold ||
+    style.position !== DEFAULT_SUB_STYLE.position
+  );
+}
 const NO_VARIANTS: SubVariant[] = [];
 
 /** ISO codes and full names both arrive from mpv and from addons. */
@@ -241,8 +264,7 @@ function readSubtitleStyle(): SubtitleStyle {
         ? String(stored.outlineColor)
         : DEFAULT_SUB_STYLE.outlineColor,
       bold: stored.bold === true,
-      // Delay is session-only, never carried over from a previous run.
-      delay: DEFAULT_SUB_STYLE.delay,
+      delay: tenths(stored.delay, DEFAULT_SUB_STYLE.delay),
       position: whole(stored.position, 25, 100, DEFAULT_SUB_STYLE.position),
     };
   } catch {
@@ -1133,6 +1155,9 @@ export function PlayerView() {
   );
 
   const pushSubStyle = useCallback(() => {
+    // ASS tracks carry their own fonts and colours; they only listen to these
+    // once the user has actually moved a control.
+    send("sub-ass-override", customStyle(subStyle));
     send("sub-font-size", subStyle.size);
     send("sub-color", mpvColor(subStyle.color, subStyle.opacity));
     send("sub-back-color", mpvBackground(subStyle.background));
@@ -1642,10 +1667,16 @@ export function PlayerView() {
       if (variant.trackId != null) {
         setLoadedSub(null);
         send("sub", variant.trackId);
+        rememberSubtitle(sessionRef.current?.key, { lang: variant.lang, trackId: variant.trackId });
         return;
       }
       if (!variant.url) return;
       setLoadedSub({ lang: variant.lang, url: variant.url });
+      rememberSubtitle(sessionRef.current?.key, {
+        lang: variant.lang,
+        url: variant.url,
+        label: variant.label,
+      });
       void api.player
         .subtitle(variant.url, variant.lang)
         .then(() => notify(`${variant.lang} subtitles`))
@@ -1658,6 +1689,7 @@ export function PlayerView() {
     setLoadedSub(null);
     setSelectedLang(OFF);
     send("sub", null);
+    rememberSubtitle(sessionRef.current?.key, { lang: "", off: true });
   }, [send]);
 
   const openEpisodes = useCallback(() => {
@@ -1916,6 +1948,32 @@ export function PlayerView() {
     return () => window.clearTimeout(timer);
   }, [session?.key, pushSubStyle]);
 
+  // A session comes back with the subtitle it was left on, once per open.
+  const subRestored = useRef<string | null>(null);
+  const playerReady = Boolean(local);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || !playerReady || subRestored.current === key) return;
+    subRestored.current = key;
+    const saved = rememberedSubtitle(key);
+    if (!saved) return;
+    if (saved.off) {
+      setLoadedSub(null);
+      setSelectedLang(OFF);
+      send("sub", null);
+      return;
+    }
+    setSelectedLang(saved.lang);
+    if (saved.trackId != null) {
+      setLoadedSub(null);
+      send("sub", saved.trackId);
+      return;
+    }
+    if (!saved.url) return;
+    setLoadedSub({ lang: saved.lang, url: saved.url });
+    void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
+  }, [session?.key, playerReady, send]);
+
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
     send("video-mode", videoMode);
@@ -1925,7 +1983,7 @@ export function PlayerView() {
   // Local storage is the persistence layer, except delay which is session-only.
   useEffect(() => {
     try {
-      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify({ ...subStyle, delay: 0 }));
+      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
     } catch {
       // Storage can be full or blocked; the panel still works for this session.
     }

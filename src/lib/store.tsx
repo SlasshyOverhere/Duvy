@@ -223,6 +223,51 @@ export function rememberSource(key: string | null | undefined, stream: StreamOpt
   }
 }
 
+/** The subtitle a session used last time, so the same track comes back. */
+export interface SubtitleMemory {
+  lang: string;
+  trackId?: number;
+  url?: string;
+  label?: string;
+  off?: boolean;
+}
+
+const SUBTITLE_MEMORY_KEY = "betternuvio:subtitles";
+const SUBTITLE_MEMORY_LIMIT = 200;
+
+function readSubtitleMemory(): Record<string, SubtitleMemory> {
+  try {
+    const raw = window.localStorage.getItem(SUBTITLE_MEMORY_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, SubtitleMemory>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function rememberedSubtitle(key: string | null | undefined): SubtitleMemory | null {
+  if (!key) return null;
+  const found = readSubtitleMemory()[key];
+  if (!found || typeof found !== "object") return null;
+  const usable = found.off === true || found.trackId != null || typeof found.url === "string";
+  return usable ? found : null;
+}
+
+export function rememberSubtitle(key: string | null | undefined, choice: SubtitleMemory): void {
+  if (!key) return;
+  try {
+    const all = readSubtitleMemory();
+    all[key] = choice;
+    const keys = Object.keys(all);
+    for (const stale of keys.slice(0, Math.max(0, keys.length - SUBTITLE_MEMORY_LIMIT))) {
+      delete all[stale];
+    }
+    window.localStorage.setItem(SUBTITLE_MEMORY_KEY, JSON.stringify(all));
+  } catch {
+    // Storage can be blocked; the player simply picks a track again.
+  }
+}
+
 /** Explain why nothing could play, without sending the user to the addons page for a consent gate. */
 export function noSourceError(options: StreamOption[], p2pAllowed: boolean): Error {
   if (!p2pAllowed && options.some((stream) => stream.playable && stream.infoHash)) {
