@@ -154,6 +154,64 @@ function Callout({
   );
 }
 
+const LANGUAGES: Array<[code: string, name: string]> = [
+  ["eng", "English"],
+  ["spa", "Spanish"],
+  ["fra", "French"],
+  ["deu", "German"],
+  ["ita", "Italian"],
+  ["por", "Portuguese"],
+  ["nld", "Dutch"],
+  ["swe", "Swedish"],
+  ["nor", "Norwegian"],
+  ["dan", "Danish"],
+  ["fin", "Finnish"],
+  ["pol", "Polish"],
+  ["ces", "Czech"],
+  ["hun", "Hungarian"],
+  ["ron", "Romanian"],
+  ["ell", "Greek"],
+  ["tur", "Turkish"],
+  ["rus", "Russian"],
+  ["ukr", "Ukrainian"],
+  ["heb", "Hebrew"],
+  ["ara", "Arabic"],
+  ["hin", "Hindi"],
+  ["zho", "Chinese"],
+  ["jpn", "Japanese"],
+  ["kor", "Korean"],
+  ["tha", "Thai"],
+  ["vie", "Vietnamese"],
+  ["ind", "Indonesian"],
+  ["msa", "Malay"],
+  ["tgl", "Tagalog"],
+];
+
+function LanguageSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const known = LANGUAGES.some(([code]) => code === value);
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label}>
+        {known ? null : <option value={value}>{value ? `${value} (custom)` : "Not set"}</option>}
+        {LANGUAGES.map(([code, name]) => (
+          <option key={code} value={code}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function Range({
   label,
   min,
@@ -430,24 +488,16 @@ export function SettingsView({ section }: { section?: string }) {
                 description="The preferred track when a title offers more than one."
               >
                 <div className="field-grid settings-fields">
-                  <label className="field">
-                    <span>Audio language</span>
-                    <input
-                      value={settings.audioLanguage}
-                      onChange={(event) => update({ audioLanguage: event.target.value })}
-                      placeholder="eng"
-                      spellCheck={false}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Subtitle language</span>
-                    <input
-                      value={settings.subtitleLanguage}
-                      onChange={(event) => update({ subtitleLanguage: event.target.value })}
-                      placeholder="eng"
-                      spellCheck={false}
-                    />
-                  </label>
+                  <LanguageSelect
+                    label="Audio language"
+                    value={settings.audioLanguage}
+                    onChange={(value) => update({ audioLanguage: value })}
+                  />
+                  <LanguageSelect
+                    label="Subtitle language"
+                    value={settings.subtitleLanguage}
+                    onChange={(value) => update({ subtitleLanguage: value })}
+                  />
                 </div>
               </Card>
             </>

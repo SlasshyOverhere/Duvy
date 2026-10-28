@@ -3108,6 +3108,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .field input,
+.field select,
 .field-row input,
 .install-form input {
   width: 100%;
@@ -3121,6 +3122,20 @@ input[type="range"]::-webkit-slider-thumb {
   transition: border-color 0.14s var(--ease);
 }
 
+.field select {
+  appearance: none;
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23919191' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  cursor: pointer;
+}
+
+.field select option {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .field input::placeholder,
 .field-row input::placeholder,
 .install-form input::placeholder {
@@ -3128,6 +3143,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .field input:focus,
+.field select:focus,
 .field-row input:focus,
 .install-form input:focus {
   border-bottom-color: var(--accent);
