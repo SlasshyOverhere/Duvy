@@ -20,7 +20,7 @@ use tokio::task::JoinSet;
 const MAX_ITEMS_PER_ROW: usize = 20;
 
 /// Cinemeta is the free IMDb-keyed catalog Stremio and Nuvio both ship. Home
-/// rows and search query it directly, so its addon catalogs are skipped.
+/// rows are curated directly, so its addon catalogs are skipped there.
 const CINEMETA_ID: &str = "com.linvo.cinemeta";
 
 /// How many metadata addons a details page will wait on, and for how long.
@@ -926,10 +926,6 @@ pub async fn search(
     };
 
     for addon in addons.iter().filter(|a| a.enabled) {
-        // The direct Cinemeta stage below already searches the same catalogs.
-        if addon.addon_id == CINEMETA_ID {
-            continue;
-        }
         let manifest = parse_manifest(addon);
         for catalog in &manifest.catalogs {
             if catalog.media_type != "movie" && catalog.media_type != "series" {
@@ -1734,5 +1730,28 @@ mod reco_tests {
             assert!(!ids.contains(id.as_str()), "{id} is already watched");
         }
         assert!(row.items.len() <= 24, "the row outgrew its cap");
+    }
+
+    /// The keyless search path: Cinemeta's own catalog, exactly as `search` asks it.
+    /// `cargo test --lib -- --ignored cinemeta_search`
+    #[tokio::test]
+    #[ignore = "talks to Cinemeta"]
+    async fn cinemeta_search_answers_a_query() {
+        let mut extra = BTreeMap::new();
+        extra.insert("search".to_string(), "dune".to_string());
+        let url = addons::catalog_url("https://v3-cinemeta.strem.io", "movie", "top", &extra);
+        let value = fetch_json(&crate::http_client(), &url)
+            .await
+            .expect("Cinemeta answers its search catalog");
+        let response: CatalogResponse =
+            serde_json::from_value(value).expect("the catalog keeps its shape");
+        assert!(
+            response
+                .metas
+                .iter()
+                .any(|meta| meta.name.to_lowercase().contains("dune")),
+            "no Dune result in {} hits",
+            response.metas.len()
+        );
     }
 }
