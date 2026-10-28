@@ -30,7 +30,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="empty-state">
+      <div className="empty-state empty-state-fill">
         <h3>This screen hit a snag</h3>
         <p>
           Something in this view stopped rendering. Your library, addons and playback history are

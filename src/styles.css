@@ -481,23 +481,21 @@ select {
 }
 
 .profile-btn {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   display: inline-grid;
   place-items: center;
   border: 0;
-  border-radius: 14px;
-  background: rgba(20, 20, 20, 0.72);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 14px 26px -22px rgba(0, 0, 0, 0.95);
+  border-radius: 50%;
+  background: rgba(32, 32, 32, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(16px) saturate(140%);
-  color: rgba(253, 250, 245, 0.78);
+  color: var(--text);
   transition: color 0.16s var(--ease), background-color 0.16s var(--ease);
 }
 
 .profile-btn:hover {
-  color: var(--text);
-  background: rgba(38, 38, 38, 0.82);
+  background: rgba(52, 52, 52, 0.94);
 }
 
 .topbar-left {
@@ -1409,42 +1407,48 @@ button.pill:hover {
   color: var(--accent);
 }
 
-.hero-arrows {
+.hero-dots {
   position: absolute;
   right: clamp(18px, 2.4vw, 30px);
   bottom: clamp(18px, 2.4vw, 30px);
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 10px;
 }
 
-.hero-count {
-  margin-right: 8px;
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: rgba(253, 250, 245, 0.72);
-  font-variant-numeric: tabular-nums;
-}
-
-.hero-arrow {
-  width: 36px;
-  height: 36px;
+.hero-dot {
+  width: 20px;
+  height: 20px;
+  padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.14);
-  color: var(--text);
-  transition: border-color 0.15s var(--ease), color 0.15s var(--ease),
-    background-color 0.15s var(--ease);
+  border: 0;
+  background: none;
+  cursor: pointer;
 }
 
-.hero-arrow:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(0, 0, 0, 0.45);
+.hero-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+  transition: width 0.28s var(--ease), background-color 0.2s var(--ease);
+}
+
+.hero-dot:hover::before {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.hero-dot.is-active::before {
+  width: 18px;
+  background: #fff;
+}
+
+.hero-dot:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 999px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1880,30 +1884,48 @@ button.pill:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: clamp(20px, 2.2vw, 28px);
 }
 
+/* Every action wears the dock's glass shell: one shape, one tone. */
 .detail-actions .btn {
   min-height: 44px;
+  padding-inline: 18px;
+  border: 0;
+  border-radius: var(--pill);
+  color: rgba(255, 255, 255, 0.82);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px) saturate(140%);
 }
 
-.detail-actions .btn-primary {
-  padding-inline: 24px;
-}
-
-/* One strong action, the rest quiet commands: no wall of outlined twins. */
-.detail-actions .btn-ghost {
-  padding-left: 13px;
-  padding-right: 13px;
-  border-color: transparent;
-  color: var(--muted);
-}
-
-.detail-actions .btn-ghost:hover:not(:disabled) {
-  border-color: transparent;
-  background: rgba(255, 255, 255, 0.07);
+.detail-actions .btn:hover:not(:disabled) {
   color: var(--text);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.17) 0%,
+    rgba(255, 255, 255, 0.07) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.17),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+/* Play is icon-only, so it holds a 44px circle in the same row. */
+.detail-actions .btn.btn-primary {
+  width: 44px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.detail-actions .btn.btn-primary svg {
+  width: 20px;
+  height: 20px;
 }
 
 /* Credits stay attached to the actions, under them in the copy column. */
@@ -4098,10 +4120,6 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-line-clamp: 2;
   }
 
-  .hero-arrows {
-    display: none;
-  }
-
   .poster-card {
     width: 132px;
     flex-basis: 132px;
@@ -4206,10 +4224,6 @@ input[type="range"]::-webkit-slider-thumb {
   .detail-actions .btn {
     padding-inline: 16px;
   }
-
-  .detail-actions .btn-primary {
-    padding-inline: 22px;
-  }
 }
 
 /* The poster becomes a cover above the copy instead of a squeezed column. */
@@ -4265,8 +4279,7 @@ input[type="range"]::-webkit-slider-thumb {
 .toast button,
 .pv-icon,
 .pv-play,
-.pv-step,
-.hero-arrow {
+.pv-step {
   position: relative;
 }
 
@@ -4277,7 +4290,6 @@ input[type="range"]::-webkit-slider-thumb {
 .pv-icon::after,
 .pv-play::after,
 .pv-step::after,
-.hero-arrow::after,
 .poster-play::after,
 .continue-play::after {
   content: "";

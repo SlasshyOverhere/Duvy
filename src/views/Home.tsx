@@ -78,6 +78,14 @@ export function HomeView() {
 
   const featured = (feed?.rows?.[0]?.items ?? []).slice(0, 6);
   const hero = featured[slide] ?? featured[0] ?? null;
+  const nextBackdrop = featured[(slide + 1) % featured.length]?.background;
+
+  // Warm the next backdrop so the rotation never flashes the placeholder.
+  useEffect(() => {
+    if (!nextBackdrop) return;
+    const img = new Image();
+    img.src = nextBackdrop;
+  }, [nextBackdrop]);
 
   useEffect(() => {
     if (slide >= featured.length) setSlide(0);
@@ -101,11 +109,7 @@ export function HomeView() {
           inLibrary={inLibrary(hero.id)}
           index={slide}
           count={featured.length}
-          onPrev={
-            featured.length > 1
-              ? () => setSlide((current) => (current - 1 + featured.length) % featured.length)
-              : undefined
-          }
+          onSelect={featured.length > 1 ? setSlide : undefined}
           onNext={
             featured.length > 1
               ? () => setSlide((current) => (current + 1) % featured.length)

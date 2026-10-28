@@ -287,9 +287,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   icon="play"
                   onClick={playOrResume}
                   disabled={details.type === "series" && details.videos.length === 0}
-                >
-                  {resumeTarget.label}
-                </Button>
+                  title={resumeTarget.label}
+                />
                 <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
                   Sources
                 </Button>

@@ -299,8 +299,8 @@ export function Hero({
   onPlay,
   onLibrary,
   inLibrary,
-  onPrev,
   onNext,
+  onSelect,
   index,
   count,
 }: {
@@ -309,18 +309,30 @@ export function Hero({
   onPlay: () => void;
   onLibrary: () => void;
   inLibrary: boolean;
-  onPrev?: () => void;
   onNext?: () => void;
+  onSelect?: (index: number) => void;
   index?: number;
   count?: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   // A new featured title gets a clean attempt at its artwork.
   useEffect(() => setFailed(false), [item.id]);
 
+  // Rotate the featured titles; hovering holds the current one.
+  useEffect(() => {
+    if (!onNext || hovered) return;
+    const timer = setTimeout(onNext, 9000);
+    return () => clearTimeout(timer);
+  }, [item.id, hovered, onNext]);
+
   return (
-    <section className="hero">
+    <section
+      className="hero"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <AnimatePresence initial={false}>
         <motion.div
           key={item.id}
@@ -328,7 +340,9 @@ export function Hero({
           style={{ background: placeholderGradient(item.name) } as CSSProperties}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          // The outgoing layer stays opaque under the new one, so the
+          // crossfade never dips through the black hero background.
+          exit={{ opacity: 1, transition: { duration: 0.6 } }}
           transition={{ duration: 0.6, ease: "easeOut" }}
         >
           {item.background && !failed ? (
@@ -344,61 +358,57 @@ export function Hero({
       </AnimatePresence>
 
       <div className="hero-body">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={item.id}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10, transition: { duration: 0.2 } }}
-            transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
-          >
-            <h1 className="hero-title">{item.name}</h1>
-            <div className="hero-meta">
-              {item.imdbRating ? <Badge tone="accent">★ {item.imdbRating}</Badge> : null}
-              {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
-              {item.runtime ? <span>{item.runtime}</span> : null}
-              {item.genres?.slice(0, 2).map((genre) => (
-                <span key={genre} className="hero-genre">
-                  {genre}
-                </span>
-              ))}
-            </div>
-            {item.description ? <p className="hero-overview">{item.description}</p> : null}
-            <div className="hero-actions">
-              <button type="button" className="btn btn-primary btn-lg" onClick={onPlay}>
-                <Icon name="play" size={17} />
-                <span>Watch Now</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn-square"
-                onClick={onLibrary}
-                title={inLibrary ? "Remove from library" : "Add to library"}
-                aria-label={inLibrary ? "Remove from library" : "Add to library"}
-              >
-                <Icon name={inLibrary ? "check" : "plus"} size={20} />
-              </button>
-              <button type="button" className="hero-link" onClick={onOpen}>
-                More info
-              </button>
-            </div>
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={item.id}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
+        >
+          <h1 className="hero-title">{item.name}</h1>
+          <div className="hero-meta">
+            {item.imdbRating ? <Badge tone="accent">★ {item.imdbRating}</Badge> : null}
+            {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
+            {item.runtime ? <span>{item.runtime}</span> : null}
+            {item.genres?.slice(0, 2).map((genre) => (
+              <span key={genre} className="hero-genre">
+                {genre}
+              </span>
+            ))}
+          </div>
+          {item.description ? <p className="hero-overview">{item.description}</p> : null}
+          <div className="hero-actions">
+            <button type="button" className="btn btn-primary btn-lg" onClick={onPlay}>
+              <Icon name="play" size={17} />
+              <span>Watch Now</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-square"
+              onClick={onLibrary}
+              title={inLibrary ? "Remove from library" : "Add to library"}
+              aria-label={inLibrary ? "Remove from library" : "Add to library"}
+            >
+              <Icon name={inLibrary ? "check" : "plus"} size={20} />
+            </button>
+            <button type="button" className="hero-link" onClick={onOpen}>
+              More info
+            </button>
+          </div>
+        </motion.div>
       </div>
 
-      {onPrev && onNext ? (
-        <div className="hero-arrows">
-          {typeof index === "number" && typeof count === "number" && count > 1 ? (
-            <span className="hero-count">
-              {String(index + 1).padStart(2, "0")} / {String(count).padStart(2, "0")}
-            </span>
-          ) : null}
-          <button type="button" className="hero-arrow" onClick={onPrev} aria-label="Previous featured title">
-            <Icon name="back" size={18} />
-          </button>
-          <button type="button" className="hero-arrow" onClick={onNext} aria-label="Next featured title">
-            <Icon name="forward" size={18} />
-          </button>
+      {onSelect && typeof index === "number" && typeof count === "number" && count > 1 ? (
+        <div className="hero-dots" role="group" aria-label="Featured titles">
+          {Array.from({ length: count }, (_, dot) => (
+            <button
+              key={dot}
+              type="button"
+              className={dot === index ? "hero-dot is-active" : "hero-dot"}
+              aria-current={dot === index}
+              aria-label={`Featured title ${dot + 1} of ${count}`}
+              onClick={() => onSelect(dot)}
+            />
+          ))}
         </div>
       ) : null}
     </section>
