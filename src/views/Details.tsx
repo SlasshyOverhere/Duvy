@@ -21,6 +21,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     inLibrary,
     progress,
     progressFor,
+    resumeEntry,
     notify,
     buildSession,
     resolveStream,
@@ -144,6 +145,23 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     };
   }, [details, seriesProgress, progressFor, buildSession]);
 
+  /** Resume goes straight back to what was playing; the drawer is for picking anew. */
+  const playOrResume = () => {
+    if (!details) return;
+    const target = resumeTarget.video;
+    const entry =
+      details.type === "series"
+        ? target
+          ? progressFor(buildSession(details, target).key)
+          : null
+        : progressFor(details.id);
+    if (entry) {
+      void resumeEntry(entry);
+      return;
+    }
+    openSources(null);
+  };
+
   const openSources = (video: Video | null) => {
     if (!details) return;
     let target = video;
@@ -255,7 +273,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               <Button
                 variant="primary"
                 icon="play"
-                onClick={() => openSources(null)}
+                onClick={playOrResume}
                 disabled={details.type === "series" && details.videos.length === 0}
               >
                 {resumeTarget.label}
