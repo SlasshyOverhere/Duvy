@@ -97,16 +97,11 @@ function Screen() {
     return (
       <div className="boot">
         <div className="boot-mark">
-          <svg viewBox="0 0 40 40" width="56" height="56" aria-hidden="true">
-            <defs>
-              <linearGradient id="boot-logo" x1="4" y1="36" x2="36" y2="4">
-                <stop offset="0%" stopColor="var(--accent-2)" />
-                <stop offset="100%" stopColor="var(--accent)" />
-              </linearGradient>
-            </defs>
+          <svg viewBox="0 0 100 100" width="72" height="72" aria-hidden="true">
             <path
-              d="M12 10.5v19c0 .8.9 1.3 1.6.9l15-9.5a1.1 1.1 0 0 0 0-1.8l-15-9.5a1.1 1.1 0 0 0-1.6.9Z"
-              fill="url(#boot-logo)"
+              fill="var(--accent)"
+              fillRule="evenodd"
+              d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
             />
           </svg>
         </div>
