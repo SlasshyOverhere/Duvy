@@ -1,8 +1,51 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
+import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "../lib/bridge";
 import { useApp, usePlayer, type Route } from "../lib/store";
+import type { AppInfo } from "../lib/types";
 import { Icon, IconButton, type IconName } from "./ui";
+
+/** mpv presence, refreshed when the background download settles. */
+export function useMpv(): AppInfo["mpv"] {
+  const { appInfo } = useApp();
+  const [mpv, setMpv] = useState(appInfo?.mpv ?? null);
+
+  useEffect(() => {
+    setMpv(appInfo?.mpv ?? null);
+  }, [appInfo?.mpv]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    // The boot probe can predate the first-run download, so re-check on mount:
+    // the shell is unmounted while onboarding and the player are open.
+    const probe = () =>
+      void api
+        .appInfo()
+        .then((info) => {
+          if (!disposed) setMpv(info.mpv);
+        })
+        .catch(() => {});
+    probe();
+    void listen<{ state: string }>("player-setup", (event) => {
+      const { state } = event.payload;
+      if (state === "ready" || state === "failed") probe();
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  return mpv;
+}
 
 const DOCK: { route: Route; label: string; icon: IconName }[] = [
   { route: { name: "home" }, label: "Home", icon: "home" },
@@ -32,7 +75,8 @@ function NowPlaying() {
 }
 
 export function TopBar() {
-  const { appInfo, navigate, back, route, addons } = useApp();
+  const { navigate, back, route, addons } = useApp();
+  const mpv = useMpv();
   const [fullscreen, setFullscreen] = useState(
     () => document.documentElement.dataset.fullscreen === "on",
   );
@@ -123,7 +167,7 @@ export function TopBar() {
             <Icon name="puzzle" size={14} /> No addons
           </button>
         ) : null}
-        {!appInfo?.mpv ? (
+        {!mpv ? (
           <button
             type="button"
             className="pill pill-warn"

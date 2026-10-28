@@ -20,7 +20,7 @@ use tokio::task::JoinSet;
 const MAX_ITEMS_PER_ROW: usize = 20;
 
 /// Cinemeta is the free IMDb-keyed catalog Stremio and Nuvio both ship. Home
-/// rows and search query it directly, so its addon catalogs are skipped.
+/// rows are curated directly, so its addon catalogs are skipped there.
 const CINEMETA_ID: &str = "com.linvo.cinemeta";
 
 /// How many metadata addons a details page will wait on, and for how long.
@@ -926,10 +926,6 @@ pub async fn search(
     };
 
     for addon in addons.iter().filter(|a| a.enabled) {
-        // The direct Cinemeta stage below already searches the same catalogs.
-        if addon.addon_id == CINEMETA_ID {
-            continue;
-        }
         let manifest = parse_manifest(addon);
         for catalog in &manifest.catalogs {
             if catalog.media_type != "movie" && catalog.media_type != "series" {
@@ -960,20 +956,32 @@ pub async fn search(
     }
 
     // Cinemeta answers in ~150ms; a scraped addon catalog can take seconds.
-    // Paint the fast half now and stream the rest, the way Stremio does.
+    // Each addon paints as it lands, the way Stremio does.
     let streamed_query = query.clone();
     tauri::async_runtime::spawn(async move {
-        let mut found: Vec<MetaPreview> = Vec::new();
+        let mut painted = false;
         while let Some(joined) = set.join_next().await {
-            if let Ok((_addon, Ok(response))) = joined {
-                found.extend(response.metas);
-            }
+            let items = match joined {
+                Ok((_addon, Ok(response))) => response.metas,
+                _ => Vec::new(),
+            };
+            painted = true;
+            let _ = app.emit(
+                "search:addons",
+                json!({ "query": streamed_query, "items": items, "done": set.is_empty() }),
+            );
         }
-        // Emitted even when empty: the UI stops waiting for this one.
-        let _ = app.emit(
-            "search:addons",
-            json!({ "query": streamed_query, "items": found }),
-        );
+        // No addon had a search catalog: still close the wait in the UI.
+        if !painted {
+            let _ = app.emit(
+                "search:addons",
+                json!({
+                    "query": streamed_query,
+                    "items": Vec::<MetaPreview>::new(),
+                    "done": true,
+                }),
+            );
+        }
     });
 
     // TMDB ran alongside the addon fan-out, so it is usually ready by now.
@@ -1164,8 +1172,8 @@ pub async fn streams(
     let mut tasks = Vec::new();
     for addon in addons.iter().filter(|a| a.enabled) {
         // The UI asks each addon on its own so the first answer can be shown
-        // while the others are still working.
-        if only.as_deref().is_some_and(|wanted| wanted != addon.name) {
+        // while the others are still working. Matched by url: names repeat.
+        if only.as_deref().is_some_and(|wanted| wanted != addon.url) {
             continue;
         }
         let manifest = parse_manifest(addon);
@@ -1734,5 +1742,28 @@ mod reco_tests {
             assert!(!ids.contains(id.as_str()), "{id} is already watched");
         }
         assert!(row.items.len() <= 24, "the row outgrew its cap");
+    }
+
+    /// The keyless search path: Cinemeta's own catalog, exactly as `search` asks it.
+    /// `cargo test --lib -- --ignored cinemeta_search`
+    #[tokio::test]
+    #[ignore = "talks to Cinemeta"]
+    async fn cinemeta_search_answers_a_query() {
+        let mut extra = BTreeMap::new();
+        extra.insert("search".to_string(), "dune".to_string());
+        let url = addons::catalog_url("https://v3-cinemeta.strem.io", "movie", "top", &extra);
+        let value = fetch_json(&crate::http_client(), &url)
+            .await
+            .expect("Cinemeta answers its search catalog");
+        let response: CatalogResponse =
+            serde_json::from_value(value).expect("the catalog keeps its shape");
+        assert!(
+            response
+                .metas
+                .iter()
+                .any(|meta| meta.name.to_lowercase().contains("dune")),
+            "no Dune result in {} hits",
+            response.metas.len()
+        );
     }
 }

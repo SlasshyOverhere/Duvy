@@ -50,10 +50,16 @@ pub struct SetupStatus {
     pub error: String,
 }
 
+/// True while the first-run download is in flight.
+pub fn running() -> bool {
+    RUNNING.load(Ordering::SeqCst)
+}
+
 fn status(app: &AppHandle, state: &AppState) -> SetupStatus {
     let settings = crate::commands::load_settings(state);
     let resource = app.path().resource_dir().ok();
-    let found = crate::player::find_mpv(&settings.mpv_path, resource.as_deref());
+    // Uncached: a just-finished install must show up in the same session.
+    let found = crate::player::detect_mpv(&settings.mpv_path, resource.as_deref());
     match found {
         Some(info) => {
             let ours = installed().is_some_and(|path| path == info.path);
@@ -98,7 +104,10 @@ fn start(app: &AppHandle) -> bool {
         let outcome = install(&handle).await;
         RUNNING.store(false, Ordering::SeqCst);
         match outcome {
-            Ok(()) => emit(&handle, "ready", 1.0, ""),
+            Ok(()) => {
+                crate::player::reset_mpv_cache();
+                emit(&handle, "ready", 1.0, "");
+            }
             Err(error) => emit(&handle, "failed", 0.0, &error),
         }
     });

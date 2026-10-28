@@ -531,6 +531,27 @@ fn parse_tb_torrent(value: &Value) -> Option<TorrentState> {
     })
 }
 
+/// TorBox id of the torrent matching `hash` in a `mylist` payload (`data` is an object or array).
+fn tb_id_by_hash(value: &Value, hash: &str) -> Option<String> {
+    let data = value.get("data")?;
+    let items: Vec<&Value> = match data {
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(_) => vec![data],
+        _ => return None,
+    };
+    items.into_iter().find_map(|item| {
+        let found = item
+            .as_object()?
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("hash"))
+            .and_then(|(_, value)| value.as_str())?;
+        if !found.eq_ignore_ascii_case(hash) {
+            return None;
+        }
+        scalar(item, "id").or_else(|| scalar(item, "torrent_id"))
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Cache probes
 // ---------------------------------------------------------------------------
@@ -960,16 +981,29 @@ async fn tb_resolve(
             .await
             .map_err(offline)?,
     )
-    .await?;
-    let id = created
-        .get("data")
-        .and_then(|data| {
-            scalar(data, "torrent_id")
-                .or_else(|| scalar(data, "id"))
-                .or_else(|| data.as_i64().map(|id| id.to_string()))
-        })
-        .or_else(|| scalar(&created, "torrent_id"))
-        .ok_or_else(|| "TorBox did not return a torrent id.".to_string())?;
+    .await;
+    let id = match created {
+        Ok(created) => created
+            .get("data")
+            .and_then(|data| {
+                scalar(data, "torrent_id")
+                    .or_else(|| scalar(data, "id"))
+                    .or_else(|| data.as_i64().map(|id| id.to_string()))
+            })
+            .or_else(|| scalar(&created, "torrent_id"))
+            .ok_or_else(|| "TorBox did not return a torrent id.".to_string())?,
+        Err(message) => {
+            // Already in the account: createtorrent rejects it, so reuse it by hash.
+            let found = match info_hash(magnet) {
+                Some(hash) => get_json(http, "torbox", key, &format!("{TB_API}/torrents/mylist"))
+                    .await
+                    .ok()
+                    .and_then(|list| tb_id_by_hash(&list, &hash)),
+                None => None,
+            };
+            found.ok_or(message)?
+        }
+    };
 
     let deadline = Instant::now() + POLL_WINDOW;
     loop {
@@ -1303,6 +1337,25 @@ mod tests {
         // A list response is accepted too (older /torrents/mylist shape).
         let list = json!({ "success": true, "data": [{ "id": 9, "download_state": "downloading", "files": [] }] });
         assert_eq!(parse_tb_torrent(&list).unwrap().status, "downloading");
+    }
+
+    #[test]
+    fn torbox_existing_torrent_is_found_by_hash() {
+        let hash = "2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e";
+        let list = json!({
+            "success": true,
+            "data": [
+                { "id": 7, "hash": "aaaabbbbccccddddeeeeffff0000111122223333" },
+                { "id": 9, "HASH": "2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E" }
+            ]
+        });
+        assert_eq!(tb_id_by_hash(&list, hash), Some("9".to_string()));
+        assert_eq!(tb_id_by_hash(&list, "ffff"), None);
+
+        // A single-object payload is accepted too.
+        let one = json!({ "success": true, "data": { "id": 12, "hash": hash } });
+        assert_eq!(tb_id_by_hash(&one, hash), Some("12".to_string()));
+        assert_eq!(tb_id_by_hash(&json!({ "success": true, "data": null }), hash), None);
     }
 
     #[test]

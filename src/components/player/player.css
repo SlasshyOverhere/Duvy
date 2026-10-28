@@ -38,10 +38,6 @@
   pointer-events: none;
 }
 
-.pv--failed .pv-timeline {
-  display: none;
-}
-
 /* A panel owns the screen: the chrome hides from the eye and from the keyboard. */
 .pv--panel .pv-top,
 .pv--panel .pv-timeline,
@@ -1036,24 +1032,51 @@
 
 /* ---- failed source ------------------------------------------------------ */
 
-.pv .pv-next--failed {
-  border-radius: 12px;
-  background: #101012;
-  padding: 24px 26px;
+/* A dead source is a player surface, not a dialog: bottom-left, same skin as
+   the side sheets, with the transport gone so nothing looks live. */
+.pv .pv-failed {
+  position: absolute;
+  left: 26px;
+  bottom: 26px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 52px));
+  padding: 20px 22px;
+  border-radius: 16px;
+  background: #111113;
+  cursor: default;
 }
 
-.pv .pv-next--failed .pv-next-label {
-  color: var(--accent);
-}
-
-.pv .pv-next--failed h2 {
-  margin: 0;
-  font-size: 18px;
+.pv .pv-failed h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
   color: #fff;
 }
 
-.pv .pv-next--failed .pv-failed-body {
-  color: rgba(255, 255, 255, 0.64);
+.pv .pv-failed-body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pv .pv-failed-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.pv .pv-text-action--quiet {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pv .pv-text-action--quiet:hover {
+  color: #fff;
 }
 
 /* ---- focus -------------------------------------------------------------- */

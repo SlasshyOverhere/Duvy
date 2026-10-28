@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
 
@@ -47,6 +49,28 @@ jobs:
           }
           "Releasing $version"
 
+      # Every commit since the last tag, so the release reads as a changelog
+      # instead of just a PR list.
+      - name: Collect commits since the previous release
+        id: notes
+        shell: pwsh
+        run: |
+          $prev = git tag --list 'v*' --sort=-v:refname | Where-Object { $_ -ne $env:GITHUB_REF_NAME } | Select-Object -First 1
+          if ($prev) {
+            $commits = git log "$prev..$env:GITHUB_REF_NAME" --no-merges --pretty='- %s (%h)'
+            $heading = "### Commits since $prev"
+            $compare = "https://github.com/$env:GITHUB_REPOSITORY/compare/$prev...$env:GITHUB_REF_NAME"
+          } else {
+            $commits = git log $env:GITHUB_REF_NAME --no-merges --pretty='- %s (%h)'
+            $heading = "### Commits"
+            $compare = "https://github.com/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME"
+          }
+          $body = (@($heading, '') + $commits + @('', "**Full changelog:** $compare")) -join "`n"
+          "body<<EOF" >> $env:GITHUB_OUTPUT
+          $body >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+          $body
+
       # Builds both installers, signs the updater bundles, publishes the release
       # and uploads latest.json, which is what the app's update endpoint reads.
       # mpv is not packaged; first run downloads it from the player release.
@@ -59,6 +83,7 @@ jobs:
           tauriScript: bun run tauri
           tagName: ${{ github.ref_name }}
           releaseName: Duvy ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true

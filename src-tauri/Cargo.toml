@@ -1,6 +1,6 @@
 [package]
 name = "duvy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Duvy - a fast native desktop media hub"
 authors = ["Duvy contributors"]
 edition = "2024"

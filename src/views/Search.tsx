@@ -137,11 +137,14 @@ export function SearchView({ query }: { query?: string }) {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ query: string; items: MetaPreview[] }>("search:addons", (event) => {
-      if (event.payload.query !== activeRef.current) return;
-      setResults((prev) => mergeResults(prev, event.payload.items));
-      setWaiting(false);
-    })
+    void listen<{ query: string; items: MetaPreview[]; done?: boolean }>(
+      "search:addons",
+      (event) => {
+        if (event.payload.query !== activeRef.current) return;
+        setResults((prev) => mergeResults(prev, event.payload.items));
+        if (event.payload.done ?? true) setWaiting(false);
+      },
+    )
       .then((stop) => {
         if (disposed) stop();
         else unlisten = stop;

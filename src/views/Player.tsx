@@ -2207,6 +2207,10 @@ export function PlayerView() {
   // Stable handlers keep the memoized panels out of the tick re-render.
   const closeSurface = useCallback(() => setSurface(null), []);
   const refreshSources = useCallback(() => void loadSources(true), [loadSources]);
+  const retrySource = useCallback(() => {
+    setSurface("sources");
+    void loadSources();
+  }, [loadSources]);
   const reloadSubs = useCallback(() => void loadSubtitles(true), [loadSubtitles]);
   const resetSubStyle = useCallback(() => setSubStyle(DEFAULT_SUB_STYLE), []);
   const pickEpisode = useCallback(
@@ -2451,7 +2455,7 @@ export function PlayerView() {
   return (
     <div
       ref={rootRef}
-      className={`pv${chrome ? " pv--awake" : ""}${failed ? " pv--failed" : ""}${locked ? " pv--locked" : ""}${surface ? " pv--panel" : ""}`}
+      className={`pv${chrome ? " pv--awake" : ""}${locked ? " pv--locked" : ""}${surface ? " pv--panel" : ""}`}
       onPointerMove={bump}
       onFocusCapture={() => {
         if (!locked) setChrome(true);
@@ -2519,28 +2523,26 @@ export function PlayerView() {
         </header>
       ) : null}
 
-      {failed ? (
-        <section className="pv-next pv-next--failed" role="alert" aria-live="assertive">
-          <button
-            type="button"
-            className="pv-icon pv-failed-close"
-            onClick={() => void stop()}
-            aria-label="Close player"
-            title="Close player"
-          >
-            <Icon name="x" size={16} />
-          </button>
-          <p className="pv-failed-title" title={title}>
-            {title}
-          </p>
-          <p className="pv-next-label">Playback stopped</p>
+      {failed && surface === null ? (
+        <section className="pv-failed" role="alert" aria-live="assertive">
           <h2>This source did not play.</h2>
-          <p className="pv-failed-body">
-            {failed} Check the source or pick another one from the title page.
-          </p>
-          <div className="pv-next-actions">
-            <button type="button" className="btn btn-primary" onClick={() => void stop()}>
-              {session ? "Choose another source" : "Back to home"}
+          <p className="pv-failed-body">{failed}</p>
+          <div className="pv-failed-actions">
+            {session ? (
+              <button type="button" className="pv-text-action" onClick={retrySource}>
+                Choose another source
+              </button>
+            ) : (
+              <button type="button" className="pv-text-action" onClick={() => void stop()}>
+                Back to home
+              </button>
+            )}
+            <button
+              type="button"
+              className="pv-text-action pv-text-action--quiet"
+              onClick={() => void stop()}
+            >
+              Close player
             </button>
           </div>
         </section>
@@ -2589,7 +2591,7 @@ export function PlayerView() {
         </div>
       ) : null}
 
-      {surface !== null && !locked ? (
+      {surface !== null && (!locked || failed) ? (
         <>
           {surface === "audio" ? (
             <Overlay label="Audio tracks" onClose={closeSurface}>
@@ -2940,7 +2942,7 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {!locked ? (
+      {!locked && !failed ? (
         <footer className="pv-timeline">
           <div className="pv-seek">
             <span className="pv-seek-time">{formatTime(shownPosition)}</span>

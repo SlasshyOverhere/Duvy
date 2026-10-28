@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
+import { useMpv } from "../components/Shell";
 import { Badge, Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
 import { StremioSync } from "./settings/StremioSync";
@@ -358,7 +359,8 @@ function Segmented<T extends string>({
 }
 
 export function SettingsView({ section }: { section?: string }) {
-  const { settings, appInfo, saveSettings, notify, playRequest } = useApp();
+  const { settings, saveSettings, notify, playRequest } = useApp();
+  const mpv = useMpv();
   const [tab, setTab] = useState(section ?? "general");
   const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
@@ -588,25 +590,23 @@ export function SettingsView({ section }: { section?: string }) {
                 title="Player"
                 description="mpv decodes video in its own process and draws straight into this window, so playback stays off the UI thread."
               >
-                <div className={`mpv-card${appInfo?.mpv ? " is-ready" : " is-missing"}`}>
+                <div className={`mpv-card${mpv ? " is-ready" : " is-missing"}`}>
                   <div className="mpv-status">
                     <span className="mpv-dot" />
                     <div className="mpv-status-copy">
                       <div className="mpv-status-title">
-                        <h3>{appInfo?.mpv ? "mpv is ready" : "mpv not found"}</h3>
-                        <Badge tone={appInfo?.mpv ? "good" : "warn"}>
-                          {appInfo?.mpv ? "Ready" : "Missing"}
-                        </Badge>
+                        <h3>{mpv ? "mpv is ready" : "mpv not found"}</h3>
+                        <Badge tone={mpv ? "good" : "warn"}>{mpv ? "Ready" : "Missing"}</Badge>
                       </div>
-                      <p>{appInfo?.mpv?.version ?? "Install mpv to enable playback."}</p>
-                      {appInfo?.mpv ? <code>{appInfo.mpv.path}</code> : null}
+                      <p>{mpv?.version ?? "Install mpv to enable playback."}</p>
+                      {mpv ? <code>{mpv.path}</code> : null}
                     </div>
                   </div>
                   <div className="mpv-actions">
                     <Button icon="monitor" onClick={() => void locateMpv()}>
                       Locate mpv
                     </Button>
-                    {!appInfo?.mpv ? (
+                    {!mpv ? (
                       <Button icon="external" onClick={() => openLink("https://mpv.io/installation/")}>
                         Get mpv
                       </Button>
