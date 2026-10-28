@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { noSourceError, pickSource, useApp, usePlayer } from "../lib/store";
 import type {
@@ -257,7 +256,7 @@ function sameSource(a: StreamOption | null, b: StreamOption): boolean {
   );
 }
 
-/** Full-picture modal: a tinted layer with a rail anchored to the bottom-left. */
+/** Floating panel anchored bottom-right, above the transport. */
 function Overlay({
   label,
   onClose,
@@ -284,8 +283,15 @@ function Overlay({
         }}
       >
         <header className="pv-overlay-head">
-          <button type="button" className="pv-side-close" onClick={onClose}>
-            Close
+          <h2 className="pv-overlay-title">{label}</h2>
+          <button
+            type="button"
+            className="pv-overlay-close"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <Icon name="x" size={18} />
           </button>
         </header>
         <div className="pv-overlay-scroll">{children}</div>
@@ -316,8 +322,14 @@ function SidePanel({
       <aside className="pv-side" role="dialog" aria-label={label} aria-modal="true">
         <header className="pv-side-head">
           <h2>{title}</h2>
-          <button type="button" className="pv-side-close" onClick={onClose}>
-            Close
+          <button
+            type="button"
+            className="pv-overlay-close"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <Icon name="x" size={18} />
           </button>
         </header>
         <div className="pv-side-body">{children}</div>
@@ -1638,32 +1650,6 @@ export function PlayerView() {
             ) : null}
           </div>
           <div className="pv-top-right">
-            {isTauri() && !fullscreen ? (
-              <div className="pv-window">
-                <button
-                  type="button"
-                  className="pv-top-btn pv-top-btn--win"
-                  onClick={() => void getCurrentWindow().minimize()}
-                  aria-label="Minimise window"
-                  title="Minimise"
-                >
-                  <svg viewBox="0 0 10 10" aria-hidden="true">
-                    <path d="M1 5h8" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="pv-top-btn pv-top-btn--win pv-top-btn--close"
-                  onClick={() => void getCurrentWindow().close()}
-                  aria-label="Close window"
-                  title="Close window"
-                >
-                  <svg viewBox="0 0 10 10" aria-hidden="true">
-                    <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
-                  </svg>
-                </button>
-              </div>
-            ) : null}
             <button
               type="button"
               className="pv-top-btn"
@@ -1770,7 +1756,6 @@ export function PlayerView() {
         <>
           {surface === "audio" ? (
             <Overlay label="Audio tracks" onClose={() => setSurface(null)}>
-              <h2 className="pv-overlay-title">Audio tracks</h2>
               {audioTracks.length === 0 ? (
                 <p className="pv-overlay-empty">No audio tracks available.</p>
               ) : (
@@ -1803,7 +1788,6 @@ export function PlayerView() {
 
           {surface === "subs" ? (
             <Overlay label="Subtitles" onClose={() => setSurface(null)}>
-              <h2 className="pv-overlay-title">Subtitles</h2>
               <div className="pv-rails">
                 <section className="pv-rail pv-rail--lang">
                   <h3>Languages</h3>
@@ -2025,7 +2009,6 @@ export function PlayerView() {
 
           {surface === "info" ? (
             <Overlay label="Stream info" onClose={() => setSurface(null)}>
-              <h2 className="pv-overlay-title">Stream info</h2>
               <div className="pv-info">
                 <section>
                   <h3>Source</h3>
@@ -2304,7 +2287,6 @@ export function PlayerView() {
 
           {surface === "keys" ? (
             <Overlay label="Keyboard shortcuts" onClose={() => setSurface(null)}>
-              <h2 className="pv-overlay-title">Keyboard</h2>
               <div className="pv-keys">
                 {shortcutRows.map(([keys, what]) => (
                   <p key={keys}>
@@ -2318,7 +2300,6 @@ export function PlayerView() {
 
           {surface === "more" ? (
             <Overlay label="Playback options" onClose={() => setSurface(null)}>
-              <h2 className="pv-overlay-title">Options</h2>
               <div className="pv-rail-list pv-rail-list--menu">
                 <button
                   type="button"
@@ -2374,21 +2355,29 @@ export function PlayerView() {
       ) : null}
 
       {resumeAt != null && !loading && !showNext && !failed ? (
-        <section className="pv-resume" aria-label="Resume playback">
-          <p className="pv-resume-label">Welcome back</p>
-          <div className="pv-resume-actions">
-            <button type="button" className="pv-resume-choice" onClick={() => applyResume(resumeAt)}>
-              Resume from {formatTime(resumeAt)}
-            </button>
-            <button
-              type="button"
-              className="pv-resume-choice is-quiet"
-              onClick={() => applyResume(0)}
-            >
-              Start over
-            </button>
+        <section className="pv-upnext pv-resume" aria-label="Resume playback">
+          <div className="pv-upnext-info">
+            <div className="pv-upnext-copy">
+              <p className="pv-upnext-label">Continue watching</p>
+              <p className="pv-upnext-name">Pick up at {formatTime(resumeAt)}</p>
+              <p className="pv-upnext-meta">Resuming automatically in {resumeLeft}s</p>
+            </div>
+            <div className="pv-upnext-actions">
+              <button type="button" className="pv-upnext-btn" onClick={() => applyResume(0)}>
+                Start over
+              </button>
+              <button
+                type="button"
+                className="pv-upnext-btn pv-upnext-btn--play"
+                onClick={() => applyResume(resumeAt)}
+              >
+                Resume
+              </button>
+            </div>
+            <span className="pv-resume-timer" aria-hidden="true">
+              <span style={{ width: `${Math.max(0, Math.min(100, (resumeLeft / 8) * 100))}%` }} />
+            </span>
           </div>
-          <p className="pv-hint">Continuing automatically in {resumeLeft}s</p>
         </section>
       ) : null}
 

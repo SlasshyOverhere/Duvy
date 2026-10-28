@@ -508,38 +508,37 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- full-picture overlays --------------------------------------------- */
+/* ---- floating panels ---------------------------------------------------- */
 
+/* Stremio puts its menus at the bottom-right, above the transport. */
 .pv .pv-overlay {
   position: fixed;
   inset: 0;
   z-index: 3;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-start;
-  padding: 28px 44px 32px;
-  background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0) 72%),
-    linear-gradient(
-      to top,
-      rgba(0, 0, 0, 0.6) 0%,
-      rgba(0, 0, 0, 0.4) 30%,
-      rgba(0, 0, 0, 0.2) 60%,
-      rgba(0, 0, 0, 0) 100%
-    ),
-    rgba(0, 0, 0, 0.34);
+  justify-content: flex-end;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.46);
 }
 
-/* The padding on .pv-overlay is the gutter: 100% here can never reach the edge. */
 .pv .pv-overlay-body {
   display: flex;
   flex-direction: column;
-  width: min(940px, 100%);
-  max-height: 100%;
+  width: fit-content;
+  min-width: 320px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
   min-height: 0;
+  padding: 16px 18px 18px;
+  border-radius: 12px;
+  background: #101012;
+  box-shadow:
+    0 18px 38px -12px rgba(0, 0, 0, 0.7),
+    0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
-/* Only the contents scroll, so Close stays reachable on a short screen. */
+/* Only the contents scroll, so the header stays reachable on a short screen. */
 .pv .pv-overlay-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -547,19 +546,39 @@
   scrollbar-width: thin;
 }
 
-/* The dialog's own close control, shaped like the side sheet's. */
 .pv .pv-overlay-head {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   flex: none;
-  padding-bottom: 10px;
+  padding: 0 0 10px 2px;
+}
+
+.pv .pv-overlay-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.66);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.pv .pv-overlay-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 
 .pv .pv-overlay-title {
-  margin: 0 0 8px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0.005em;
   color: #fff;
 }
 
@@ -571,8 +590,9 @@
 }
 
 .pv .pv-overlay-scroll > .pv-rail-list {
-  max-width: 444px;
-  padding: 8px 0;
+  width: 444px;
+  max-width: 100%;
+  padding: 4px 0 2px;
 }
 
 /* ---- rails -------------------------------------------------------------- */
@@ -654,9 +674,9 @@
   gap: 10px;
   width: 100%;
   min-width: 0;
-  padding: 9px 12px;
+  padding: 9px 10px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
   text-align: left;
@@ -664,13 +684,17 @@
 }
 
 .pv .pv-rail-row:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.07);
   color: #fff;
 }
 
 .pv .pv-rail-row.is-on {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: #fff;
+}
+
+.pv .pv-rail-row.is-on > svg {
+  color: var(--accent);
 }
 
 .pv .pv-rail-row-text {
@@ -708,7 +732,7 @@
 }
 
 .pv .pv-rail-row.is-on .pv-rail-row-meta {
-  color: color-mix(in srgb, var(--accent-ink) 80%, transparent);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .pv .pv-rail-row > svg {
@@ -725,7 +749,7 @@
 }
 
 .pv .pv-rail-row.is-on .pv-source-tag {
-  color: color-mix(in srgb, var(--accent-ink) 60%, transparent);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .pv .pv-count {
@@ -736,7 +760,7 @@
 }
 
 .pv .pv-rail-row.is-on .pv-count {
-  color: color-mix(in srgb, var(--accent-ink) 58%, transparent);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .pv .pv-rail-empty {
@@ -2337,6 +2361,34 @@
 
 .pv .pv-upnext--end .pv-upnext-info {
   flex: 1 1 auto;
+}
+
+/* ---- resume card: the next-video card's twin ---------------------------- */
+
+.pv .pv-resume {
+  width: min(26rem, calc(100vw - 4rem));
+}
+
+.pv .pv-resume .pv-upnext-info {
+  position: relative;
+  flex: 1 1 auto;
+  padding-bottom: 5px;
+}
+
+.pv .pv-resume-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pv .pv-resume-timer > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.96s linear;
 }
 
 /* ---- narrow window: fold the action row into a popup -------------------- */
