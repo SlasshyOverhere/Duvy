@@ -1,20 +1,16 @@
 //! IMDb-keyed metadata for ids that arrive without a title.
 //!
 //! Nuvio Cloud only stores ids, so a progress row can land here as `tt1234567`
-//! with no name and no artwork. Cinemeta answers first: no key, one request, a
-//! whole episode list, and cast and trailers in the same document. The
-//! unofficial TMDB mirror (it speaks TMDB's shapes but takes IMDb ids) is the
-//! fallback for ids Cinemeta does not know. Every failure just means "no data":
-//! callers keep what they have.
+//! with no name and no artwork. Cinemeta answers: no key, one request, a whole
+//! episode list, and cast and trailers in the same document. Every failure just
+//! means "no data": callers keep what they have.
 
 use crate::addons::Video;
 use crate::models::{CastMember, MetaDetails};
 use serde_json::Value;
 use std::time::Duration;
 
-const BALLOON: &str = "https://api.balloonerismm.workers.dev";
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/meta";
-const IMG: &str = "https://image.tmdb.org/t/p";
 
 fn is_tv(media_type: &str) -> bool {
     media_type == "series" || media_type == "tv"
@@ -41,25 +37,6 @@ pub(crate) fn clean(value: &str) -> String {
         .replace("&amp;", "&")
 }
 
-fn image(value: &Value, field: &str, size: &str) -> Option<String> {
-    text(value.get(field)).map(|path| format!("{IMG}/{size}{path}"))
-}
-
-fn year(value: &Value) -> Option<String> {
-    text(value.get("release_date"))
-        .or_else(|| text(value.get("first_air_date")))
-        .filter(|s| s.chars().count() >= 4)
-        .map(|s| s.chars().take(4).collect::<String>())
-}
-
-fn rating(value: &Value) -> Option<String> {
-    value
-        .get("vote_average")
-        .and_then(Value::as_f64)
-        .filter(|v| *v > 0.0)
-        .map(|v| format!("{v:.1}"))
-}
-
 async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
     let response = client
         .get(url)
@@ -71,115 +48,6 @@ async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
         return Err(format!("HTTP {}", response.status()));
     }
     response.json::<Value>().await.map_err(|e| e.to_string())
-}
-
-/// The mirror answers with TMDB's schema, keyed by `tt` id.
-async fn balloon(
-    client: &reqwest::Client,
-    imdb: &str,
-    media_type: &str,
-) -> Result<MetaDetails, String> {
-    let kind = if is_tv(media_type) { "tv" } else { "movie" };
-    let value = json(
-        client,
-        &format!("{BALLOON}/{kind}/{imdb}?language=en-US&append_to_response=credits,videos,external_ids"),
-    )
-    .await?;
-    let name = text(value.get("title"))
-        .or_else(|| text(value.get("name")))
-        .ok_or("no title in reply")?;
-
-    let genres = value
-        .get("genres")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|g| text(g.get("name")))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let cast = value
-        .get("credits")
-        .and_then(|c| c.get("cast"))
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .take(14)
-                .filter_map(|person| {
-                    Some(CastMember {
-                        name: text(person.get("name"))?,
-                        character: text(person.get("character")).unwrap_or_default(),
-                        photo: image(person, "profile_path", "w185"),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let director = value
-        .get("credits")
-        .and_then(|c| c.get("crew"))
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter(|person| text(person.get("job")).as_deref() == Some("Director"))
-                .filter_map(|person| text(person.get("name")))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let trailer = value
-        .get("videos")
-        .and_then(|v| v.get("results"))
-        .and_then(Value::as_array)
-        .and_then(|list| {
-            list.iter()
-                .find(|v| {
-                    text(v.get("site")).as_deref() == Some("YouTube")
-                        && text(v.get("type")).as_deref() == Some("Trailer")
-                })
-                .or_else(|| list.first())
-        })
-        .and_then(|v| text(v.get("key")))
-        .map(|key| format!("https://www.youtube.com/watch?v={key}"));
-
-    let runtime = value
-        .get("runtime")
-        .and_then(Value::as_i64)
-        .or_else(|| {
-            value
-                .get("episode_run_time")
-                .and_then(Value::as_array)
-                .and_then(|a| a.first())
-                .and_then(Value::as_i64)
-        })
-        .map(|minutes| format!("{minutes} min"));
-
-    Ok(MetaDetails {
-        id: imdb.to_string(),
-        media_type: if is_tv(media_type) { "series".into() } else { "movie".into() },
-        name,
-        poster: image(&value, "poster_path", "w500"),
-        background: image(&value, "backdrop_path", "w1280"),
-        logo: None,
-        description: text(value.get("overview")),
-        release_info: year(&value),
-        year: year(&value),
-        rating: rating(&value),
-        genres,
-        runtime,
-        status: text(value.get("status")),
-        videos: Vec::new(),
-        cast,
-        director,
-        writer: Vec::new(),
-        country: Vec::new(),
-        trailer,
-        imdb_id: Some(imdb.to_string()),
-        tmdb_id: value.get("id").and_then(Value::as_i64),
-        source: "balloonerism".into(),
-    })
 }
 
 /// Cinemeta carries every episode in one document, so it owns the video list.
@@ -320,9 +188,8 @@ fn other(media_type: &str) -> &'static str {
 
 /// Best available record for an IMDb id, or `None` when nothing answers.
 ///
-/// Cinemeta is the default: no key, one request, and the whole episode list
-/// comes back with it. The mirror is only asked for ids Cinemeta missed. Each
-/// attempt is bounded, so a hung source cannot hold the page.
+/// Cinemeta is the only source here: no key, one request, and the whole episode
+/// list comes back with it. Callers fall back to TMDB when a key is set.
 pub async fn details(
     client: &reqwest::Client,
     imdb: &str,
@@ -332,11 +199,6 @@ pub async fn details(
     // Synced rows sometimes carry the wrong kind; the id is what counts.
     for kind in [media_type, other(media_type)] {
         if let Ok(Some(found)) = tokio::time::timeout(cap, cinemeta(client, imdb, kind)).await {
-            return Some(found);
-        }
-    }
-    for kind in [media_type, other(media_type)] {
-        if let Ok(Ok(found)) = tokio::time::timeout(cap, balloon(client, imdb, kind)).await {
             return Some(found);
         }
     }
@@ -400,6 +262,9 @@ pub async fn headshot(client: &reqwest::Client, name: &str, title: &str) -> Opti
 
 /// Fill the title and art that a synced progress title never carried.
 /// Input is `(meta_id, media_type)`; output adds name, poster, backdrop.
+///
+/// A fresh account can miss hundreds of rows, so the lookups run a few at a
+/// time instead of one after another: the same work in a fraction of the wait.
 pub async fn fill_missing(
     client: &reqwest::Client,
     rows: Vec<(String, String)>,
@@ -429,6 +294,7 @@ pub async fn fill_missing(
         };
         match joined {
             Ok((index, meta_id, Some(found))) => {
+                failures = 0;
                 filled.push((index, meta_id, found.name, found.poster, found.background));
             }
             // Both sources down: stop hammering them and try again later.
@@ -443,29 +309,8 @@ pub async fn fill_missing(
 }
 
 #[cfg(test)]
-mod tests {    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn reads_year_and_rating_from_tmdb_shapes() {
-        let value = json!({ "first_air_date": "2017-11-17", "vote_average": 8.09 });
-        assert_eq!(year(&value).as_deref(), Some("2017"));
-        assert_eq!(rating(&value).as_deref(), Some("8.1"));
-
-        let missing = json!({ "vote_average": 0 });
-        assert_eq!(year(&missing), None);
-        assert_eq!(rating(&missing), None);
-    }
-
-    #[test]
-    fn builds_image_urls_and_ignores_blanks() {
-        let value = json!({ "poster_path": "/abc.jpg", "backdrop_path": "  " });
-        assert_eq!(
-            image(&value, "poster_path", "w500").as_deref(),
-            Some("https://image.tmdb.org/t/p/w500/abc.jpg")
-        );
-        assert_eq!(image(&value, "backdrop_path", "w1280"), None);
-    }
+mod tests {
+    use super::*;
 
     #[test]
     fn treats_tv_as_series() {

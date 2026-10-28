@@ -19,6 +19,20 @@ use tokio::task::JoinSet;
 
 const MAX_ITEMS_PER_ROW: usize = 20;
 
+/// Cinemeta is the free IMDb-keyed catalog Stremio and Nuvio both ship. Home
+/// rows and search query it directly, so its addon catalogs are skipped.
+const CINEMETA_ID: &str = "com.linvo.cinemeta";
+
+/// How many metadata addons a details page will wait on, and for how long.
+const META_ADDONS_TRIED: usize = 3;
+const META_ADDON_BUDGET: std::time::Duration = std::time::Duration::from_secs(4);
+/// Cinemeta can take six seconds to say "never heard of it" (or 504).
+const META_REQUEST_CAP: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Installed once on first launch, the way both upstream apps do it.
+/// OpenSubtitles is already queried directly by `subtitles`, so it is not here.
+const DEFAULT_ADDONS: &[&str] = &["https://v3-cinemeta.strem.io"];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -27,7 +41,8 @@ fn parse_manifest(addon: &StoredAddon) -> Manifest {
     serde_json::from_value(addon.manifest.clone()).unwrap_or_default()
 }
 
-fn load_settings(state: &AppState) -> Settings {
+pub(crate) fn load_settings(state: &AppState) -> Settings {
+    // Cached: one DB read plus a DPAPI decrypt is too much per tick.
     crate::settings::load_cached(state)
 }
 
@@ -229,39 +244,54 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
 }
 
+/// Metadata addons in list order, but bounded: nine of them in a row, each on
+/// the shared client timeout, is how a details page ends up waiting seconds.
 async fn addon_meta(
     client: &reqwest::Client,
     addons: &[StoredAddon],
     id: &str,
     media_type: &str,
 ) -> Option<Meta> {
+    // Every eligible addon is asked at once; the lowest index wins, so the
+    // addon order still decides the answer. The budget caps the whole walk.
     let mut set: JoinSet<(usize, Option<Meta>)> = JoinSet::new();
-    for (index, addon) in addons.iter().filter(|a| a.enabled).enumerate() {
-        let manifest = parse_manifest(addon);
-        if !manifest.resource_for("meta", media_type, id) {
-            continue;
-        }
+    for (index, addon) in addons
+        .iter()
+        .filter(|a| a.enabled)
+        .filter(|a| parse_manifest(a).resource_for("meta", media_type, id))
+        .take(META_ADDONS_TRIED)
+        .enumerate()
+    {
         let url = addons::meta_url(&addon.url, media_type, id);
         let client = client.clone();
         set.spawn(async move {
-            let meta = match fetch_json(&client, &url).await {
-                Ok(value) => serde_json::from_value::<MetaResponse>(value)
-                    .ok()
-                    .and_then(|response| response.meta),
-                Err(_) => None,
+            let Ok(value) = fetch_json_within(&client, &url, Some(META_REQUEST_CAP)).await else {
+                return (index, None);
             };
-            (index, meta)
+            let Ok(response) = serde_json::from_value::<MetaResponse>(value) else {
+                return (index, None);
+            };
+            match response.meta {
+                // Cinemeta answers an unknown id with a nameless stub; taking it
+                // would hide the fallbacks and render an empty title.
+                Some(meta) if !meta.preview.name.trim().is_empty() => (index, Some(meta)),
+                _ => (index, None),
+            }
         });
     }
 
     let mut best: Option<(usize, Meta)> = None;
-    while let Some(joined) = set.join_next().await {
-        if let Ok((index, Some(meta))) = joined {
-            if best.as_ref().is_none_or(|(first, _)| index < *first) {
-                best = Some((index, meta));
+    let drain = async {
+        while let Some(joined) = set.join_next().await {
+            if let Ok((index, Some(meta))) = joined {
+                if best.as_ref().is_none_or(|(first, _)| index < *first) {
+                    best = Some((index, meta));
+                }
             }
         }
-    }
+    };
+    // Whatever landed inside the budget still counts.
+    let _ = tokio::time::timeout(META_ADDON_BUDGET, drain).await;
     best.map(|(_, meta)| meta)
 }
 
@@ -392,6 +422,43 @@ async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, 
     Ok((value, manifest))
 }
 
+/// Install the bundled metadata addon once, so a fresh profile has catalogs and
+/// keyless search without the user installing anything.
+pub async fn seed_default_addons(handle: AppHandle) {
+    let state = handle.state::<AppState>();
+    {
+        let Ok(conn) = state.db.0.lock() else { return };
+        if Settings::load(&conn).defaults_seeded {
+            return;
+        }
+    }
+
+    let mut installed = 0usize;
+    for base in DEFAULT_ADDONS {
+        match fetch_manifest(&state.http, base).await {
+            Ok((value, manifest)) => match store_addon(&state, base, &manifest, &value) {
+                Ok(_) => installed += 1,
+                Err(e) => eprintln!("[startup] cannot store {base}: {e}"),
+            },
+            Err(e) => eprintln!("[startup] cannot install {base}: {e}"),
+        }
+    }
+    if installed == 0 {
+        // Offline on first launch: try again next time instead of staying empty.
+        return;
+    }
+    if let Ok(conn) = state.db.0.lock() {
+        let mut settings = Settings::load(&conn);
+        settings.defaults_seeded = true;
+        if let Err(e) = settings.save(&conn) {
+            eprintln!("[startup] cannot record default addons: {e}");
+        }
+    }
+    crate::settings::invalidate(&state);
+    // The UI loaded its addon list before this finished.
+    let _ = handle.emit("addons:changed", ());
+}
+
 #[tauri::command]
 pub async fn addons_list(state: State<'_, AppState>) -> Result<Vec<AddonInfo>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
@@ -472,20 +539,23 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut errors: Vec<String> = Vec::new();
 
     let key = settings.tmdb_api_key.trim().to_string();
-    let mut discover_error: Option<String> = None;
     // Six catalogs walk three sources each; cap them so a dead network cannot
-    // hold the home screen hostage.
-    let discover = {
-        let client = state.http.clone();
-        let key = key.clone();
-        tokio::spawn(async move {
-            tokio::time::timeout(
+    // hold the home screen hostage. Addon catalogs are fetched alongside.
+    let discover = tokio::spawn({
+        let http = state.http.clone();
+        async move {
+            match tokio::time::timeout(
                 std::time::Duration::from_secs(14),
-                tmdb::home_rows(&client, &key),
+                tmdb::home_rows(&http, &key),
             )
             .await
-        })
-    };
+            {
+                Ok(Ok(rows)) => (rows, None),
+                Ok(Err(e)) => (Vec::new(), Some(format!("Discover: {e}"))),
+                Err(_) => (Vec::new(), Some("Discover timed out".into())),
+            }
+        }
+    });
 
     struct Task {
         order: usize,
@@ -504,6 +574,10 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     for addon in addons.iter().filter(|a| a.enabled) {
         if tasks.len() >= limit {
             break;
+        }
+        // The curated rows above already cover Cinemeta's catalogs.
+        if addon.addon_id == CINEMETA_ID {
+            continue;
         }
         let manifest = parse_manifest(addon);
         let mut taken = 0;
@@ -595,22 +669,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
             row.title = format!("{} · {suffix}", row.title);
         }
     }
-    // Discover rows lead; its request ran alongside the catalog fan-out.
-    let mut rows = match discover.await {
-        Ok(Ok(Ok(rows))) => rows,
-        Ok(Ok(Err(_))) => {
-            discover_error = Some("Discover timed out".into());
-            Vec::new()
-        }
-        Ok(Err(_)) => {
-            discover_error = Some("Discover failed".into());
-            Vec::new()
-        }
-        Err(_) => {
-            discover_error = Some("Discover failed".into());
-            Vec::new()
-        }
-    };
+    let (mut rows, discover_error) = discover.await.unwrap_or_default();
     rows.extend(addon_rows.into_iter().map(|(_, row)| row));
 
     rows.truncate(limit);
@@ -839,6 +898,7 @@ pub async fn similar(
 #[tauri::command]
 pub async fn search(
     query: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<MetaPreview>, String> {
     let query = query.trim().to_string();
@@ -853,7 +913,6 @@ pub async fn search(
         )
     };
 
-    let mut results: Vec<MetaPreview> = Vec::new();
     let mut set: JoinSet<(String, Result<CatalogResponse, String>)> = JoinSet::new();
     let key = settings.tmdb_api_key.trim().to_string();
     let tmdb_task = if key.is_empty() {
@@ -867,8 +926,15 @@ pub async fn search(
     };
 
     for addon in addons.iter().filter(|a| a.enabled) {
+        // The direct Cinemeta stage below already searches the same catalogs.
+        if addon.addon_id == CINEMETA_ID {
+            continue;
+        }
         let manifest = parse_manifest(addon);
         for catalog in &manifest.catalogs {
+            if catalog.media_type != "movie" && catalog.media_type != "series" {
+                continue;
+            }
             if !catalog.extra.iter().any(|e| e.name == "search") {
                 continue;
             }
@@ -893,17 +959,28 @@ pub async fn search(
         }
     }
 
-    while let Some(joined) = set.join_next().await {
-        if let Ok((_addon, Ok(response))) = joined {
-            results.extend(response.metas);
+    // Cinemeta answers in ~150ms; a scraped addon catalog can take seconds.
+    // Paint the fast half now and stream the rest, the way Stremio does.
+    let streamed_query = query.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut found: Vec<MetaPreview> = Vec::new();
+        while let Some(joined) = set.join_next().await {
+            if let Ok((_addon, Ok(response))) = joined {
+                found.extend(response.metas);
+            }
         }
-    }
+        // Emitted even when empty: the UI stops waiting for this one.
+        let _ = app.emit(
+            "search:addons",
+            json!({ "query": streamed_query, "items": found }),
+        );
+    });
 
-    if let Some(task) = tmdb_task {
-        if let Ok(Ok(mut tmdb_results)) = task.await {
-            results.append(&mut tmdb_results);
-        }
-    }
+    // TMDB ran alongside the addon fan-out, so it is usually ready by now.
+    let mut results = match tmdb_task {
+        Some(task) => task.await.ok().and_then(Result::ok).unwrap_or_default(),
+        None => Vec::new(),
+    };
 
     let mut seen = HashSet::new();
     results.retain(|item| {
@@ -945,16 +1022,19 @@ pub async fn meta_details(
         let tmdb_id = parts.next().ok_or("Malformed TMDB id")?;
         let mut details = tmdb::details(&state.http, &key, kind, tmdb_id).await?;
 
-        // Episodes and richer text still come from metadata addons when present.
-        if let Some(imdb) = details.imdb_id.clone() {
-            if let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await {
-                let from_addon = meta_details_from_meta(meta, "addon");
-                details.videos = from_addon.videos;
-                if details.description.as_deref().unwrap_or("").is_empty() {
-                    details.description = from_addon.description;
-                }
-                if details.director.is_empty() {
-                    details.director = from_addon.director;
+        // Only a series can gain anything here: TMDB already sent the movie's
+        // text, and a full addon walk costs more than the page is worth.
+        if details.media_type == "series" {
+            if let Some(imdb) = details.imdb_id.clone() {
+                if let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await {
+                    let from_addon = meta_details_from_meta(meta, "addon");
+                    details.videos = from_addon.videos;
+                    if details.description.as_deref().unwrap_or("").is_empty() {
+                        details.description = from_addon.description;
+                    }
+                    if details.director.is_empty() {
+                        details.director = from_addon.director;
+                    }
                 }
             }
         }
@@ -967,13 +1047,29 @@ pub async fn meta_details(
         return Ok(details);
     }
 
+    // Cinemeta is normally installed as an addon, so the direct call below
+    // would just repeat the lookup it already answered.
+    let cinemeta_installed = addons
+        .iter()
+        .any(|addon| addon.enabled && addon.addon_id == CINEMETA_ID);
+
     let mut details = if let Some(meta) =
         addon_meta(&state.http, &addons, &id, &media_type).await
     {
         meta_details_from_meta(meta, "addon")
     } else if id.starts_with("tt") {
-        // No addon knows this id: the mirror and Cinemeta still do.
-        match crate::meta::details(&state.http, &id, &media_type).await {
+        let direct = if cinemeta_installed {
+            None
+        } else {
+            tokio::time::timeout(
+                META_ADDON_BUDGET,
+                crate::meta::details(&state.http, &id, &media_type),
+            )
+            .await
+            .ok()
+            .flatten()
+        };
+        match direct {
             Some(found) => found,
             None if !key.is_empty() => {
                 let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
@@ -1537,6 +1633,64 @@ pub async fn nuvio_sync_now(
 ) -> Result<crate::nuvio_sync::SyncReport, String> {
     let report = crate::nuvio_sync::sync_now(&state).await?;
     Ok(report)
+}
+
+// ---------------------------------------------------------------------------
+// Stremio account sync
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn stremio_status(state: State<'_, AppState>) -> Result<crate::stremio_sync::Status, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    Ok(crate::stremio_sync::status(&conn))
+}
+
+#[tauri::command]
+pub async fn stremio_sign_in(
+    email: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<crate::stremio_sync::Status, String> {
+    crate::stremio_sync::sign_in(&state, &email, &password).await?;
+    // First sync right after sign-in so the account lands immediately.
+    let _ = crate::stremio_sync::sync_now(&state).await;
+    stremio_status(state)
+}
+
+#[tauri::command]
+pub fn stremio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
+    crate::stremio_sync::sign_out(&state)
+}
+
+#[tauri::command]
+pub async fn stremio_sync_now(
+    state: State<'_, AppState>,
+) -> Result<crate::stremio_sync::SyncReport, String> {
+    crate::stremio_sync::sync_now(&state).await
+}
+
+/// One pass that converges all three stores: Stremio's rows land locally, the
+/// Nuvio pass pushes that union, then Stremio receives Nuvio's rows.
+#[tauri::command]
+pub async fn sync_all(state: State<'_, AppState>) -> Result<(), String> {
+    let (stremio, nuvio) = {
+        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let settings = Settings::load(&conn);
+        (
+            crate::stremio_sync::status(&conn).signed_in,
+            crate::nuvio_sync::status(&conn, &settings).signed_in,
+        )
+    };
+    if stremio {
+        let _ = crate::stremio_sync::pull_and_merge(&state).await;
+    }
+    if nuvio {
+        let _ = crate::nuvio_sync::sync_now(&state).await;
+    }
+    if stremio {
+        let _ = crate::stremio_sync::push(&state).await;
+    }
+    Ok(())
 }
 #[cfg(test)]
 mod reco_tests {

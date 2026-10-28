@@ -24,6 +24,7 @@ use crate::AppState;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 pub const DEFAULT_BASE: &str = "https://api.nuvio.tv";
 pub const DEFAULT_FALLBACK: &str = "https://api-two.nuvioapp.space";
@@ -101,6 +102,7 @@ pub struct SyncReport {
     pub watched: i64,
     pub library: i64,
     pub addons: i64,
+    pub addons_pushed: i64,
     pub pushed: i64,
 }
 
@@ -535,6 +537,9 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         merge_pulled(&conn, &pulled)?
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
+    // Best-effort: a read-only addons table must not cost the history push.
+    report.addons_pushed =
+        push_addons(state, &settings, &token, pid, &pulled.addons).await.unwrap_or(0);
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -725,6 +730,39 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
         added += 1;
     }
     Ok(added)
+}
+
+/// Adds local addons the account does not have. Remote URLs win, so the same
+/// addon already on Nuvio and Stremio is never inserted twice.
+async fn push_addons(
+    state: &AppState,
+    settings: &Settings,
+    token: &str,
+    pid: i64,
+    remote: &[Value],
+) -> Result<i64, String> {
+    let mut seen: HashSet<String> = remote.iter().filter_map(remote_addon_url).collect();
+    let local = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        db::list_addons(&conn).map_err(|e| e.to_string())?
+    };
+    let mut pushed = 0;
+    for addon in local {
+        let url = crate::addons::normalize_addon_url(&addon.url);
+        if url.is_empty() || !seen.insert(url.clone()) {
+            continue;
+        }
+        let body = json!({
+            "profile_id": pid,
+            "url": url,
+            "name": addon.name,
+            "enabled": addon.enabled,
+            "sort_order": addon.position,
+        });
+        post(&state.http, settings, "/rest/v1/addons", Some(token), &body).await?;
+        pushed += 1;
+    }
+    Ok(pushed)
 }
 
 fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {

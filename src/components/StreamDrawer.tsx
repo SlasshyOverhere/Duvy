@@ -4,16 +4,6 @@ import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
 import { Button, ContextMenu, EmptyState, Icon } from "./ui";
 
-const FILTER_KEY = "streams.filter";
-
-function readFilter(): string {
-  try {
-    return localStorage.getItem(FILTER_KEY) ?? "all";
-  } catch {
-    return "all";
-  }
-}
-
 function isBrowsable(url: string) {
   return /^https?:\/\//i.test(url);
 }
@@ -58,7 +48,7 @@ export function StreamDrawer({
 }) {
   const { addons: installed, notify } = useApp();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [filter, setFilter] = useState<string>(readFilter);
+  const [filter, setFilter] = useState<string>("all");
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -122,13 +112,7 @@ export function StreamDrawer({
   const chooseFilter = (next: string) => {
     if (drag.current.moved) return;
     // The chip you are already on clears the filter: there is no All chip.
-    const value = next === filter ? "all" : next;
-    setFilter(value);
-    try {
-      localStorage.setItem(FILTER_KEY, value);
-    } catch {
-      // Storage can be blocked; the choice then lasts for the session only.
-    }
+    setFilter(next === filter ? "all" : next);
   };
 
   const copyLink = (url: string) => {
@@ -188,8 +172,9 @@ export function StreamDrawer({
   useEffect(() => {
     if (!open || !request) return;
     runId.current += 1;
-    // Reopen on the addon the viewer last picked.
-    setFilter(readFilter());
+    // Always open on every addon: a remembered filter hid the answers that
+    // had already arrived and left the panel looking empty.
+    setFilter("all");
     setMenu(null);
     setGroups(
       targets.map((addon) => ({ addon, streams: [], state: "loading", error: null })),
@@ -208,11 +193,11 @@ export function StreamDrawer({
     signature,
   ]);
 
-  // A remembered addon that is gone from this list must not hide every stream.
+  // A filter that can no longer show anything must not leave an empty panel.
   useEffect(() => {
     if (!open || filter === "all") return;
-    if (!groups.length || groups.some((group) => group.addon === filter)) return;
-    setFilter("all");
+    const group = groups.find((item) => item.addon === filter);
+    if (!group || (group.state !== "loading" && !group.streams.length)) setFilter("all");
   }, [open, filter, groups]);
 
   // Focus moves into the drawer on open and back to the opener on close, and
@@ -266,6 +251,9 @@ export function StreamDrawer({
     // Answers come first, so a slow or failing addon never sits on top of a
     // list that is already ready to play.
     .sort((a, b) => ranked(a) - ranked(b));
+  // Skeletons stand in for the current view, not the whole set: a filter that
+  // is still loading must not render as a blank panel either.
+  const shown = visible.reduce((sum, group) => sum + group.streams.length, 0);
 
   if (!open) return null;
 
@@ -346,6 +334,22 @@ export function StreamDrawer({
         </div>
 
         <div className="drawer-body">
+          {/* Nothing has answered yet: hold the shape of the list that is
+              coming, so the panel never opens as an empty shell. */}
+          {shown === 0 && pending > 0 ? (
+            <ul className="stream-list" aria-hidden="true">
+              {[64, 48, 72].map((width) => (
+                <li className="skeleton-card" key={width}>
+                  <span className="skeleton-line is-label" style={{ width: `${width}%` }} />
+                  <span
+                    className="skeleton-line"
+                    style={{ width: `${Math.min(width + 20, 94)}%` }}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           {visible.map((group) => (
             <section className="stream-group" key={group.addon}>
               {group.error ? (
@@ -489,18 +493,10 @@ export function StreamDrawer({
 
         <footer className="drawer-foot">
           {pending > 0 ? (
-            <span className="drawer-progress">
-              <span className="drawer-track">
-                <span
-                  className="drawer-fill"
-                  style={{
-                    width: `${Math.round(((groups.length - pending) / groups.length) * 100)}%`,
-                  }}
-                />
-              </span>
-              <span>
-                {pending} {pending === 1 ? "addon" : "addons"} still loading
-              </span>
+            <span className="drawer-status">
+              <Icon name="refresh" size={12} className="drawer-spin" />
+              Loading sources · {groups.length - pending} of {groups.length}{" "}
+              {groups.length === 1 ? "addon" : "addons"}
             </span>
           ) : (
             <span>Streams are provided by your own addons. BetterNuvio ships no content.</span>

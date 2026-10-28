@@ -173,6 +173,11 @@ fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<
         candidates.push(explicit.to_string());
     }
 
+    // A player this app downloaded on first run sits next to the database.
+    if let Some(path) = crate::player_setup::installed() {
+        candidates.push(path);
+    }
+
     // The copy shipped with the installer wins over anything on PATH, so
     // playback does not depend on the user installing mpv themselves.
     if let Some(dir) = resource_dir {
@@ -657,6 +662,34 @@ fn language_arg(configured: &str) -> &str {
     }
 }
 
+/// The forward cache as (megabytes, seconds). A time setting wins: `--cache-secs`
+/// is the real limit, and the byte cap is a generous 8 MB/s ceiling so 4K fits.
+fn forward_cache(value: i64, unit: &str) -> (u64, Option<u64>) {
+    let value = value.max(1) as u64;
+    match unit {
+        "sec" | "min" => {
+            let secs = (value * if unit == "min" { 60 } else { 1 }).min(86_400);
+            (cap_mb(secs * 8), Some(secs))
+        }
+        "gb" => (cap_mb(value * 1024), None),
+        _ => (cap_mb(value), None),
+    }
+}
+
+/// mpv has no time limit for the back buffer, so seconds are read as 1 MB each.
+fn back_cache(value: i64, unit: &str) -> u64 {
+    let value = value.max(1) as u64;
+    match unit {
+        "sec" | "min" => cap_mb(value * if unit == "min" { 60 } else { 1 }),
+        "gb" => cap_mb(value * 1024),
+        _ => cap_mb(value),
+    }
+}
+
+fn cap_mb(megabytes: u64) -> u64 {
+    megabytes.clamp(1, 65_536)
+}
+
 impl Player {
     pub fn spawn(
         app: AppHandle,
@@ -674,6 +707,9 @@ impl Player {
         crate::playback_log::mark(format!("mpv found: {}", mpv.path));
 
         let pipe = pipe_name();
+        let (forward_mb, forward_secs) =
+            forward_cache(settings.buffer_forward_value, &settings.buffer_forward_unit);
+        let backward_mb = back_cache(settings.buffer_backward_value, &settings.buffer_backward_unit);
         let mut command = hidden_command(&mpv.path);
         // Keep a log next to the database: when a stream refuses to play on a
         // user's machine this is the only window into mpv's decision making.
@@ -700,8 +736,9 @@ impl Player {
             .arg("--volume=100")
             .arg("--volume-max=200")
             .arg("--cache=yes")
-            .arg("--demuxer-max-bytes=256MiB")
-            .arg("--demuxer-readahead-secs=30")
+            .arg("--cache-on-disk=no")
+            .arg(format!("--demuxer-max-bytes={forward_mb}MiB"))
+            .arg(format!("--demuxer-max-back-bytes={backward_mb}MiB"))
             .arg("--network-timeout=20")
             .arg(format!(
                 "--alang={}",
@@ -737,6 +774,12 @@ impl Player {
                 Some(file) => Stdio::from(file),
                 None => Stdio::null(),
             });
+
+        // A time-based forward buffer is capped by seconds; the byte ceiling above
+        // only stops a runaway read on a broken stream.
+        if let Some(secs) = forward_secs {
+            command.arg(format!("--cache-secs={secs}"));
+        }
 
         // Resume is a launch option, not a loadfile one: mpv answers
         // `loadfile url replace "start=..."` with "invalid parameter", which
@@ -1404,8 +1447,8 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 #[cfg(test)]
 mod tests {
     use super::{
-        bool_value, color_value, number_value, parse_chapters, parse_tracks, validate_media_url,
-        Duplex, Player,
+        back_cache, bool_value, color_value, forward_cache, number_value, parse_chapters,
+        parse_tracks, validate_media_url, Duplex, Player,
     };
     use serde_json::{json, Value};
     use std::io::{Read, Write};
@@ -1446,6 +1489,18 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn cache_limits_accept_time_and_size_units() {
+        assert_eq!(forward_cache(256, "mb"), (256, None));
+        assert_eq!(forward_cache(2, "gb"), (2048, None));
+        assert_eq!(forward_cache(2, "min"), (960, Some(120)));
+        assert_eq!(forward_cache(0, "gb"), (1024, None));
+        assert_eq!(back_cache(45, "sec"), 45);
+        assert_eq!(back_cache(3, "min"), 180);
+        assert_eq!(back_cache(1, "gb"), 1024);
+        assert_eq!(back_cache(99_999, "gb"), 65_536);
     }
 
     #[test]

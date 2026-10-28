@@ -53,6 +53,7 @@ export type IconName =
   | "episodes"
   | "lock"
   | "unlock"
+  | "cloud"
   | "minus";
 
 const STROKE: Partial<Record<IconName, ReactNode>> = {
@@ -319,6 +320,7 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
     </>
   ),
   minus: <path d="M5 12h14" />,
+  cloud: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10Z" />,
 };
 
 export function Icon({
@@ -488,6 +490,9 @@ export function ContextMenu({
       className="ctx"
       style={{ left: at.left, top: at.top }}
       onContextMenu={(event) => event.preventDefault()}
+      // Portals bubble through the React tree, so a click here would also hit
+      // the card that opened the menu and start playing.
+      onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
         event.preventDefault();
@@ -558,11 +563,130 @@ export function Badge({
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
+/** IMDb wordmark, inline so it ships offline and stays crisp at any size. */
+export function ImdbMark({ height = 12 }: { height?: number }) {
+  return (
+    <svg
+      className="imdb-mark"
+      viewBox="0 0 46 22"
+      height={height}
+      width={height * (46 / 22)}
+      role="img"
+      aria-label="IMDb"
+    >
+      <rect width="46" height="22" rx="3" fill="#F5C518" />
+      <text
+        x="23"
+        y="11"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontFamily="'Arial Black', Arial, sans-serif"
+        fontSize="13"
+        fontWeight="900"
+        fill="#000"
+      >
+        IMDb
+      </text>
+    </svg>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="spinner-wrap" role="status" aria-live="polite">
       <span className="spinner" />
       {label ? <span className="spinner-label">{label}</span> : null}
+    </div>
+  );
+}
+
+const times = (count: number) => Array.from({ length: count }, (_, index) => index);
+
+/** A shimmering silhouette of the screen that is arriving, under a bold caption
+ * so a wait reads as progress instead of an empty page. */
+export function Loading({
+  label,
+  variant = "grid",
+  count = variant === "list" ? 4 : 8,
+}: {
+  label: string;
+  variant?: "detail" | "grid" | "rows" | "list";
+  count?: number;
+}) {
+  return (
+    <div className="loading" role="status" aria-live="polite">
+      <div className="loading-head">
+        <span className="spinner" aria-hidden="true" />
+        <p className="loading-label">{label}</p>
+      </div>
+      <div className="loading-body" aria-hidden="true">
+        {variant === "detail" ? (
+          <div className="ld-detail">
+            <div className="ld-hero">
+              <span className="sk ld-poster" />
+              <div className="ld-info">
+                <span className="sk ld-title" />
+                <span className="sk ld-title is-short" />
+                <span className="ld-chips">
+                  {times(4).map((index) => (
+                    <span className="sk" key={index} />
+                  ))}
+                </span>
+                {times(3).map((index) => (
+                  <span className={`sk ld-copy${index === 2 ? " is-short" : ""}`} key={index} />
+                ))}
+                <span className="ld-actions">
+                  <span className="sk ld-button" />
+                  <span className="sk ld-button is-quiet" />
+                </span>
+              </div>
+            </div>
+            <div className="ld-cast">
+              {times(6).map((index) => (
+                <span className="ld-person" key={index}>
+                  <span className="sk ld-face" />
+                  <span className="sk ld-name" />
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : variant === "rows" ? (
+          <div className="ld-rows">
+            {times(2).map((row) => (
+              <div className="ld-section" key={row}>
+                <span className="sk ld-head" />
+                <div className="ld-strip">
+                  {times(6).map((index) => (
+                    <span className="sk ld-tile" key={index} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : variant === "list" ? (
+          <div className="ld-list">
+            {times(count).map((index) => (
+              <div className="ld-row" key={index}>
+                <span className="sk ld-thumb" />
+                <span className="ld-row-text">
+                  <span className="sk ld-copy" />
+                  <span className="sk ld-copy is-short" />
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="ld-grid">
+            {times(count).map((index) => (
+              <span className="ld-card" key={index}>
+                <span className="sk ld-tile" />
+                <span className="sk ld-copy" />
+                <span className="sk ld-copy is-short" />
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

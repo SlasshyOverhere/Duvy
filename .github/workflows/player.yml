@@ -1,0 +1,54 @@
+name: Player
+
+# Publishes the mpv build that first run downloads. Run this once, then bump the
+# tag in src-tauri/src/player_setup.rs when the player needs updating. App
+# releases never touch it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch mpv
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-20261021-git-e471496c56.7z'
+          $sha = '4a355f3e89c83fabc730d33fb4e759dfec747806ed2287b61a90d1681b83e8d3'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv.7z"
+          $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv.7z" -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $sha) { throw "mpv archive checksum mismatch: $actual" }
+          7z x "$env:RUNNER_TEMP\mpv.7z" -o"$env:RUNNER_TEMP\mpv" -y | Out-Null
+          New-Item -ItemType Directory -Force dist-player | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\mpv\mpv.exe" dist-player/mpv.exe
+          Copy-Item "$env:RUNNER_TEMP\mpv\d3dcompiler_43.dll" dist-player/d3dcompiler_43.dll
+
+      # The app verifies every download against this file before it installs.
+      - name: Write the manifest
+        shell: pwsh
+        run: |
+          Push-Location dist-player
+          Get-ChildItem -File |
+            ForEach-Object { "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content sha256.txt -Encoding ascii
+          Pop-Location
+          Get-Content dist-player/sha256.txt
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = 'player-1'
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Player $tag" --notes "mpv build served to first run. Assets are verified by sha256.txt."
+          }
+          gh release upload $tag dist-player/mpv.exe dist-player/d3dcompiler_43.dll dist-player/sha256.txt --clobber

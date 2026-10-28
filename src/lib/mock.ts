@@ -112,13 +112,19 @@ let settings: Settings = {
   trackProgress: true,
   playerWindow: "mpv",
   nuvioAutoSync: true,
+  stremioAutoSync: true,
   nuvioBaseUrl: "",
   nuvioApiKey: "",
   p2pConsent: false,
   p2pCacheMb: 2048,
+  bufferForwardValue: 256,
+  bufferForwardUnit: "mb",
+  bufferBackwardValue: 75,
+  bufferBackwardUnit: "mb",
   traktScrobble: true,
   autoUpdateCheck: true,
   ignoredUpdateVersion: "",
+  onboarded: true,
 };
 
 let addons: AddonInfo[] = [
@@ -381,11 +387,28 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     case "mpv_detect":
       return { path: "C:\\Program Files\\mpv\\mpv.exe", version: "mpv 0.41.0" };
 
+    case "player_setup_status":
+      return { state: "ready", source: "system", version: "mpv 0.41.0", error: "" };
+    case "player_setup_start":
+      return true;
+
     case "settings_get":
       return settings;
     case "settings_set":
       settings = { ...settings, ...(payload.patch ?? {}) };
       return settings;
+
+    // Account sync talks to real backends, so the preview reports signed out.
+    case "stremio_status":
+      return { signedIn: false, email: "", lastSync: 0 };
+    case "stremio_sign_in":
+      throw new Error("Stremio sign-in needs the desktop app");
+    case "stremio_sign_out":
+      return null;
+    case "stremio_sync_now":
+      throw new Error("Stremio sync needs the desktop app");
+    case "sync_all":
+      return null;
 
     // The preview has no release feed to ask, and a fake update would offer a
     // button that cannot install anything.

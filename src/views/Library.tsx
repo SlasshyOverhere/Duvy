@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 import type { LibraryItem, MetaPreview } from "../lib/types";
-import { ContinueCard, PosterCard, Row } from "../components/media";
+import { PosterCard } from "../components/media";
 import { Button, EmptyState } from "../components/ui";
-import { progressPercent, seasonLabel } from "../lib/format";
 
 type Filter = "all" | "movie" | "series";
 type Sort = "recent" | "title";
@@ -35,7 +34,7 @@ const EMPTY: Record<Filter, { title: string; body: string }> = {
 };
 
 export function LibraryView() {
-  const { library, progress, navigate, playItem, resumeEntry, toggleLibrary } = useApp();
+  const { library, navigate, playItem, toggleLibrary } = useApp();
   const [tab, setTab] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -60,15 +59,6 @@ export function LibraryView() {
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
-
-  // Finished titles belong in Watched, and one card per show is enough.
-  const seen = new Set<string>();
-  const continuing = progress.filter((entry) => {
-    if (entry.duration <= 0 || entry.position >= entry.duration * 0.9) return false;
-    if (seen.has(entry.metaId)) return false;
-    seen.add(entry.metaId);
-    return true;
-  });
 
   const remove = (item: LibraryItem) => {
     setConfirming(null);
@@ -147,28 +137,6 @@ export function LibraryView() {
           </div>
         </div>
       </header>
-
-      {continuing.length > 0 ? (
-        <Row title="Continue watching" detail={<span className="row-detail">In progress</span>}>
-          {continuing.map((entry) => (
-            <ContinueCard
-              key={entry.key}
-              entry={entry}
-              name={entry.name}
-              poster={entry.poster}
-              background={entry.background}
-              subtitle={
-                entry.type === "series"
-                  ? `${seasonLabel(entry.season, entry.episode)}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`
-                  : `${Math.round(progressPercent(entry.position, entry.duration))}% watched`
-              }
-              position={entry.position}
-              duration={entry.duration}
-              onOpen={() => void resumeEntry(entry)}
-            />
-          ))}
-        </Row>
-      ) : null}
 
       {items.length === 0 ? (
         <EmptyState

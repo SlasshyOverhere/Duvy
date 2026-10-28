@@ -14,10 +14,13 @@ import type {
   NuvioStatus,
   NuvioSyncReport,
   PlayRequest,
+  PlayerSetup,
   PlayerSnapshot,
   ProgressItem,
   Settings,
   StreamOption,
+  StremioStatus,
+  StremioSyncReport,
   SubtitleTrack,
   TorrentStats,
   TraktStatus,
@@ -55,6 +58,11 @@ export const api = {
   appInfo: () => call<AppInfo>("app_info"),
   playbackLog: (lines?: number) => call<string[]>("playback_log", { lines }),
   mpvDetect: (path?: string) => call<AppInfo["mpv"]>("mpv_detect", { path }),
+
+  playerSetup: {
+    status: () => call<PlayerSetup>("player_setup_status"),
+    start: () => call<boolean>("player_setup_start"),
+  },
 
   settings: {
     get: () => call<Settings>("settings_get"),
@@ -166,6 +174,19 @@ export const api = {
     setProfile: (index: number) => call<null>("nuvio_set_profile", { index }),
     profiles: () => call<NuvioProfile[]>("nuvio_profiles"),
     syncNow: () => call<NuvioSyncReport>("nuvio_sync_now"),
+  },
+
+  stremio: {
+    status: () => call<StremioStatus>("stremio_status"),
+    signIn: (email: string, password: string) =>
+      call<StremioStatus>("stremio_sign_in", { email, password }),
+    signOut: () => call<null>("stremio_sign_out"),
+    syncNow: () => call<StremioSyncReport>("stremio_sync_now"),
+  },
+
+  /** One pass across Stremio and Nuvio, in the order that converges both. */
+  sync: {
+    all: () => call<null>("sync_all"),
   },
 
   torrent: {

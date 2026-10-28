@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/bridge";
-import { Badge, Button, Icon, Spinner } from "../components/ui";
+import { Badge, Button, Icon, Loading } from "../components/ui";
 import type { TorrentStats } from "../lib/types";
 
 const IDLE: TorrentStats = {
@@ -115,7 +115,7 @@ export default function TorrentView() {
 
   return (
     <div className="page">
-      {loading ? <Spinner label="Reading torrent session…" /> : null}
+      {loading ? <Loading variant="list" label="Reading torrent session" count={2} /> : null}
 
       {!loading && stats.active ? (
         <div>

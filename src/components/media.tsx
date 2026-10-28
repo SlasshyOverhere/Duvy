@@ -4,7 +4,7 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
 import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
-import { ContextMenu, Icon, IconButton, Badge, type ContextAction } from "./ui";
+import { ContextMenu, Icon, IconButton, Badge, ImdbMark, type ContextAction } from "./ui";
 
 function initials(name: string) {
   return name
@@ -31,34 +31,46 @@ function PosterMenu({
   onPlay?: () => void;
   onClose: () => void;
 }) {
-  const { playItem, progress: history, refreshProgress, notify } = useApp();
+  const { playItem, progress: history, refreshProgress, notify, watched } = useApp();
+  const marked = watched.some((row) => row.metaId === item.id);
   // Cards may not carry an entry; the lookup only costs anything while open.
   const hit = entry ?? history.find((row) => row.metaId === item.id);
+  // A finished title is not a resume target.
+  const current = marked ? undefined : hit;
+
+  const markWatched = (next: boolean) => {
+    void api.progress
+      .setWatched(current?.key ?? item.id, item.id, next)
+      .then(() => {
+        notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`);
+        return refreshProgress();
+      })
+      .catch(() => notify("Could not update that", "error"));
+  };
 
   const actions: ContextAction[] = [
     {
-      label: hit ? "Resume" : "Play",
+      label: current ? "Resume" : "Play",
       icon: "play",
       onSelect: () => (onPlay ? onPlay() : void playItem(item)),
     },
-    { label: "Start from beginning", icon: "replay10", onSelect: () => void playItem(item, true) },
-    {
-      label: "Mark as watched",
-      icon: "check",
-      onSelect: () => {
-        void api.progress
-          .setWatched(hit?.key ?? item.id, item.id, true)
-          .then(() => {
-            notify(`${item.name} marked as watched`);
-            return refreshProgress();
-          })
-          .catch(() => notify("Could not mark that as watched", "error"));
-      },
-    },
-    {
+  ];
+  if (current) {
+    actions.push({
+      label: "Start from beginning",
+      icon: "replay10",
+      onSelect: () => void playItem(item, true),
+    });
+  }
+  actions.push({
+    label: marked ? "Mark as unwatched" : "Mark as watched",
+    icon: marked ? "x" : "check",
+    onSelect: () => markWatched(!marked),
+  });
+  if (current) {
+    actions.push({
       label: "Remove from continue watching",
       icon: "trash",
-      disabled: !hit,
       onSelect: () => {
         const rows = history.filter((row) => row.metaId === item.id);
         void Promise.all(rows.map((row) => api.progress.clear(row.key)))
@@ -68,8 +80,8 @@ function PosterMenu({
           })
           .catch(() => notify("Could not clear that progress", "error"));
       },
-    },
-  ];
+    });
+  }
 
   return <ContextMenu x={x} y={y} title={item.name} actions={actions} onClose={onClose} />;
 }
@@ -188,6 +200,57 @@ export function Row({
     if (!node) return;
     node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
   };
+
+  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    let start: { x: number; left: number } | null = null;
+    let moved = false;
+
+    const down = (event: PointerEvent) => {
+      if (event.button !== 0 || event.pointerType !== "mouse") return;
+      start = { x: event.clientX, left: node.scrollLeft };
+      moved = false;
+    };
+    const move = (event: PointerEvent) => {
+      if (!start) return;
+      const dx = event.clientX - start.x;
+      if (!moved && Math.abs(dx) < 6) return;
+      if (!moved) {
+        moved = true;
+        node.classList.add("is-dragging");
+      }
+      event.preventDefault();
+      node.scrollLeft = start.left - dx;
+    };
+    const up = () => {
+      start = null;
+      node.classList.remove("is-dragging");
+    };
+    const click = (event: MouseEvent) => {
+      if (!moved) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moved = false;
+    };
+    const dragStart = (event: DragEvent) => event.preventDefault();
+
+    node.addEventListener("pointerdown", down);
+    node.addEventListener("click", click, true);
+    node.addEventListener("dragstart", dragStart);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      node.removeEventListener("pointerdown", down);
+      node.removeEventListener("click", click, true);
+      node.removeEventListener("dragstart", dragStart);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, []);
 
   return (
     <section className="row">
@@ -387,9 +450,20 @@ export function Hero({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
         >
-          <h1 className="hero-title">{item.name}</h1>
+          <h1 className="hero-title">
+            {item.logo ? (
+              <img className="hero-logo" src={item.logo} alt={item.name} draggable={false} />
+            ) : (
+              item.name
+            )}
+          </h1>
           <div className="hero-meta">
-            {item.imdbRating ? <Badge tone="accent">★ {item.imdbRating}</Badge> : null}
+            {item.imdbRating ? (
+              <Badge tone="accent">
+                <span className="rating-value">{item.imdbRating}</span>
+                <ImdbMark />
+              </Badge>
+            ) : null}
             {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
             {item.runtime ? <span>{item.runtime}</span> : null}
             {item.genres?.slice(0, 2).map((genre) => (
@@ -400,9 +474,14 @@ export function Hero({
           </div>
           {item.description ? <p className="hero-overview">{item.description}</p> : null}
           <div className="hero-actions">
-            <button type="button" className="btn btn-primary btn-lg" onClick={onPlay}>
-              <Icon name="play" size={17} />
-              <span>Watch Now</span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onPlay}
+              title="Watch Now"
+              aria-label="Watch Now"
+            >
+              <Icon name="play" size={20} />
             </button>
             <button
               type="button"

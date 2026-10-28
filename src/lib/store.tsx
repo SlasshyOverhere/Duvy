@@ -27,6 +27,7 @@ import type {
   StartingArt,
   UpdateInfo,
   Video,
+  WatchedItem,
 } from "./types";
 
 export type Route =
@@ -80,6 +81,7 @@ interface Store {
   notify: (text: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
+  watched: WatchedItem[];
   playRequest: (request: PlayRequest) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
@@ -240,6 +242,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [addons, setAddons] = useState<AddonInfo[]>([]);
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
+  const [watched, setWatched] = useState<WatchedItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
@@ -356,7 +359,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refreshProgress = useCallback(async () => {
     try {
-      setProgress(await api.progress.list());
+      const [rows, marks] = await Promise.all([api.progress.list(), api.watched.list()]);
+      setProgress(rows);
+      setWatched(marks);
       progressFails.current = 0;
     } catch {
       // Progress is cosmetic; a failed refresh must never break a screen. Two in
@@ -372,13 +377,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         // One failing slice (a broken addon store, a locked progress file) must
         // not cost the whole app: apply what loaded, then say what did not.
-        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress] =
+        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress, loadedWatched] =
           await Promise.allSettled([
             api.appInfo(),
             api.settings.get(),
             api.addons.list(),
             api.library.list(),
             api.progress.list(),
+            api.watched.list(),
           ]);
         if (!alive) return;
         if (info.status === "rejected") throw info.reason;
@@ -387,6 +393,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (loadedAddons.status === "fulfilled") setAddons(loadedAddons.value);
         if (loadedLibrary.status === "fulfilled") setLibrary(loadedLibrary.value);
         if (loadedProgress.status === "fulfilled") setProgress(loadedProgress.value);
+        if (loadedWatched.status === "fulfilled") setWatched(loadedWatched.value);
         const failed = (
           [
             ["settings", loadedSettings.status],
@@ -415,16 +422,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
   }, [settings?.accent, settings?.reduceMotion]);
 
-  // Keep the Nuvio account in step with the phone and the official desktop app:
-  // once on launch, then every few minutes while the app stays open.
+  // Keep Stremio and Nuvio in step with the phone and the official apps: once
+  // on launch, then every few minutes while this app stays open.
   useEffect(() => {
-    if (!settings?.nuvioAutoSync) return;
+    if (!settings?.nuvioAutoSync && !settings?.stremioAutoSync) return;
     let alive = true;
     const run = async () => {
       try {
-        const status = await api.nuvio.status();
-        if (!status.signedIn) return;
-        await api.nuvio.syncNow();
+        await api.sync.all();
         if (!alive) return;
         await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       } catch {
@@ -437,7 +442,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
+  }, [settings?.nuvioAutoSync, settings?.stremioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
 
   // The background check announces a new release; the toast says where to act.
   useEffect(() => {
@@ -462,6 +467,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       unlisten?.();
     };
   }, [notify]);
+
+  // The bundled addon is installed after the first list load; pick it up live.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("addons:changed", () => void refreshAddons())
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No event bridge: the next launch loads the list anyway.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refreshAddons]);
 
   // Player events are pushed from Rust while mpv is running.
   useEffect(() => {
@@ -978,6 +1002,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
+      watched,
       playRequest,
       playItem,
       resumeEntry,
@@ -1014,6 +1039,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
+      watched,
       playRequest,
       playItem,
       resumeEntry,

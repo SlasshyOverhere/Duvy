@@ -174,13 +174,27 @@ export interface Settings {
   trackProgress: boolean;
   playerWindow: string;
   nuvioAutoSync: boolean;
+  stremioAutoSync: boolean;
   nuvioBaseUrl: string;
   nuvioApiKey: string;
   p2pConsent: boolean;
   p2pCacheMb: number;
+  bufferForwardValue: number;
+  bufferForwardUnit: string;
+  bufferBackwardValue: number;
+  bufferBackwardUnit: string;
   traktScrobble: boolean;
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;
+  onboarded: boolean;
+}
+
+/** First-run player provisioning, mirrored from the Rust setup module. */
+export interface PlayerSetup {
+  state: "ready" | "missing" | "downloading" | "failed";
+  source: string;
+  version: string;
+  error: string;
 }
 
 /** A release newer than the running build. */
@@ -213,6 +227,21 @@ export interface NuvioSyncReport {
   watched: number;
   library: number;
   addons: number;
+  addonsPushed: number;
+  pushed: number;
+}
+
+export interface StremioStatus {
+  signedIn: boolean;
+  email: string;
+  lastSync: number;
+}
+
+export interface StremioSyncReport {
+  addons: number;
+  progress: number;
+  watched: number;
+  library: number;
   pushed: number;
 }
 

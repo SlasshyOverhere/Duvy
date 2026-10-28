@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Badge, Button, Icon, Spinner } from "../../components/ui";
+import { Badge, Button, Icon, Loading } from "../../components/ui";
 
 type Server = {
   id: string;
@@ -245,7 +245,7 @@ export function MediaServers() {
           sign in; the access token stays in the local database.
         </p>
 
-        {loading ? <Spinner label="Reading media servers…" /> : null}
+        {loading ? <Loading variant="list" label="Reading media servers" count={2} /> : null}
 
         {!loading && servers.length === 0 ? (
           <p className="settings-hint" style={{ marginBottom: 0 }}>
@@ -308,7 +308,7 @@ export function MediaServers() {
                     </Button>
                   </div>
                 ) : browsing ? (
-                  <Spinner label="Loading library…" />
+                  <Loading variant="grid" label="Loading library" count={6} />
                 ) : items.length === 0 ? (
                   <p className="settings-hint">
                     {trail.length > 0

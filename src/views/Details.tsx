@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
+import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row } from "../components/media";
-import { Button, EmptyState, Icon, Spinner } from "../components/ui";
+import { Button, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
 import {
   episodeCode,
   placeholderGradient,
@@ -218,8 +219,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   if (loading) {
     return (
-      <div className="page page-loading">
-        <Spinner label="Loading title…" />
+      <div className="page">
+        <Loading variant="detail" label="Loading title" />
       </div>
     );
   }
@@ -239,6 +240,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   const inWatchlist = inLibrary(details.id);
   const trailer = details.trailer;
+  const logo = details.logo ?? rememberedLogo(details.id);
 
   return (
     <div className="page detail-page">
@@ -262,13 +264,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             </div>
             <div className="detail-info">
               <h1 className="detail-title">
-                {details.logo ? (
-                  <img
-                    className="detail-logo"
-                    src={details.logo}
-                    alt={details.name}
-                    draggable={false}
-                  />
+                {logo ? (
+                  <img className="detail-logo" src={logo} alt={details.name} draggable={false} />
                 ) : (
                   details.name
                 )}
@@ -279,7 +276,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                 {details.runtime ? <span>{details.runtime}</span> : null}
                 {details.rating ? (
                   <span className="detail-rating">
-                    <span aria-hidden="true">★</span> {details.rating}
+                    <span>{details.rating}</span>
+                    <ImdbMark />
                   </span>
                 ) : null}
                 {details.status ? <span>{details.status}</span> : null}

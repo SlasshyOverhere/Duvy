@@ -13,10 +13,12 @@ mod models;
 mod nuvio_sync;
 mod playback_log;
 mod player;
+mod player_setup;
 mod secret;
 mod servers;
 mod settings;
 mod skip;
+mod stremio_sync;
 mod streams;
 mod tmdb;
 mod torrent;
@@ -463,6 +465,8 @@ pub fn run() {
             };
             let http = http_client();
 
+            player_setup::init(app.handle());
+
             app.manage(AppState {
                 db: db::Db(Mutex::new(connection)),
                 http,
@@ -471,6 +475,8 @@ pub fn run() {
             });
 
             updates::watch(app.handle().clone());
+            // Cinemeta ships by default, the way Stremio and Nuvio do it.
+            tauri::async_runtime::spawn(commands::seed_default_addons(app.handle().clone()));
 
             // The window itself stays opaque (a transparent window cannot host
             // the video surface); only the web layer is see-through, so the
@@ -484,6 +490,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::mpv_detect,
+            player_setup::player_setup_status,
+            player_setup::player_setup_start,
             commands::playback_log,
             commands::settings_get,
             commands::settings_set,
@@ -524,10 +532,16 @@ pub fn run() {
             commands::nuvio_set_profile,
             commands::nuvio_profiles,
             commands::nuvio_sync_now,
+            commands::stremio_status,
+            commands::stremio_sign_in,
+            commands::stremio_sign_out,
+            commands::stremio_sync_now,
+            commands::sync_all,
             trakt::set_client,
             trakt::scrobble,
             debrid::check_cache,
             skip::skip_get,
+            skip::skip_lookup,
             skip::skip_set,
             servers::srv_list,
             servers::srv_add,

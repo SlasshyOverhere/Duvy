@@ -5,7 +5,7 @@ import { useApp } from "../lib/store";
 import type { HomeFeed, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
-import { seasonLabel } from "../lib/format";
+import { progressPercent, seasonLabel } from "../lib/format";
 
 const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
@@ -48,6 +48,7 @@ export function HomeView() {
     toggleLibrary,
     inLibrary,
     progress,
+    watched,
   } = useApp();
   const addonSignature = addons.map((addon) => `${addon.url}:${addon.enabled}`).join("|");
   // A feed this session already fetched is reused instead of refetched.
@@ -99,11 +100,36 @@ export function HomeView() {
     if (slide >= featured.length) setSlide(0);
   }, [featured.length, slide]);
 
+  // Continue watching off live store state, so a mark or a clear lands without
+  // reloading the whole feed.
+  const continuing = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: ProgressItem[] = [];
+    for (const row of progress) {
+      if (row.duration <= 0 || row.position <= 5) continue;
+      if (progressPercent(row.position, row.duration) >= 90) continue;
+      if (seen.has(row.metaId)) continue;
+      const marked = watched.some(
+        (mark) =>
+          mark.metaId === row.metaId && mark.season === row.season && mark.episode === row.episode,
+      );
+      if (marked) continue;
+      seen.add(row.metaId);
+      rows.push(row);
+    }
+    return rows.slice(0, 30);
+  }, [progress, watched]);
+
+  // One map for the card progress bars, so a row of cards costs no scans.
   const resumeProgress = useMemo(() => {
+    const marked = new Set(watched.map((mark) => mark.metaId));
     const map = new Map<string, ProgressItem>();
-    for (const entry of progress) if (!map.has(entry.metaId)) map.set(entry.metaId, entry);
+    for (const entry of progress) {
+      if (marked.has(entry.metaId)) continue;
+      if (!map.has(entry.metaId)) map.set(entry.metaId, entry);
+    }
     return map;
-  }, [progress]);
+  }, [progress, watched]);
 
   const nextSlide = useCallback(
     () => setSlide((current) => (current + 1) % featured.length),
@@ -133,8 +159,8 @@ export function HomeView() {
         {!loading && feed && feed.rows.length === 0 ? (
           <EmptyState
             icon="puzzle"
-            title="Your home screen is waiting for addons"
-            body="BetterNuvio ships with no content. Add a catalog addon to fill this screen, or connect TMDB for curated rows."
+            title="No catalog answered"
+            body="Cinemeta is built in, so this is usually a connection problem. Try again, add a catalog addon, or connect TMDB for curated rows."
             action={
               <div className="empty-actions">
                 <Button
@@ -152,12 +178,12 @@ export function HomeView() {
           />
         ) : null}
 
-        {feed && feed.continueWatching.length > 0 ? (
+        {continuing.length > 0 ? (
           <Row
             title="Continue watching"
             detail={<span className="row-detail">Pick up where you left off</span>}
           >
-            {feed.continueWatching.map((entry) => (
+            {continuing.map((entry) => (
               <ContinueCard
                 key={entry.key}
                 entry={entry}

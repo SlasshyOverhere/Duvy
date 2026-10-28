@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/bridge";
 import type { DebridProvider } from "../lib/types";
-import { Badge, Button, Icon, Spinner } from "../components/ui";
+import { Badge, Button, Icon, Loading } from "../components/ui";
 
 const HINTS: Record<string, string> = {
   realdebrid: "Private API token from real-debrid.com/apitoken.",
@@ -101,7 +101,7 @@ export function DebridView() {
         </div>
       </header>
 
-      {loading ? <Spinner label="Reading connected accounts…" /> : null}
+      {loading ? <Loading variant="list" label="Reading connected accounts" /> : null}
       {loadError ? (
         <p className="form-error" role="alert">
           {loadError}

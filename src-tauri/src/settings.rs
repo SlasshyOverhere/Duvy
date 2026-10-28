@@ -32,6 +32,8 @@ pub struct Settings {
     pub player_window: String,
     /// Sync library, progress and watched items with the Nuvio account.
     pub nuvio_auto_sync: bool,
+    /// Sync addons, library and progress with the Stremio account.
+    pub stremio_auto_sync: bool,
     /// Override for the Nuvio backend. Empty means the official endpoint.
     pub nuvio_base_url: String,
     /// Override for the Nuvio publishable key. Empty means the bundled one.
@@ -40,12 +42,22 @@ pub struct Settings {
     pub p2p_consent: bool,
     /// Upper bound for the torrent cache, in megabytes.
     pub p2p_cache_mb: i64,
+    /// How much to cache ahead of the playhead. Unit is "sec", "min", "mb" or "gb".
+    pub buffer_forward_value: i64,
+    pub buffer_forward_unit: String,
+    /// How much past data to keep for seeking back. Same units as the forward buffer.
+    pub buffer_backward_value: i64,
+    pub buffer_backward_unit: String,
     /// Send watched events to Trakt while playing.
     pub trakt_scrobble: bool,
     /// Look for a new release on launch and every few hours.
     pub auto_update_check: bool,
     /// A version the user skipped; background checks stay quiet about it.
     pub ignored_update_version: String,
+    /// The bundled metadata addons have been installed once already.
+    pub defaults_seeded: bool,
+    /// First-run setup has been completed or skipped.
+    pub onboarded: bool,
 }
 
 impl Default for Settings {
@@ -66,13 +78,20 @@ impl Default for Settings {
             track_progress: true,
             player_window: "mpv".into(),
             nuvio_auto_sync: true,
+            stremio_auto_sync: true,
             nuvio_base_url: String::new(),
             nuvio_api_key: String::new(),
             p2p_consent: false,
             p2p_cache_mb: 2048,
+            buffer_forward_value: 256,
+            buffer_forward_unit: "mb".into(),
+            buffer_backward_value: 75,
+            buffer_backward_unit: "mb".into(),
             trakt_scrobble: true,
             auto_update_check: true,
             ignored_update_version: String::new(),
+            defaults_seeded: false,
+            onboarded: false,
         }
     }
 }
@@ -81,6 +100,8 @@ impl Settings {
     pub fn load(conn: &Connection) -> Self {
         let stored = db::read_settings(conn).unwrap_or(Value::Null);
         let mut settings = Settings::default();
+        // An install that ran before onboarding existed is already past it.
+        let known = stored.get("onboarded").is_some();
         if stored.is_object() {
             if let Ok(merged) = serde_json::from_value::<Settings>(merge(
                 serde_json::to_value(&settings).unwrap_or(Value::Null),
@@ -88,6 +109,9 @@ impl Settings {
             )) {
                 settings = merged;
             }
+        }
+        if !known && settings.defaults_seeded {
+            settings.onboarded = true;
         }
         settings
     }

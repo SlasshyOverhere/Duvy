@@ -222,8 +222,9 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
     }
 
     let mut last = String::new();
+    let hint = file_index(&magnet);
     for (id, key) in &ordered {
-        match resolve_torrent(&http, id, key, &magnet).await {
+        match resolve_torrent(&http, id, key, &magnet, hint).await {
             Ok(link) => return Ok(link),
             Err(message) => last = message,
         }
@@ -287,6 +288,15 @@ fn info_hash(source: &str) -> Option<String> {
     bare.then(|| source.to_string())
 }
 
+/// `fileIdx=<n>` from the magnet the UI builds for a pack.
+fn file_index(source: &str) -> Option<usize> {
+    source
+        .split(['?', '&'])
+        .filter_map(|part| part.split_once('='))
+        .find(|(name, _)| name.eq_ignore_ascii_case("fileIdx"))
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
 fn to_magnet(source: &str) -> String {
     let source = source.trim();
     if is_magnet(source) {
@@ -317,6 +327,14 @@ fn is_video(name: &str) -> bool {
 
 fn pick_largest_video(files: &[FileEntry]) -> Option<&FileEntry> {
     files.iter().filter(|file| is_video(&file.name)).max_by_key(|file| file.bytes)
+}
+
+/// Stremio's `fileIdx` is a 0-based index into the torrent's file list. It only
+/// wins when it lands on a video, so a filtered list falls back to the largest.
+fn pick_video<'a>(files: &'a [FileEntry], hint: Option<usize>) -> Option<&'a FileEntry> {
+    hint.and_then(|index| files.get(index))
+        .filter(|file| is_video(&file.name))
+        .or_else(|| pick_largest_video(files))
 }
 
 // ---------------------------------------------------------------------------
@@ -475,7 +493,10 @@ fn parse_tb_torrent(value: &Value) -> Option<TorrentState> {
     } else {
         data.as_array()?.first()?
     };
-    let finished = item.get("download_finished").and_then(Value::as_bool).unwrap_or(false)
+    // `download_present` is the only flag that means "streamable now"; a cached
+    // torrent can sit there without ever reporting `download_finished`.
+    let ready = item.get("download_present").and_then(Value::as_bool).unwrap_or(false)
+        || item.get("download_finished").and_then(Value::as_bool).unwrap_or(false)
         || item
             .get("download_state")
             .and_then(Value::as_str)
@@ -497,7 +518,7 @@ fn parse_tb_torrent(value: &Value) -> Option<TorrentState> {
         })
         .unwrap_or_default();
     Some(TorrentState {
-        status: if finished {
+        status: if ready {
             "downloaded".into()
         } else {
             item.get("download_state")
@@ -704,7 +725,12 @@ async fn rd_unrestrict(http: &reqwest::Client, key: &str, link: &str) -> Result<
     scalar(&value, "download").ok_or_else(|| "Real-Debrid did not return a download link.".to_string())
 }
 
-async fn rd_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<String, String> {
+async fn rd_resolve(
+    http: &reqwest::Client,
+    key: &str,
+    magnet: &str,
+    hint: Option<usize>,
+) -> Result<String, String> {
     let added = reply(
         post(http, "realdebrid", key, &format!("{RD_API}/torrents/addMagnet"))
             .form(&[("magnet", magnet)])
@@ -734,7 +760,7 @@ async fn rd_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<S
                 return rd_unrestrict(http, key, link).await;
             }
             "waiting_files_selection" if !selected => {
-                let file = pick_largest_video(&state.files)
+                let file = pick_video(&state.files, hint)
                     .ok_or_else(|| "That torrent contains no video file.".to_string())?;
                 reply(
                     post(
@@ -783,7 +809,12 @@ async fn ad_unlock(http: &reqwest::Client, key: &str, link: &str) -> Result<Stri
         .ok_or_else(|| "AllDebrid did not return a direct link.".to_string())
 }
 
-async fn ad_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<String, String> {
+async fn ad_resolve(
+    http: &reqwest::Client,
+    key: &str,
+    magnet: &str,
+    hint: Option<usize>,
+) -> Result<String, String> {
     let uploaded = reply(
         get(http, "alldebrid", key, &format!("{AD_API}/magnet/upload"))
             .query(&[("magnets[]", magnet)])
@@ -809,7 +840,7 @@ async fn ad_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<S
         .await?;
         let state = parse_ad_status(&value);
         if state.status == "ready" || state.code == 4 {
-            let file = pick_largest_video(&state.links)
+            let file = pick_video(&state.links, hint)
                 .ok_or_else(|| "That torrent contains no video file.".to_string())?;
             return ad_unlock(http, key, &file.key).await;
         }
@@ -827,8 +858,13 @@ async fn ad_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<S
 // Premiumize
 // ---------------------------------------------------------------------------
 
-/// One-shot resolve for cached content: returns the largest video's direct link.
-async fn pm_direct(http: &reqwest::Client, key: &str, source: &str) -> Result<String, String> {
+/// One-shot resolve for cached content: returns the chosen video's direct link.
+async fn pm_direct(
+    http: &reqwest::Client,
+    key: &str,
+    source: &str,
+    hint: Option<usize>,
+) -> Result<String, String> {
     let value = reply(
         post(http, "premiumize", key, &format!("{PM_API}/transfer/directdl"))
             .form(&[("src", source)])
@@ -838,13 +874,18 @@ async fn pm_direct(http: &reqwest::Client, key: &str, source: &str) -> Result<St
     )
     .await?;
     let files = parse_pm_content(&value);
-    let file = pick_largest_video(&files)
+    let file = pick_video(&files, hint)
         .ok_or_else(|| "Premiumize did not return a video file for that source.".to_string())?;
     Ok(file.key.clone())
 }
 
-async fn pm_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<String, String> {
-    if let Ok(link) = pm_direct(http, key, magnet).await {
+async fn pm_resolve(
+    http: &reqwest::Client,
+    key: &str,
+    magnet: &str,
+    hint: Option<usize>,
+) -> Result<String, String> {
+    if let Ok(link) = pm_direct(http, key, magnet, hint).await {
         return Ok(link);
     }
 
@@ -864,7 +905,7 @@ async fn pm_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<S
     loop {
         let list = get_json(http, "premiumize", key, &format!("{PM_API}/transfer/list")).await?;
         match parse_pm_transfer(&list, &id) {
-            PmTransfer::Finished => return pm_direct(http, key, magnet).await,
+            PmTransfer::Finished => return pm_direct(http, key, magnet, hint).await,
             PmTransfer::Failed => {
                 return Err("Premiumize could not load that torrent.".to_string())
             }
@@ -893,6 +934,7 @@ async fn tb_request(
                 ("token", key),
                 ("torrent_id", torrent),
                 ("file_id", file),
+                ("zip_link", "false"),
             ])
             .send()
             .await
@@ -905,10 +947,15 @@ async fn tb_request(
     }
 }
 
-async fn tb_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<String, String> {
+async fn tb_resolve(
+    http: &reqwest::Client,
+    key: &str,
+    magnet: &str,
+    hint: Option<usize>,
+) -> Result<String, String> {
     let created = reply(
         post(http, "torbox", key, &format!("{TB_API}/torrents/createtorrent"))
-            .form(&[("magnet", magnet)])
+            .form(&[("magnet", magnet), ("allow_zip", "false")])
             .send()
             .await
             .map_err(offline)?,
@@ -937,7 +984,7 @@ async fn tb_resolve(http: &reqwest::Client, key: &str, magnet: &str) -> Result<S
         let state = parse_tb_torrent(&list)
             .ok_or_else(|| "TorBox did not return that torrent.".to_string())?;
         if state.status == "downloaded" {
-            let file = pick_largest_video(&state.files)
+            let file = pick_video(&state.files, hint)
                 .ok_or_else(|| "That torrent contains no video file.".to_string())?;
             return tb_request(http, key, &id, &file.key).await;
         }
@@ -963,12 +1010,13 @@ async fn resolve_torrent(
     provider: &str,
     key: &str,
     magnet: &str,
+    hint: Option<usize>,
 ) -> Result<String, String> {
     match provider {
-        "realdebrid" => rd_resolve(http, key, magnet).await,
-        "alldebrid" => ad_resolve(http, key, magnet).await,
-        "premiumize" => pm_resolve(http, key, magnet).await,
-        _ => tb_resolve(http, key, magnet).await,
+        "realdebrid" => rd_resolve(http, key, magnet, hint).await,
+        "alldebrid" => ad_resolve(http, key, magnet, hint).await,
+        "premiumize" => pm_resolve(http, key, magnet, hint).await,
+        _ => tb_resolve(http, key, magnet, hint).await,
     }
 }
 
@@ -981,7 +1029,7 @@ async fn unrestrict(
     match provider {
         "realdebrid" => rd_unrestrict(http, key, link).await,
         "alldebrid" => ad_unlock(http, key, link).await,
-        "premiumize" => pm_direct(http, key, link).await,
+        "premiumize" => pm_direct(http, key, link, None).await,
         _ => Err("TorBox cannot unrestrict a plain HTTP link; use a magnet.".into()),
     }
 }
@@ -1088,6 +1136,22 @@ mod tests {
             FileEntry { key: "2".into(), name: "Show.srt".into(), bytes: 90 },
         ];
         assert!(pick_largest_video(&only_extras).is_none());
+    }
+
+    #[test]
+    fn file_index_prefers_the_requested_episode() {
+        let files = sample_files();
+        assert_eq!(file_index("magnet:?xt=urn:btih:abc&fileIdx=2"), Some(2));
+        assert_eq!(file_index("magnet:?xt=urn:btih:abc&FILEIDX=0"), Some(0));
+        assert_eq!(file_index("magnet:?xt=urn:btih:abc"), None);
+        assert_eq!(file_index("magnet:?xt=urn:btih:abc&fileIdx=x"), None);
+
+        // A real index wins even when a bigger file sits elsewhere in the pack.
+        assert_eq!(pick_video(&files, Some(0)).unwrap().name, "Show/Show.S01E01.1080p.mkv");
+        // A non-video or out-of-range index falls back to the largest video.
+        assert_eq!(pick_video(&files, Some(3)).unwrap().name, "Show/Show.S01E02.1080p.mkv");
+        assert_eq!(pick_video(&files, Some(99)).unwrap().name, "Show/Show.S01E02.1080p.mkv");
+        assert_eq!(pick_video(&files, None).unwrap().name, "Show/Show.S01E02.1080p.mkv");
     }
 
     fn sample_files() -> Vec<FileEntry> {
@@ -1222,6 +1286,19 @@ mod tests {
         let state = parse_tb_torrent(&payload).expect("torrent");
         assert_eq!(state.status, "downloaded");
         assert_eq!(pick_largest_video(&state.files).unwrap().key, "7");
+
+        // Cached torrents report `download_present` without finishing a download.
+        let cached = json!({
+            "success": true,
+            "data": {
+                "id": 43,
+                "download_present": true,
+                "download_finished": false,
+                "download_state": "cached",
+                "files": [{ "id": 1, "name": "Show.S01E01.mkv", "size": 2_000_000 }]
+            }
+        });
+        assert_eq!(parse_tb_torrent(&cached).unwrap().status, "downloaded");
 
         // A list response is accepted too (older /torrents/mylist shape).
         let list = json!({ "success": true, "data": [{ "id": 9, "download_state": "downloading", "files": [] }] });
