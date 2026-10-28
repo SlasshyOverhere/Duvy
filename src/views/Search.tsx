@@ -178,7 +178,12 @@ export function SearchView({ query }: { query?: string }) {
       </form>
 
       {!query && !value && recent.length > 0 ? (
-        <div className="season-tabs" role="group" aria-label="Recent searches">
+        <div
+          className="season-tabs"
+          style={{ marginTop: 16 }}
+          role="group"
+          aria-label="Recent searches"
+        >
           {recent.map((entry) => (
             <span className="chip" key={entry}>
               <button style={chipText} onClick={() => remember(entry)}>
