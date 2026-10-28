@@ -1349,12 +1349,15 @@ export function PlayerView() {
           saved && saved.duration > 0 && saved.position / saved.duration < 0.9
             ? saved.position
             : 0;
-        const opened = await playRequest({
-          url,
-          title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
-          startAt,
-          session: nextSession,
-        });
+        const opened = await playRequest(
+          {
+            url,
+            title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
+            startAt,
+            session: nextSession,
+          },
+          source,
+        );
         if (opened) rememberSource(nextSession.key, source);
         if (!alive.current) return;
         pushPlaybackPrefs();
@@ -1454,6 +1457,7 @@ export function PlayerView() {
     (value: number) => {
       // The ref moves now so a burst of events lands on the last value; the
       // state, storage and engine writes happen once per frame.
+      const before = volRef.current;
       volRef.current = Math.min(MAX_VOLUME, Math.max(0, Math.round(value)));
       volTouched.current = Date.now();
       if (volFrame.current) return;
@@ -1470,9 +1474,14 @@ export function PlayerView() {
           // Storage can be blocked; the level still applies to this session.
         }
         send("volume", next);
+        // Raising a muted level has to make sound, or the slider looks dead.
+        if (next > before && muted) {
+          setPending((current) => ({ ...current, muted: false }));
+          send("mute", false);
+        }
       });
     },
-    [send],
+    [muted, send],
   );
 
   const toggleFullscreen = useCallback(async () => {
@@ -1611,6 +1620,7 @@ export function PlayerView() {
   const loadSubtitles = useCallback(
     async (force = false) => {
       if (!session || (subs && !force)) return;
+      const key = session.key;
       setSubs(null);
       try {
         const result = await api.subtitles({
@@ -1619,9 +1629,10 @@ export function PlayerView() {
           season: session.season,
           episode: session.episode,
         });
-        setSubs(result);
+        // The episode may have changed while the addons were answering.
+        if (sessionRef.current?.key === key) setSubs(result);
       } catch {
-        setSubs([]);
+        if (sessionRef.current?.key === key) setSubs([]);
       }
     },
     [session?.metaId, session?.type, session?.season, session?.episode, subs],
@@ -1630,6 +1641,7 @@ export function PlayerView() {
   const loadSources = useCallback(
     async (force = false) => {
       if (!session || (sources && !force)) return;
+      const key = session.key;
       setSourceBusy(true);
       try {
         const result = await api.streams({
@@ -1639,9 +1651,12 @@ export function PlayerView() {
           episode: session.episode,
           imdbId: details?.imdbId,
         });
-        setSources(result);
+        // A late answer for the previous episode must not poison the cache.
+        if (sessionRef.current?.key === key) setSources(result);
       } catch (e) {
-        notify(e instanceof Error ? e.message : String(e), "error");
+        if (sessionRef.current?.key === key) {
+          notify(e instanceof Error ? e.message : String(e), "error");
+        }
       } finally {
         setSourceBusy(false);
       }
@@ -1705,13 +1720,18 @@ export function PlayerView() {
       try {
         const url = await resolveStream(stream);
         if (!alive.current) return;
-        const opened = await playRequest({
-          url,
-          title: local?.title || session.name,
-          startAt: posRef.current,
-          session,
-        });
-        if (opened) rememberSource(session.key, stream);
+        const opened = await playRequest(
+          {
+            url,
+            title: local?.title || session.name,
+            startAt: posRef.current,
+            session,
+          },
+          stream,
+        );
+        // A refused open left the old mpv running: its subtitle must survive.
+        if (!opened) return;
+        rememberSource(session.key, stream);
         if (!alive.current) return;
         // The same session object is reused, so nothing else re-applies the
         // settings to the new mpv.
@@ -1752,20 +1772,27 @@ export function PlayerView() {
     setChrome(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     // Keep the close controls on screen while a source is opening or has failed.
-    if (loading || failed || paused || local?.ended || surface || showNext) return;
+    if (loading || failed || paused || local?.ended || surface || btnMenu || showNext) return;
     if (dragging.current || controlFocused()) return;
     hideTimer.current = window.setTimeout(() => {
       if (dragging.current || controlFocused()) return;
       setChrome(false);
     }, 2600);
-  }, [controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
+  }, [btnMenu, controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
 
   useEffect(() => {
+    // A state change must re-arm the idle timer, even right after a pointer move.
+    bumpAt.current = 0;
     bump();
     return () => {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
     };
   }, [bump]);
+
+  // The folded action popup belongs to the chrome, like a panel does.
+  useEffect(() => {
+    if (surface || !chrome) setBtnMenu(false);
+  }, [chrome, surface]);
 
   // A panel belongs to the chrome; when the chrome leaves, so does the panel.
   useEffect(() => {
@@ -1859,6 +1886,8 @@ export function PlayerView() {
       const next = readVolume();
       volRef.current = next;
       setVolLevel(next);
+      // The opening push is not a level change: no volume card on every start.
+      volSeen.current = next;
       send("volume", next);
       return;
     }
@@ -1950,10 +1979,11 @@ export function PlayerView() {
 
   // A session comes back with the subtitle it was left on, once per open.
   const subRestored = useRef<string | null>(null);
-  const playerReady = Boolean(local);
+  // mpv has no tracks to select before the file loads; an early `sub` is lost.
+  const subsReady = Boolean(local) && (firstFrame || subTracks.length > 0);
   useEffect(() => {
     const key = session?.key;
-    if (!key || !playerReady || subRestored.current === key) return;
+    if (!key || !subsReady || subRestored.current === key) return;
     subRestored.current = key;
     const saved = rememberedSubtitle(key);
     if (!saved) return;
@@ -1972,7 +2002,7 @@ export function PlayerView() {
     if (!saved.url) return;
     setLoadedSub({ lang: saved.lang, url: saved.url });
     void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
-  }, [session?.key, playerReady, send]);
+  }, [session?.key, subsReady, send]);
 
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
@@ -2048,14 +2078,16 @@ export function PlayerView() {
       if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
+      const range = target instanceof HTMLInputElement && target.type === "range";
       // A slider keeps focus after a drag; it must not swallow the shortcuts.
       const typing =
         target instanceof HTMLElement &&
         (target.isContentEditable ||
-          (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) &&
-            !(target instanceof HTMLInputElement && target.type === "range")));
+          (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) && !range));
       if (typing) return;
       const key = event.key;
+      // The focused volume slider steps its own arrows; seeking too would double.
+      if (range && /^Arrow(Left|Right|Up|Down)$/.test(key)) return;
       if (locked && key !== "Escape") return;
       // A panel owns the keyboard; Escape still closes it.
       if (surface && key !== "Escape") return;
@@ -2237,7 +2269,7 @@ export function PlayerView() {
       ["I", "Stream info"],
       ["F", "Fullscreen"],
       ["?", "This sheet"],
-      ["Esc", "Close a panel, or leave"],
+      ["Esc", "Close a panel, or hide the controls"],
     ],
     [step],
   );
@@ -2466,6 +2498,11 @@ export function PlayerView() {
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
         if (surface) return;
+        // A click on the picture dismisses the folded action popup first.
+        if (btnMenu) {
+          setBtnMenu(false);
+          return;
+        }
         if (!chrome) {
           bump();
           return;
@@ -3010,6 +3047,7 @@ export function PlayerView() {
                 type="range"
                 min={0}
                 max={MAX_VOLUME}
+                step={5}
                 value={volLevel}
                 aria-label="Volume"
                 style={{

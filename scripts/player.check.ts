@@ -304,6 +304,140 @@ run("buffer maths", async () => {
   return out;
 });
 
+run("volume slider owns its arrow keys", () => {
+  const out: string[] = [];
+  const guard = /const range = target instanceof HTMLInputElement && target\.type === "range"/.exec(
+    playerTsx,
+  );
+  if (!guard) return ["keyboard: the volume range input is not detected"];
+  const block = playerTsx.slice(guard.index, guard.index + 1400);
+  if (!/if \(range && [^\n]*Arrow[^\n]*\) return;/.test(block)) {
+    out.push("keyboard: arrows on the focused volume slider also seek");
+  }
+  if (!/type="range"[\s\S]{0,400}?step=\{5\}/.test(playerTsx)) {
+    out.push("volume slider: no step, so its own arrows move 1 of 200");
+  }
+  return out;
+});
+
+run("raising a muted level unmutes", () => {
+  const at = playerTsx.indexOf("const setVolume = useCallback");
+  if (at < 0) return ["Player.tsx: setVolume not found"];
+  const block = playerTsx.slice(at, at + 1400);
+  const out: string[] = [];
+  if (!/const before = volRef\.current;/.test(block)) {
+    out.push("setVolume does not know the level it came from");
+  }
+  if (!/next > before[\s\S]{0,160}send\("mute", false\)/.test(block)) {
+    out.push("a raised level stays muted, so the slider looks dead");
+  }
+  return out;
+});
+
+run("seek bar arrows seek once", () => {
+  const at = playerTsx.indexOf("onKeyDown={(event) => {");
+  if (at < 0) return ["seek bar: keydown handler not found"];
+  const block = playerTsx.slice(at, at + 400);
+  const out: string[] = [];
+  if (!/ArrowLeft/.test(block) || !/ArrowRight/.test(block)) {
+    out.push("seek bar: both arrows must be handled");
+  }
+  if (!/event\.preventDefault\(\)/.test(block)) {
+    out.push("seek bar: arrows also reach the window handler and seek twice");
+  }
+  if (!/onSeekRel\(/.test(block)) out.push("seek bar: arrows do not seek");
+  return out;
+});
+
+run("late source and subtitle answers are dropped", () => {
+  const out: string[] = [];
+  for (const [name, setter] of [
+    ["loadSubtitles", "setSubs"],
+    ["loadSources", "setSources"],
+  ] as const) {
+    const at = playerTsx.indexOf(`const ${name} = useCallback`);
+    if (at < 0) {
+      out.push(`Player.tsx: ${name} not found`);
+      continue;
+    }
+    const block = playerTsx.slice(at, at + 1600);
+    if (!/const key = session\.key;/.test(block)) {
+      out.push(`${name}: does not capture the session it is loading`);
+    }
+    if (!new RegExp(`sessionRef\\.current\\?\\.key === key\\) ${setter}\\(`).test(block)) {
+      out.push(`${name}: a late answer can overwrite the next episode`);
+    }
+  }
+  return out;
+});
+
+run("a refused source switch changes nothing", () => {
+  const at = playerTsx.indexOf("const switchSource = useCallback");
+  if (at < 0) return ["Player.tsx: switchSource not found"];
+  const block = playerTsx.slice(at, at + 2000);
+  const refused = block.search(/if \(!opened\) return;/);
+  if (refused < 0) return ["switchSource: a refused open still clears the subtitle"];
+  const reset = block.indexOf("setLoadedSub(null)");
+  if (reset < 0) return ["switchSource: no subtitle reset found"];
+  return reset < refused
+    ? ["switchSource: the subtitle is cleared before the open is confirmed"]
+    : [];
+});
+
+run("subtitle restore waits for the file", () => {
+  const out: string[] = [];
+  if (!/const subsReady =[^;]*firstFrame[^;]*subTracks\.length/.test(playerTsx)) {
+    out.push("Player.tsx: no readiness gate before restoring the subtitle");
+  }
+  const at = playerTsx.indexOf("rememberedSubtitle(key)");
+  if (at < 0) return [...out, "Player.tsx: remembered subtitle restore not found"];
+  const block = playerTsx.slice(Math.max(0, at - 500), at + 200);
+  if (!/subsReady/.test(block)) out.push("the restore still runs on the first empty snapshot");
+  if (/!playerReady/.test(block)) out.push("the restore is gated on the snapshot alone");
+  return out;
+});
+
+run("a state change re-arms the idle timer", () => {
+  const at = playerTsx.indexOf("}, [bump]);");
+  if (at < 0) return ["Player.tsx: chrome idle effect not found"];
+  const block = playerTsx.slice(playerTsx.lastIndexOf("useEffect(", at), at);
+  const out: string[] = [];
+  if (!/bumpAt\.current = 0;/.test(block)) out.push("a state change can leave the chrome up");
+  if (!/bump\(\);/.test(block)) out.push("the idle effect no longer bumps");
+  return out;
+});
+
+run("the folded action popup cannot outlive its chrome", () => {
+  const out: string[] = [];
+  const at = playerTsx.indexOf("const bump = useCallback");
+  const bumpBlock = at < 0 ? "" : playerTsx.slice(at, at + 1000);
+  if (!/surface \|\| btnMenu \|\| showNext/.test(bumpBlock)) {
+    out.push("bump: the idle timer can hide the chrome under the popup");
+  }
+  if (!/if \(surface \|\| !chrome\) setBtnMenu\(false\);/.test(playerTsx)) {
+    out.push("the popup is not closed when a panel or the lock takes over");
+  }
+  if (!/if \(btnMenu\) \{\s*setBtnMenu\(false\);\s*return;\s*\}/.test(playerTsx)) {
+    out.push("a click on the picture does not dismiss the popup");
+  }
+  return out;
+});
+
+run("opening a session does not flash the volume card", () => {
+  const at = playerTsx.indexOf("const volumeSession = useRef");
+  if (at < 0) return ["Player.tsx: volume session push not found"];
+  const block = playerTsx.slice(at, at + 800);
+  return /volSeen\.current = next;/.test(block)
+    ? []
+    : ["the saved volume push reads as a change and flashes the OSD"];
+});
+
+run("the shortcut sheet matches Escape", () => {
+  return /\["Esc", "[^"]*hide the controls"\]/.test(playerTsx)
+    ? []
+    : ["the Esc row claims Escape leaves, but it only hides the chrome"];
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];
