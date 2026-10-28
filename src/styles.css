@@ -2125,7 +2125,7 @@ button.pill:hover {
   z-index: 80;
   display: flex;
   justify-content: flex-end;
-  align-items: flex-start;
+  align-items: flex-end;
   padding: clamp(14px, 2vh, 24px);
 }
 

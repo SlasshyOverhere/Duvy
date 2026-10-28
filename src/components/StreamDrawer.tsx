@@ -280,6 +280,15 @@ export function StreamDrawer({
         aria-label={`Sources for ${title}`}
       >
         <div className="drawer-filter-bar">
+          <button
+            type="button"
+            className="filter-step is-left"
+            onClick={() => step(-1)}
+            disabled={!edges.left}
+            aria-label="Earlier addons"
+          >
+            <Icon name="chevron" size={14} />
+          </button>
           <div
             className={`drawer-filters${edges.left ? " can-left" : ""}${edges.right ? " can-right" : ""}`}
             ref={filtersRef}
@@ -316,15 +325,6 @@ export function StreamDrawer({
                 </button>
               ))}
           </div>
-          <button
-            type="button"
-            className="filter-step is-left"
-            onClick={() => step(-1)}
-            disabled={!edges.left}
-            aria-label="Earlier addons"
-          >
-            <Icon name="chevron" size={14} />
-          </button>
           <button
             type="button"
             className="filter-step is-right"
