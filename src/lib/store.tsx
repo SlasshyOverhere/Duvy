@@ -114,7 +114,7 @@ export function sessionFor(details: Details, video: Video | null): PlaybackSessi
 const FINISHED_SHARE = 0.9;
 
 /** Info hashes arrive as 40 hex or 32 base32 chars; anything else never becomes a magnet. */
-const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Z2-7]{32})$/;
+const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Za-z2-7]{32})$/;
 
 /** A finished title restarts instead of resuming its last few seconds. */
 function resumePosition(position: number, duration: number): number {
