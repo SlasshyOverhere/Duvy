@@ -2864,6 +2864,28 @@ input[type="range"]::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+.update-notes {
+  margin-top: 12px;
+  max-height: 200px;
+}
+
+.update-meter {
+  height: 4px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.update-meter span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
 /* Trakt, Debrid and Torrent ship as standalone pages; inside Settings their own
    page chrome (padding, header, footer note) is redundant. */
 .settings-embed > .page {

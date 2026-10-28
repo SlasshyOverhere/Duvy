@@ -51,9 +51,11 @@ touches a video frame:
 - Library, Continue Watching, Watched, four accent themes, custom title bar.
 - Optional TMDB enrichment, Trakt device-code sync and scrobbling, and unofficial Nuvio Cloud
   sync for library, progress and watched state.
+- Signed, verified updates: the app checks the release feed on launch and every six hours, warns
+  with a toast and a desktop notification, and installs from Settings -> About.
 
 Not built yet: downloads/offline library, local profiles or PIN-protected profile switching
-(only Nuvio account profile selection exists), app icon packs, translations, an auto-updater,
+(only Nuvio account profile selection exists), app icon packs, translations, update channels,
 Simkl, MDBList, watch party, JS plugins, hover previews, subtitle auto-sync, and subtitle
 folder scanning. See
 [docs/FEATURE-PARITY.md](docs/FEATURE-PARITY.md) for the per-feature status.
@@ -109,6 +111,17 @@ Artifacts land in `src-tauri/target/release/bundle/`. On Windows the configured 
 MSI and NSIS installers, and both include `mpv.exe` and `d3dcompiler_43.dll`. Installers are not
 built by CI.
 
+`bundle.createUpdaterArtifacts` is on, so a release build also needs the signing key that matches
+the `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`:
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/betternuvio.key bun run tauri build
+```
+
+That writes a `.sig` next to each installer. Publish the installers, their signatures and a
+`latest.json` (Tauri's static release manifest) to the GitHub release the endpoint points at;
+without them the updater reports that the release feed could not be read.
+
 ## Bring your own content
 
 BetterNuvio ships no media, no catalogs, no addons and no scrapers. Everything comes from addon
@@ -162,7 +175,7 @@ data path. Delete the database file to reset the app.
 src/                     React + TypeScript UI
   components/            shell, title bar, poster rows, stream drawer, player UI
   views/                 Home, Discover, Search, Details, Library, Watched, Addons, Settings, Player
-  views/settings/        Nuvio sync and media server panels
+  views/settings/        Nuvio sync, media server and update panels
   lib/bridge.ts          typed invoke() wrappers (mock fallback in browser)
   lib/store.tsx          routing, settings, library, progress, playback orchestration
 src-tauri/src/
@@ -177,6 +190,7 @@ src-tauri/src/
   nuvio_sync.rs          unofficial Nuvio Cloud sync (+ tests)
   servers.rs             Jellyfin/Emby sign-in, libraries and streams (+ tests)
   skip.rs                intro/outro markers (+ tests)
+  updates.rs             update checks, background polling, install
   db.rs                  SQLite schema and queries (+ tests)
   commands.rs            Tauri command surface
   lib.rs                 state wiring, window helpers

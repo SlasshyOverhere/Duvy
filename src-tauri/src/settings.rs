@@ -41,6 +41,10 @@ pub struct Settings {
     pub p2p_cache_mb: i64,
     /// Send watched events to Trakt while playing.
     pub trakt_scrobble: bool,
+    /// Look for a new release on launch and every few hours.
+    pub auto_update_check: bool,
+    /// A version the user skipped; background checks stay quiet about it.
+    pub ignored_update_version: String,
 }
 
 impl Default for Settings {
@@ -66,6 +70,8 @@ impl Default for Settings {
             p2p_consent: false,
             p2p_cache_mb: 2048,
             trakt_scrobble: true,
+            auto_update_check: true,
+            ignored_update_version: String::new(),
         }
     }
 }

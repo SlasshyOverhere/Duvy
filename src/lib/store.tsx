@@ -25,6 +25,7 @@ import type {
   Settings,
   StreamOption,
   StartingArt,
+  UpdateInfo,
   Video,
 } from "./types";
 
@@ -67,6 +68,11 @@ interface Store {
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
+  /** The release the last check found, if any. */
+  update: UpdateInfo | null;
+  checkUpdate: () => Promise<UpdateInfo | null>;
+  /** Hide this version from background checks. */
+  skipUpdate: (version: string) => Promise<void>;
   notify: (text: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
@@ -234,6 +240,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const toastId = useRef(1);
   const depth = useRef(0);
   const opening = useRef(false);
@@ -428,6 +435,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
 
+  // The background check announces a new release; the toast says where to act.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<UpdateInfo>("update:available", (event) => {
+      setUpdate(event.payload);
+      notify(
+        `BetterNuvio ${event.payload.version} is available. Install it from Settings, About.`,
+      );
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No event bridge: a manual check in Settings still works.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [notify]);
+
   // Player events are pushed from Rust while mpv is running.
   useEffect(() => {
     if (!isTauri()) return;
@@ -519,6 +550,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const inLibrary = useCallback(
     (id: string) => library.some((item) => item.id === id),
     [library],
+  );
+
+  const checkUpdate = useCallback(async () => {
+    const found = await api.updates.check();
+    // A release that was pulled is gone from the answer, so replace, not merge.
+    setUpdate(found);
+    return found;
+  }, []);
+
+  const skipUpdate = useCallback(
+    async (version: string) => {
+      await saveSettings({ ignoredUpdateVersion: version });
+      setUpdate((current) => (current?.version === version ? null : current));
+      notify(`Updates to ${version} stay quiet until a newer release`);
+    },
+    [saveSettings, notify],
   );
 
   const progressFor = useCallback(
@@ -915,6 +962,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveSettings,
       toggleLibrary,
       inLibrary,
+      update,
+      checkUpdate,
+      skipUpdate,
       notify,
       dismissToast,
       progressFor,
@@ -946,6 +996,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveSettings,
       toggleLibrary,
       inLibrary,
+      update,
+      checkUpdate,
+      skipUpdate,
       notify,
       dismissToast,
       progressFor,

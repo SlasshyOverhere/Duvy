@@ -338,7 +338,7 @@ Everything below is the exhaustive union, not just that list.
 
 | Feature | Nuvio | Stremio | BetterNuvio | Pri |
 |---|---|---|---|---|
-| Auto-updater: channels (stable/beta/all), release notes, progress, install | yes | yes | GAP | P1 |
+| Auto-updater: release notes, progress, install (single channel) | yes | yes | Done | P1 |
 | Episode-release notifications (local scheduling, test, permission states) | yes | yes | GAP | P2 |
 | Desktop notifications toggle + network status notifications | yes | yes | GAP | P2 |
 | Launch on startup | — | yes | GAP | P2 |
@@ -396,7 +396,7 @@ Everything below is the exhaustive union, not just that list.
 17. Continue Watching: Next Up rules, badges, blur, sort modes, style variants.
 18. Library: statuses, folders, sorts, filters, bulk watched actions.
 19. i18n scaffolding + at least the locales Nuvio ships; per-surface language.
-20. Auto-updater with channels.
+20. Update channels (stable/beta).
 21. Subtitle/audio language preferences incl. secondary + forced + SDI strip.
 22. External player handoff with remember-choice.
 23. PiP, always-on-top, pause-on-minimize.
@@ -439,7 +439,7 @@ Casting/Chromecast, web remote + QR, calendar ICS, RAR streaming, in-app downloa
 | **v0.2 “Sources”** | P2P + consent + stats, keychain vault, stream policies/presets, subtitle delay/styling/auto-sync, external subs, media-info overlay, keyboard completeness |
 | **v0.3 “Identity”** | Profiles + PIN, library statuses/folders, bulk watched, Next Up rules, Trakt, watched-state model |
 | **v0.4 “Debrid”** | Debrid providers + resolve + cache checks + rule engine, cloud library browser, downloads |
-| **v0.5 “Home”** | Media servers, collections system, hover previews, poster customization, themes/light mode, i18n, updater |
+| **v0.5 "Home"** | Media servers, collections system, hover previews, poster customization, themes/light mode, i18n |
 | **v0.6 “Extras”** | Simkl/MDBList, notifications, shuffle, Discord RPC, plugins, crash reporting, cloud sync |
 
 Rationale: sources before identity (nothing to track without playback), identity before debrid (rule engine is per-profile), debrid before polish (it changes the stream row model), polish last because it is the most churn-prone.

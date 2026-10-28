@@ -179,6 +179,16 @@ export interface Settings {
   p2pConsent: boolean;
   p2pCacheMb: number;
   traktScrobble: boolean;
+  autoUpdateCheck: boolean;
+  ignoredUpdateVersion: string;
+}
+
+/** A release newer than the running build. */
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes?: string | null;
+  date?: string | null;
 }
 
 export interface NuvioStatus {

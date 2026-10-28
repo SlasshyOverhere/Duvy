@@ -117,6 +117,8 @@ let settings: Settings = {
   p2pConsent: false,
   p2pCacheMb: 2048,
   traktScrobble: true,
+  autoUpdateCheck: true,
+  ignoredUpdateVersion: "",
 };
 
 let addons: AddonInfo[] = [
@@ -384,6 +386,13 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     case "settings_set":
       settings = { ...settings, ...(payload.patch ?? {}) };
       return settings;
+
+    // The preview has no release feed to ask, and a fake update would offer a
+    // button that cannot install anything.
+    case "update_check":
+      return null;
+    case "update_install":
+      throw new Error("Updates need the desktop app");
 
     case "addons_list":
       return addons;

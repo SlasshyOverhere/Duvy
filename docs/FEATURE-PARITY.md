@@ -73,7 +73,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Notifications | Done | **Planned** | No notification service |
 | Discord rich presence | Done | **Planned** | Not built |
 | JS plugin runtime | Done (QuickJS) | **Planned** | Addon protocol only |
-| Auto-updater | Done | **Planned** | No updater |
+| Auto-updater | Done | **Done** | Signed and verified, single channel |
 
 ## Platform
 
@@ -101,7 +101,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 
 1. Downloads and offline playback.
 2. Local profiles with PIN protection.
-3. Auto-updater and signed release builds.
+3. Signed release builds, CI publishing and update channels.
 4. Subtitle auto-sync and a fuller style editor.
 5. Translations.
 6. Simkl and MDBList.

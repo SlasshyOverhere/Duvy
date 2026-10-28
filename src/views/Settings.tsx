@@ -9,6 +9,7 @@ import TraktView from "./Trakt";
 import DebridView from "./Debrid";
 import TorrentView from "./Torrent";
 import { MediaServers } from "./settings/MediaServers";
+import { Updates } from "./settings/Updates";
 
 const SECTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: "general", label: "General", icon: "sliders" },
@@ -602,6 +603,8 @@ export function SettingsView({ section }: { section?: string }) {
                   </Button>
                 </div>
               </section>
+
+              <Updates />
 
               <section className="settings-group">
                 <h2>Diagnostics</h2>

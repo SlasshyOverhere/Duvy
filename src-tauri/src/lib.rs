@@ -21,6 +21,7 @@ mod streams;
 mod tmdb;
 mod torrent;
 mod trakt;
+mod updates;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -428,6 +429,8 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -464,6 +467,8 @@ pub fn run() {
                 player: Mutex::new(None),
             });
 
+            updates::watch(app.handle().clone());
+
             // The window itself stays opaque (a transparent window cannot host
             // the video surface); only the web layer is see-through, so the
             // picture mpv paints behind it is visible while the player route is
@@ -479,6 +484,8 @@ pub fn run() {
             commands::playback_log,
             commands::settings_get,
             commands::settings_set,
+            updates::update_check,
+            updates::update_install,
             commands::addons_list,
             commands::addons_install,
             commands::addons_remove,

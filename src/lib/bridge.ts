@@ -21,6 +21,7 @@ import type {
   SubtitleTrack,
   TorrentStats,
   TraktStatus,
+  UpdateInfo,
   WatchedItem,
 } from "./types";
 
@@ -58,6 +59,13 @@ export const api = {
   settings: {
     get: () => call<Settings>("settings_get"),
     set: (patch: Partial<Settings>) => call<Settings>("settings_set", { patch }),
+  },
+
+  updates: {
+    /** `null` when the running build is the newest release. */
+    check: () => call<UpdateInfo | null>("update_check"),
+    /** Downloads and installs, then the installer restarts the app. */
+    install: () => call<null>("update_install"),
   },
 
   addons: {

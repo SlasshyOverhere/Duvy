@@ -51,6 +51,7 @@ UI thread while video is presenting into the same window.
 | `servers.rs` | Jellyfin and Emby sign-in, library browsing, artwork and direct stream URLs. Tested URL builders. |
 | `skip.rs` | Per-show intro/outro markers and the skip decision. Tested. |
 | `playback_log.rs` | Small in-memory timeline of playback steps, exposed in Settings. |
+| `updates.rs` | Launch and six-hourly release checks, signature-verified download and install, toast and desktop notification. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence. |
 | `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out, source resolution, metadata merge. |
@@ -174,7 +175,7 @@ installer packaging. Those paths require accounts, servers or media that CI does
 - Windows is the supported platform. The in-window player path is Windows-specific; other
   platforms fall back to a separate mpv window and are untested.
 - One mpv process and one torrent at a time.
-- No updater, downloads/offline library, local profiles or PIN, translations or app icon packs.
+- No downloads/offline library, local profiles or PIN, translations or app icon packs.
 - Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
 - The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
   configuration pages, addon permissions and addon collections are not implemented.

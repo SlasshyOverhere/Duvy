@@ -36,7 +36,7 @@ The five highest value-per-effort items, in order:
 2. **PF-01 profiles + PIN** - every per-profile feature is blocked behind it.
 3. **PL-01 `/` PL-02 deep links + window restore** - small, and they unblock party and trailer links.
 4. **SP-01..03 subtitle auto-sync and skip providers** - the player polish users actually feel.
-5. **RG-01 updater + crash reporting** - the app cannot ship without them.
+5. **RG-04 crash reporting** - the app cannot ship without it.
 
 ---
 
@@ -225,8 +225,8 @@ before it is a client port.
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| RG-01 | Auto-updater | Check on launch and manual, ignore-version, stable/beta, asset selection per OS | L | No `tauri-plugin-updater` |
-| RG-02 | Update download + install | Progress, installer handoff, relaunch | M | |
+| RG-01 | Auto-updater | Check on launch and manual, ignore-version | L | Done. No stable/beta channels |
+| RG-02 | Update download + install | Progress, installer handoff, relaunch | M | Done |
 | RG-03 | Delta updates | zsync metadata | M | |
 | RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | No crash path at all |
 | RG-05 | Release CI | Build matrix, signing, notarization, checksums, auto-published notes | L | 21-line CI today |
@@ -256,8 +256,8 @@ Verified absent upstream too. Do not "fix" these for parity:
 - `README.md` and `FEATURE-PARITY.md` claim Discover with filters. There is no addon-catalog
   Discover screen; `commands.rs::catalog` exists and is unused. See CT-01.
 - `FEATURE-PARITY.md` implies watched-state parity. Only single-item toggle is wired.
-- `FEATURE-PARITY.md` marks hover previews, icon packs, Simkl, MDBList, downloads and the
-  updater as Planned. All still accurate.
+- `FEATURE-PARITY.md` marks hover previews, icon packs, Simkl, MDBList and downloads as
+  Planned. All still accurate.
 
 ---
 
