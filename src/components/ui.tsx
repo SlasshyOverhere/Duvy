@@ -490,6 +490,9 @@ export function ContextMenu({
       className="ctx"
       style={{ left: at.left, top: at.top }}
       onContextMenu={(event) => event.preventDefault()}
+      // Portals bubble through the React tree, so a click here would also hit
+      // the card that opened the menu and start playing.
+      onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
         event.preventDefault();
