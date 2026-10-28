@@ -1362,10 +1362,8 @@ pub async fn player_subtitle(
     label: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // mpv would happily open a file:// or other scheme handed to it here.
-    if !is_http_url(&url) {
-        return Err("That subtitle URL is not http(s)".into());
-    }
+    // The picker hands over a local path, so both paths are accepted.
+    player::validate_media_url(&url)?;
     let writer = {
         let guard = state.player.lock().map_err(|_| "player is busy")?;
         let player = guard.as_ref().ok_or("Nothing is playing")?;

@@ -143,8 +143,11 @@ pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Optio
         }
     }
     let found = locate_mpv(explicit, resource_dir);
-    if let Ok(mut cache) = CACHE.lock() {
-        *cache = Some((key, found.clone()));
+    // Only a hit is cached: mpv can be installed after the first probe.
+    if found.is_some() {
+        if let Ok(mut cache) = CACHE.lock() {
+            *cache = Some((key, found.clone()));
+        }
     }
     found
 }
@@ -616,11 +619,15 @@ fn parse_chapters(value: &Value) -> Vec<Chapter> {
 // Player
 // ---------------------------------------------------------------------------
 
-/// Only remote HTTP(S) and file sources may reach mpv.
-fn validate_media_url(url: &str) -> Result<(), String> {
+/// Only remote HTTP(S), file sources and local paths may reach mpv.
+pub fn validate_media_url(url: &str) -> Result<(), String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("No media URL supplied".into());
+    }
+    // The file pickers return a bare path, which has no scheme.
+    if std::path::Path::new(url).is_absolute() {
+        return Ok(());
     }
     let scheme = url
         .split_once(':')
@@ -678,7 +685,7 @@ impl Player {
             .arg("--osd-font-size=34")
             .arg("--osd-duration=2500")
             .arg("--sub-font-size=46")
-            .arg("--sub-auto=exact")
+            .arg("--sub-auto=fuzzy")
             .arg("--sub-visibility=yes")
             .arg("--volume=100")
             .arg("--volume-max=200")
@@ -1047,13 +1054,7 @@ impl Player {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Subtitle")
                     .to_string();
-                if url.is_empty() {
-                    return Err("No subtitle URL supplied".into());
-                }
-                let lower = url.to_ascii_lowercase();
-                if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-                    return Err("Subtitle URL must be http or https".into());
-                }
+                validate_media_url(&url)?;
                 send(
                     &mut writer,
                     json!({"command": ["sub-add", url, "select", label]}),
@@ -1485,6 +1486,13 @@ mod tests {
         assert!(validate_media_url(" file:///C:/movie.mkv ").is_ok());
         assert!(validate_media_url("magnet:?xt=urn:btih:abc").is_err());
         assert!(validate_media_url("   ").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_bare_path_from_the_file_picker_is_playable() {
+        assert!(validate_media_url(r"C:\Movies\movie.mkv").is_ok());
+        assert!(validate_media_url(r"C:\Movies\subs.srt").is_ok());
     }
 
     #[test]
