@@ -344,43 +344,57 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
         let last_watched = time_ms(state.get("lastWatched").unwrap_or(&Value::Null));
         let updated = if last_watched > 0 { last_watched } else { mtime }.max(1);
 
+        let mut progress_current = false;
         if duration > 0 && offset > 0 {
-            conn.execute(
-                "INSERT INTO progress (key, meta_id, media_type, name, poster, background,
-                                       season, episode, episode_title, position, duration, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, NULL, ?8, ?9, ?10)
-                 ON CONFLICT(key) DO UPDATE SET
-                   position = excluded.position,
-                   duration = excluded.duration,
-                   updated_at = excluded.updated_at,
-                   name = CASE WHEN excluded.name = '' THEN progress.name ELSE excluded.name END,
-                   poster = COALESCE(excluded.poster, progress.poster),
-                   season = COALESCE(excluded.season, progress.season),
-                   episode = COALESCE(excluded.episode, progress.episode)
-                 WHERE excluded.updated_at >= progress.updated_at",
-                params![
-                    key,
-                    id,
-                    media_type,
-                    name,
-                    poster,
-                    season,
-                    episode,
-                    offset as f64 / 1000.0,
-                    duration as f64 / 1000.0,
-                    updated
-                ],
-            )
-            .map_err(|e| e.to_string())?;
+            let changed = conn
+                .execute(
+                    "INSERT INTO progress (key, meta_id, media_type, name, poster, background,
+                                           season, episode, episode_title, position, duration, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, NULL, ?8, ?9, ?10)
+                     ON CONFLICT(key) DO UPDATE SET
+                       position = excluded.position,
+                       duration = excluded.duration,
+                       updated_at = excluded.updated_at,
+                       name = CASE WHEN excluded.name = '' THEN progress.name ELSE excluded.name END,
+                       poster = COALESCE(excluded.poster, progress.poster),
+                       season = COALESCE(excluded.season, progress.season),
+                       episode = COALESCE(excluded.episode, progress.episode)
+                     WHERE excluded.updated_at >= progress.updated_at",
+                    params![
+                        key,
+                        id,
+                        media_type,
+                        name,
+                        poster,
+                        season,
+                        episode,
+                        offset as f64 / 1000.0,
+                        duration as f64 / 1000.0,
+                        updated
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            progress_current = changed > 0;
             progress += 1;
         }
 
         let times = int(state, "timesWatched");
         let flagged = int(state, "flaggedWatched");
         let finished = duration > 0 && offset * 10 >= duration * 9;
-        // A series without a `video_id` has no episode to blame, so it must not
-        // mark the whole show watched.
-        if (media_type == "movie" || season.is_some()) && (times > 0 || flagged > 0 || finished) {
+        // A partial playhead is the current state even when the title was
+        // finished before. `timesWatched` is per title, not per episode, so a
+        // series only counts the current video's own flag.
+        let in_progress = duration > 0 && offset > 0 && !finished;
+        let marked = if in_progress {
+            false
+        } else if media_type == "movie" {
+            times > 0 || flagged > 0 || finished
+        } else {
+            // A series without a `video_id` has no episode to blame, so it must
+            // not mark the whole show watched.
+            season.is_some() && (flagged > 0 || finished)
+        };
+        if marked {
             conn.execute(
                 "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
                  ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
@@ -389,6 +403,14 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
             )
             .map_err(|e| e.to_string())?;
             watched += 1;
+        } else if progress_current {
+            // A partial playhead retires an old mark for the same episode.
+            // A newer mark is an explicit local watch; leave it alone.
+            conn.execute(
+                "DELETE FROM watched WHERE key = ?1 AND updated_at <= ?2",
+                params![key, updated],
+            )
+            .map_err(|e| e.to_string())?;
         }
     }
     Ok((library, progress, watched))
@@ -815,6 +837,7 @@ mod tests {
 
     #[test]
     fn camel_case_state_imports_progress_and_watched() {
+        const T: i64 = 1_793_000_000_000;
         let path = std::env::temp_dir().join(format!("duvy-stremio-{}.db", db::now()));
         let conn = db::open(&path).expect("test database opens");
         let rows = vec![
@@ -854,16 +877,71 @@ mod tests {
                     "video_id": "tt2:1:2"
                 }
             }),
+            json!({
+                "_id": "tt3",
+                "name": "Rewatch",
+                "type": "series",
+                "removed": false,
+                "temp": false,
+                "_mtime": iso8601(T),
+                "state": {
+                    "lastWatched": iso8601(T),
+                    "timesWatched": 4,
+                    "flaggedWatched": 0,
+                    "timeOffset": 87_000,
+                    "duration": 3_000_000,
+                    "video_id": "tt3:1:2"
+                }
+            }),
+            json!({
+                "_id": "tt4",
+                "name": "Film Rewatch",
+                "type": "movie",
+                "removed": false,
+                "temp": false,
+                "_mtime": iso8601(T + 1000),
+                "state": {
+                    "lastWatched": iso8601(T + 1000),
+                    "timesWatched": 2,
+                    "flaggedWatched": 1,
+                    "timeOffset": 1_800_000,
+                    "duration": 6_000_000,
+                    "video_id": "tt4"
+                }
+            }),
         ];
+        // A previous sync stored the mark at the same instant as the playhead,
+        // which hid the title from Continue Watching.
+        conn.execute(
+            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)",
+            params!["tt3:1:2", "tt3", T],
+        )
+        .unwrap();
         let (_, progress, watched) = merge_library(&conn, &rows).expect("merge");
-        assert_eq!(progress, 1, "a Stremio resume point must become progress");
-        assert_eq!(watched, 2, "a Stremio watched mark must become a watched row");
+        assert_eq!(progress, 3, "a Stremio resume point must become progress");
+        assert_eq!(watched, 2, "only finished or explicitly watched titles count");
         let film = db::get_progress(&conn, "tt1").unwrap().expect("film progress");
         assert_eq!(film.position, 5400.0);
         assert_eq!(film.duration, 5400.0);
         let marks = db::list_watched(&conn).unwrap();
         assert!(marks.contains(&"tt1".to_string()));
         assert!(marks.contains(&"tt2:1:2".to_string()));
+        let rewatch_marks: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM watched WHERE key = 'tt3:1:2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rewatch_marks, 0, "a partial rewatch retires the old mark");
+        assert!(!marks.contains(&"tt4".to_string()), "a film rewatch is not watched");
+        let continuing: Vec<String> = db::list_continue_watching(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|item| item.key)
+            .collect();
+        assert!(continuing.contains(&"tt3:1:2".to_string()));
+        assert!(continuing.contains(&"tt4".to_string()));
         let listed = db::list_watched_items(&conn).unwrap();
         assert!(
             listed.iter().any(|item| item.meta_id == "tt1" && item.name == "Film"),
@@ -873,6 +951,8 @@ mod tests {
             listed.iter().any(|item| item.meta_id == "tt2" && item.name == "Show"),
             "a watched series must appear in the Watched list"
         );
+        assert!(!listed.iter().any(|item| item.meta_id == "tt3"));
+        assert!(!listed.iter().any(|item| item.meta_id == "tt4"));
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }

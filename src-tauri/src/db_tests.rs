@@ -509,6 +509,36 @@ fn watched_items_keep_metadata_after_completion() {
 }
 
 #[test]
+fn watched_list_keeps_the_episode_that_was_watched() {
+    let (conn, path) = temp_database();
+    let episode = |season: i64, number: i64, position: f64| db::ProgressItem {
+        key: format!("tt77:{season}:{number}"),
+        meta_id: "tt77".into(),
+        media_type: "series".into(),
+        name: "A Show".into(),
+        poster: None,
+        background: None,
+        season: Some(season),
+        episode: Some(number),
+        episode_title: None,
+        position,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_progress(&conn, &episode(1, 1, 1000.0)).expect("finish episode one");
+    db::set_watched(&conn, "tt77:1:1", "tt77", true).expect("mark");
+    db::save_progress(&conn, &episode(1, 2, 10.0)).expect("start episode two");
+
+    let watched = db::list_watched_items(&conn).expect("list");
+    assert_eq!(watched.len(), 1);
+    assert_eq!(watched[0].key, "tt77:1:1");
+    assert_eq!(watched[0].season, Some(1));
+    assert_eq!(watched[0].episode, Some(1));
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn rewatching_a_finished_title_returns_it_to_continue_watching() {
     let (conn, path) = temp_database();
     let item = db::ProgressItem {

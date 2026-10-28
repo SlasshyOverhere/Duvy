@@ -1728,6 +1728,7 @@ mod reco_tests {
 
     fn seed(id: &str, name: &str, media_type: &str) -> db::WatchedItem {
         db::WatchedItem {
+            key: id.into(),
             meta_id: id.into(),
             media_type: media_type.into(),
             name: name.into(),

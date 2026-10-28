@@ -116,6 +116,7 @@ export interface ProgressItem {
 }
 
 export interface WatchedItem {
+  key: string;
   metaId: string;
   type: string;
   name: string;

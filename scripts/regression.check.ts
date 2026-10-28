@@ -167,6 +167,18 @@ run("subtitle size can go below the old floor", () => {
   return out;
 });
 
+run("continue watching compares exact episode keys", () => {
+  const out: string[] = [];
+  const home = read("src/views/Home.tsx");
+  if (!/mark\.key === row\.key/.test(home)) {
+    out.push("Home.tsx hides a title by meta id instead of the watched episode key");
+  }
+  if (!/marked\.has\(entry\.key\)/.test(home)) {
+    out.push("Home.tsx card progress is hidden by meta id instead of the episode key");
+  }
+  return out;
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];

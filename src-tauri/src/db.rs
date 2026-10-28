@@ -601,6 +601,8 @@ pub fn list_watched(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchedItem {
+    /// The exact episode or movie key the mark belongs to.
+    pub key: String,
     pub meta_id: String,
     #[serde(rename = "type")]
     pub media_type: String,
@@ -618,7 +620,7 @@ pub struct WatchedItem {
 pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem>> {
     let mut stmt = conn.prepare(
         "WITH marks AS (
-           SELECT w.meta_id, w.updated_at AS at FROM watched w
+           SELECT w.key, w.meta_id, w.updated_at AS at FROM watched w
            WHERE w.watched = 1
              -- Playback after a mark means the title is being watched again,
              -- so the completed entry has to go.
@@ -630,34 +632,39 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
                  AND p.updated_at > w.updated_at
              )
            UNION ALL
-           SELECT meta_id, updated_at FROM progress
+           SELECT key, meta_id, updated_at FROM progress
            WHERE duration > 0 AND position >= duration * ?1
          ),
-         latest AS (SELECT meta_id, MAX(at) AS at FROM marks GROUP BY meta_id)
-         SELECT l.meta_id, l.at,
+         newest AS (
+           SELECT key, meta_id, at FROM (
+             SELECT key, meta_id, at,
+                    ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY at DESC, key DESC) AS rn
+             FROM marks
+           ) WHERE rn = 1
+         )
+         SELECT n.meta_id, n.key, n.at,
                 COALESCE(p.media_type, b.media_type, 'movie'),
-                COALESCE(NULLIF(p.name, ''), NULLIF(b.name, ''), l.meta_id),
+                COALESCE(NULLIF(p.name, ''), NULLIF(b.name, ''), n.meta_id),
                 COALESCE(p.poster, b.poster),
                 COALESCE(p.background, b.background),
                 p.season, p.episode
-         FROM latest l
-         LEFT JOIN progress p ON p.key = (
-           SELECT p2.key FROM progress p2 WHERE p2.meta_id = l.meta_id
-           ORDER BY p2.updated_at DESC LIMIT 1)
-         LEFT JOIN library b ON b.id = l.meta_id
-         ORDER BY l.at DESC
+         FROM newest n
+         LEFT JOIN progress p ON p.key = n.key
+         LEFT JOIN library b ON b.id = n.meta_id
+         ORDER BY n.at DESC
          LIMIT 300",
     )?;
     let rows = stmt.query_map(params![FINISHED_AT], |row| {
         Ok(WatchedItem {
             meta_id: row.get(0)?,
-            watched_at: row.get(1)?,
-            media_type: row.get(2)?,
-            name: row.get(3)?,
-            poster: row.get(4)?,
-            background: row.get(5)?,
-            season: row.get(6)?,
-            episode: row.get(7)?,
+            key: row.get(1)?,
+            watched_at: row.get(2)?,
+            media_type: row.get(3)?,
+            name: row.get(4)?,
+            poster: row.get(5)?,
+            background: row.get(6)?,
+            season: row.get(7)?,
+            episode: row.get(8)?,
         })
     })?;
     rows.collect()
