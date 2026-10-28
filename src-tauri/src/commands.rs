@@ -956,20 +956,32 @@ pub async fn search(
     }
 
     // Cinemeta answers in ~150ms; a scraped addon catalog can take seconds.
-    // Paint the fast half now and stream the rest, the way Stremio does.
+    // Each addon paints as it lands, the way Stremio does.
     let streamed_query = query.clone();
     tauri::async_runtime::spawn(async move {
-        let mut found: Vec<MetaPreview> = Vec::new();
+        let mut painted = false;
         while let Some(joined) = set.join_next().await {
-            if let Ok((_addon, Ok(response))) = joined {
-                found.extend(response.metas);
-            }
+            let items = match joined {
+                Ok((_addon, Ok(response))) => response.metas,
+                _ => Vec::new(),
+            };
+            painted = true;
+            let _ = app.emit(
+                "search:addons",
+                json!({ "query": streamed_query, "items": items, "done": set.is_empty() }),
+            );
         }
-        // Emitted even when empty: the UI stops waiting for this one.
-        let _ = app.emit(
-            "search:addons",
-            json!({ "query": streamed_query, "items": found }),
-        );
+        // No addon had a search catalog: still close the wait in the UI.
+        if !painted {
+            let _ = app.emit(
+                "search:addons",
+                json!({
+                    "query": streamed_query,
+                    "items": Vec::<MetaPreview>::new(),
+                    "done": true,
+                }),
+            );
+        }
     });
 
     // TMDB ran alongside the addon fan-out, so it is usually ready by now.
