@@ -411,16 +411,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
   }, [settings?.accent, settings?.reduceMotion]);
 
-  // Keep the Nuvio account in step with the phone and the official desktop app:
-  // once on launch, then every few minutes while the app stays open.
+  // Keep Stremio and Nuvio in step with the phone and the official apps: once
+  // on launch, then every few minutes while this app stays open.
   useEffect(() => {
-    if (!settings?.nuvioAutoSync) return;
+    if (!settings?.nuvioAutoSync && !settings?.stremioAutoSync) return;
     let alive = true;
     const run = async () => {
       try {
-        const status = await api.nuvio.status();
-        if (!status.signedIn) return;
-        await api.nuvio.syncNow();
+        await api.sync.all();
         if (!alive) return;
         await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       } catch {
@@ -433,7 +431,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       alive = false;
       clearInterval(timer);
     };
-  }, [settings?.nuvioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
+  }, [settings?.nuvioAutoSync, settings?.stremioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
 
   // The background check announces a new release; the toast says where to act.
   useEffect(() => {

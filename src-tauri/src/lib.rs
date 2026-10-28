@@ -17,6 +17,7 @@ mod secret;
 mod servers;
 mod settings;
 mod skip;
+mod stremio_sync;
 mod streams;
 mod tmdb;
 mod torrent;
@@ -521,6 +522,11 @@ pub fn run() {
             commands::nuvio_set_profile,
             commands::nuvio_profiles,
             commands::nuvio_sync_now,
+            commands::stremio_status,
+            commands::stremio_sign_in,
+            commands::stremio_sign_out,
+            commands::stremio_sync_now,
+            commands::sync_all,
             trakt::set_client,
             trakt::scrobble,
             debrid::check_cache,

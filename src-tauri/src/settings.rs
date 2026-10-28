@@ -31,6 +31,8 @@ pub struct Settings {
     pub player_window: String,
     /// Sync library, progress and watched items with the Nuvio account.
     pub nuvio_auto_sync: bool,
+    /// Sync addons, library and progress with the Stremio account.
+    pub stremio_auto_sync: bool,
     /// Override for the Nuvio backend. Empty means the official endpoint.
     pub nuvio_base_url: String,
     /// Override for the Nuvio publishable key. Empty means the bundled one.
@@ -65,6 +67,7 @@ impl Default for Settings {
             track_progress: true,
             player_window: "mpv".into(),
             nuvio_auto_sync: true,
+            stremio_auto_sync: true,
             nuvio_base_url: String::new(),
             nuvio_api_key: String::new(),
             p2p_consent: false,

@@ -18,6 +18,8 @@ import type {
   ProgressItem,
   Settings,
   StreamOption,
+  StremioStatus,
+  StremioSyncReport,
   SubtitleTrack,
   TorrentStats,
   TraktStatus,
@@ -164,6 +166,19 @@ export const api = {
     setProfile: (index: number) => call<null>("nuvio_set_profile", { index }),
     profiles: () => call<NuvioProfile[]>("nuvio_profiles"),
     syncNow: () => call<NuvioSyncReport>("nuvio_sync_now"),
+  },
+
+  stremio: {
+    status: () => call<StremioStatus>("stremio_status"),
+    signIn: (email: string, password: string) =>
+      call<StremioStatus>("stremio_sign_in", { email, password }),
+    signOut: () => call<null>("stremio_sign_out"),
+    syncNow: () => call<StremioSyncReport>("stremio_sync_now"),
+  },
+
+  /** One pass across Stremio and Nuvio, in the order that converges both. */
+  sync: {
+    all: () => call<null>("sync_all"),
   },
 
   torrent: {

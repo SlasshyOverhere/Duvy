@@ -4,6 +4,7 @@ import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { Button, Icon, Spinner, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
+import { StremioSync } from "./settings/StremioSync";
 import { AddonsPanel } from "./Addons";
 import TraktView from "./Trakt";
 import DebridView from "./Debrid";
@@ -534,7 +535,12 @@ export function SettingsView({ section }: { section?: string }) {
             </>
           ) : null}
 
-          {tab === "sync" ? <NuvioSync /> : null}
+          {tab === "sync" ? (
+            <>
+              <NuvioSync />
+              <StremioSync />
+            </>
+          ) : null}
           {tab === "servers" ? <MediaServers /> : null}
 
           {tab === "addons" ? (

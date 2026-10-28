@@ -174,6 +174,7 @@ export interface Settings {
   trackProgress: boolean;
   playerWindow: string;
   nuvioAutoSync: boolean;
+  stremioAutoSync: boolean;
   nuvioBaseUrl: string;
   nuvioApiKey: string;
   p2pConsent: boolean;
@@ -213,6 +214,21 @@ export interface NuvioSyncReport {
   watched: number;
   library: number;
   addons: number;
+  addonsPushed: number;
+  pushed: number;
+}
+
+export interface StremioStatus {
+  signedIn: boolean;
+  email: string;
+  lastSync: number;
+}
+
+export interface StremioSyncReport {
+  addons: number;
+  progress: number;
+  watched: number;
+  library: number;
   pushed: number;
 }
 

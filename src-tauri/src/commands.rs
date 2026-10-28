@@ -1459,6 +1459,64 @@ pub async fn nuvio_sync_now(
     let report = crate::nuvio_sync::sync_now(&state).await?;
     Ok(report)
 }
+
+// ---------------------------------------------------------------------------
+// Stremio account sync
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn stremio_status(state: State<'_, AppState>) -> Result<crate::stremio_sync::Status, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    Ok(crate::stremio_sync::status(&conn))
+}
+
+#[tauri::command]
+pub async fn stremio_sign_in(
+    email: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<crate::stremio_sync::Status, String> {
+    crate::stremio_sync::sign_in(&state, &email, &password).await?;
+    // First sync right after sign-in so the account lands immediately.
+    let _ = crate::stremio_sync::sync_now(&state).await;
+    stremio_status(state)
+}
+
+#[tauri::command]
+pub fn stremio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
+    crate::stremio_sync::sign_out(&state)
+}
+
+#[tauri::command]
+pub async fn stremio_sync_now(
+    state: State<'_, AppState>,
+) -> Result<crate::stremio_sync::SyncReport, String> {
+    crate::stremio_sync::sync_now(&state).await
+}
+
+/// One pass that converges all three stores: Stremio's rows land locally, the
+/// Nuvio pass pushes that union, then Stremio receives Nuvio's rows.
+#[tauri::command]
+pub async fn sync_all(state: State<'_, AppState>) -> Result<(), String> {
+    let (stremio, nuvio) = {
+        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let settings = Settings::load(&conn);
+        (
+            crate::stremio_sync::status(&conn).signed_in,
+            crate::nuvio_sync::status(&conn, &settings).signed_in,
+        )
+    };
+    if stremio {
+        let _ = crate::stremio_sync::pull_and_merge(&state).await;
+    }
+    if nuvio {
+        let _ = crate::nuvio_sync::sync_now(&state).await;
+    }
+    if stremio {
+        let _ = crate::stremio_sync::push(&state).await;
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod reco_tests {
     use super::*;

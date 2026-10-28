@@ -360,6 +360,18 @@ pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
     rows.collect()
 }
 
+/// Every progress row, newest first. Sync needs the full set, not the 60 the
+/// Continue Watching row shows.
+pub fn all_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT key, meta_id, media_type, name, poster, background, season, episode,
+                episode_title, position, duration, updated_at
+         FROM progress ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], ProgressItem::from_row)?;
+    rows.collect()
+}
+
 /// One card per title for the home screen: the newest unfinished episode.
 /// Anything marked watched, or played past 90%, belongs in the Watched list.
 pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
