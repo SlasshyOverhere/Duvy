@@ -61,7 +61,7 @@ export function TopBar() {
   }, [navigate]);
 
   return (
-    <header className="topbar">
+    <header className={`topbar${route.name === "details" ? " topbar-detail" : ""}`}>
       <div className="topbar-left">
         {route.name !== "home" ? <IconButton icon="back" label="Back" onClick={back} /> : null}
         <button
@@ -136,7 +136,7 @@ export function TopBar() {
             aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
             title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
-            <Icon name={fullscreen ? "compress" : "expand"} size={19} />
+            <Icon name={fullscreen ? "compress" : "expand"} size={22} />
           </button>
         ) : null}
       </div>

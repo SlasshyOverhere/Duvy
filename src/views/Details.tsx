@@ -244,99 +244,106 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             onError={() => setImageFailed(true)}
           />
         ) : null}
-        <div className="detail-scrim" />
-        <div className="detail-body">
-          <div className="detail-poster">
-            {details.poster ? <img src={details.poster} alt="" /> : null}
-          </div>
-          <div className="detail-info">
-            <h1 className="detail-title">
-              {details.logo ? (
-                <img
-                  className="detail-logo"
-                  src={details.logo}
-                  alt={details.name}
-                  draggable={false}
-                />
-              ) : (
-                details.name
-              )}
-            </h1>
-            <div className="detail-meta">
-              <span>{details.type === "series" ? "Show" : "Movie"}</span>
-              {details.year ? <span>{details.year}</span> : null}
-              {details.rating ? <span>★ {details.rating}</span> : null}
-              {details.runtime ? <span>{details.runtime}</span> : null}
-              {details.status ? <span>{details.status}</span> : null}
-              {(details.genres ?? []).slice(0, 3).map((genre) => (
-                <span key={genre} className="detail-genre">
-                  {genre}
-                </span>
-              ))}
+        <div className="detail-scrim" aria-hidden="true" />
+        <div className="detail-shell">
+          <div className="detail-body">
+            <div className="detail-poster">
+              {details.poster ? <img src={details.poster} alt="" /> : null}
             </div>
-            <div className="detail-columns">
-              <div className="detail-main">
-                <p className="detail-overview">{details.description || "No overview yet."}</p>
+            <div className="detail-info">
+              <h1 className="detail-title">
+                {details.logo ? (
+                  <img
+                    className="detail-logo"
+                    src={details.logo}
+                    alt={details.name}
+                    draggable={false}
+                  />
+                ) : (
+                  details.name
+                )}
+              </h1>
+              <div className="detail-meta">
+                <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
+                {details.year ? <span>{details.year}</span> : null}
+                {details.runtime ? <span>{details.runtime}</span> : null}
+                {details.rating ? (
+                  <span className="detail-rating">
+                    <span aria-hidden="true">★</span> {details.rating}
+                  </span>
+                ) : null}
+                {details.status ? <span>{details.status}</span> : null}
+                {(details.genres ?? []).slice(0, 3).map((genre) => (
+                  <span key={genre} className="detail-genre">
+                    {genre}
+                  </span>
+                ))}
+              </div>
+              <p className="detail-overview">{details.description || "No overview yet."}</p>
 
-                <div className="detail-actions">
+              <div className="detail-actions">
+                <Button
+                  variant="primary"
+                  icon="play"
+                  onClick={playOrResume}
+                  disabled={details.type === "series" && details.videos.length === 0}
+                >
+                  {resumeTarget.label}
+                </Button>
+                <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
+                  Sources
+                </Button>
+                <Button
+                  icon={inWatchlist ? "check" : "plus"}
+                  onClick={() =>
+                    void toggleLibrary({
+                      id: details.id,
+                      type: details.type,
+                      name: details.name,
+                      poster: details.poster,
+                      background: details.background,
+                      releaseInfo: details.year,
+                      imdbRating: details.rating,
+                    })
+                  }
+                >
+                  {inWatchlist ? "In library" : "Library"}
+                </Button>
+                {trailer ? (
                   <Button
-                    variant="primary"
-                    icon="play"
-                    onClick={playOrResume}
-                    disabled={details.type === "series" && details.videos.length === 0}
-                  >
-                    {resumeTarget.label}
-                  </Button>
-                  <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
-                    Sources
-                  </Button>
-                  <Button
-                    icon={inWatchlist ? "check" : "plus"}
+                    icon="external"
                     onClick={() =>
-                      void toggleLibrary({
-                        id: details.id,
-                        type: details.type,
-                        name: details.name,
-                        poster: details.poster,
-                        background: details.background,
-                        releaseInfo: details.year,
-                        imdbRating: details.rating,
-                      })
+                      void openExternal(trailer).catch(() =>
+                        notify("Could not open the trailer", "error"),
+                      )
                     }
                   >
-                    {inWatchlist ? "In library" : "Library"}
+                    Trailer
                   </Button>
-                  {trailer ? (
-                    <Button
-                      icon="external"
-                      onClick={() =>
-                        void openExternal(trailer).catch(() =>
-                          notify("Could not open the trailer", "error"),
-                        )
-                      }
-                    >
-                      Trailer
-                    </Button>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
 
-              <div className="detail-facts">
-                {(details.director ?? []).length ? (
-                  <p>
-                    <span>Director</span> {(details.director ?? []).join(", ")}
-                  </p>
-                ) : null}
-                {(details.writer ?? []).length ? (
-                  <p>
-                    <span>Writer</span> {(details.writer ?? []).join(", ")}
-                  </p>
-                ) : null}
-                {(details.country ?? []).length ? (
-                  <p>
-                    <span>Country</span> {(details.country ?? []).join(", ")}
-                  </p>
-                ) : null}
+              <div className="detail-credits">
+                <dl className="detail-facts">
+                  {(details.director ?? []).length ? (
+                    <div className="detail-fact">
+                      <dt>Director</dt>
+                      <dd>{(details.director ?? []).join(", ")}</dd>
+                    </div>
+                  ) : null}
+                  {(details.writer ?? []).length ? (
+                    <div className="detail-fact">
+                      <dt>Writer</dt>
+                      <dd>{(details.writer ?? []).join(", ")}</dd>
+                    </div>
+                  ) : null}
+                  {(details.country ?? []).length ? (
+                    <div className="detail-fact">
+                      <dt>Country</dt>
+                      <dd>{(details.country ?? []).join(", ")}</dd>
+                    </div>
+                  ) : null}
+                </dl>
                 {details.source === "tmdb" ? (
                   <p className="detail-source">Metadata from TMDB</p>
                 ) : null}
@@ -347,7 +354,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       </section>
 
       {details.type === "series" && details.videos.length > 0 ? (
-        <section className="episodes">
+        <section className="detail-shell detail-section episodes">
           <div className="episodes-head">
             <h2>Episodes</h2>
             <div className="season-tabs">
@@ -403,9 +410,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       ) : null}
 
       {(details.cast ?? []).length ? (
-        <section className="cast-section">
+        <section className="detail-shell detail-section cast-section">
           <h2>Cast</h2>
-          <div className="cast-row">
+          <div className="cast-grid">
             {(details.cast ?? []).map((member) => {
               const photo = brokenPhotos[member.name]
                 ? undefined
@@ -436,7 +443,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       ) : null}
 
       {similar.length > 0 ? (
-        <section className="similar-section">
+        <section className="detail-shell detail-section similar-section">
           <Row
             title="More like this"
             detail={<span className="row-detail">{(details.genres ?? [])[0] ?? "Discover"}</span>}
@@ -458,7 +465,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         subtitle={
           drawer?.video
             ? `${episodeCode(drawer.video)}${drawer.video.title ? ` · ${drawer.video.title}` : ""}`
-            : "Choose a source"
+            : undefined
         }
         request={drawerRequest}
         onClose={() => setDrawer(null)}
