@@ -346,6 +346,22 @@ export function StreamDrawer({
         </div>
 
         <div className="drawer-body">
+          {/* Nothing has answered yet: hold the shape of the list that is
+              coming, so the panel never opens as an empty shell. */}
+          {total === 0 && pending > 0 ? (
+            <ul className="stream-list" aria-hidden="true">
+              {[64, 48, 72].map((width) => (
+                <li className="skeleton-card" key={width}>
+                  <span className="skeleton-line is-label" style={{ width: `${width}%` }} />
+                  <span
+                    className="skeleton-line"
+                    style={{ width: `${Math.min(width + 20, 94)}%` }}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           {visible.map((group) => (
             <section className="stream-group" key={group.addon}>
               {group.error ? (
@@ -489,18 +505,10 @@ export function StreamDrawer({
 
         <footer className="drawer-foot">
           {pending > 0 ? (
-            <span className="drawer-progress">
-              <span className="drawer-track">
-                <span
-                  className="drawer-fill"
-                  style={{
-                    width: `${Math.round(((groups.length - pending) / groups.length) * 100)}%`,
-                  }}
-                />
-              </span>
-              <span>
-                {pending} {pending === 1 ? "addon" : "addons"} still loading
-              </span>
+            <span className="drawer-status">
+              <Icon name="refresh" size={12} className="drawer-spin" />
+              Loading sources · {groups.length - pending} of {groups.length}{" "}
+              {groups.length === 1 ? "addon" : "addons"}
             </span>
           ) : (
             <span>Streams are provided by your own addons. BetterNuvio ships no content.</span>

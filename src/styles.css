@@ -2556,27 +2556,51 @@ button.pill:hover {
   line-height: 1.5;
 }
 
-.drawer-progress {
-  display: flex;
+.drawer-status {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.drawer-track {
-  position: relative;
-  flex: 1;
-  height: 2px;
-  border-radius: 2px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.1);
+.drawer-spin {
+  flex: none;
+  animation: spin 0.9s linear infinite;
 }
 
-.drawer-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: width 0.3s var(--ease);
+/* The placeholder rows while the first addon answers. */
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.skeleton-line {
+  height: 8px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.13) 50%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.5s linear infinite;
+}
+
+.skeleton-line.is-label {
+  height: 11px;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
 }
 
 /* ---------------------------------------------------------------------------
