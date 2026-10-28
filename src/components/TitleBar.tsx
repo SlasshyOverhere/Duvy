@@ -25,6 +25,26 @@ const EDGES: Array<[string, Edge]> = [
   ["south-west", "SouthWest"],
 ];
 
+export function ResizeEdges() {
+  if (!isTauri()) return null;
+  const win = getCurrentWindow();
+  return (
+    <>
+      {EDGES.map(([side, direction]) => (
+        <div
+          key={side}
+          className={`resize-edge resize-${side}`}
+          aria-hidden="true"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            void win.startResizeDragging(direction);
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 export function TitleBar() {
   const [maximized, setMaximized] = useState(false);
 
@@ -91,17 +111,7 @@ export function TitleBar() {
         </div>
       </div>
 
-      {EDGES.map(([side, direction]) => (
-        <div
-          key={side}
-          className={`resize-edge resize-${side}`}
-          aria-hidden="true"
-          onPointerDown={(event) => {
-            event.preventDefault();
-            void win.startResizeDragging(direction);
-          }}
-        />
-      ))}
+      <ResizeEdges />
     </>
   );
 }

@@ -2414,6 +2414,9 @@ export function PlayerView() {
     >
       <div className="pv-shade" aria-hidden="true" />
 
+      {/* The player covers the titlebar; this is the window's handle while windowed. */}
+      {!fullscreen ? <div className="pv-drag" data-tauri-drag-region aria-hidden="true" /> : null}
+
       {!locked ? (
         <header className="pv-top">
           <button

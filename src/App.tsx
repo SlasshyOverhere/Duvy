@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
-import { TitleBar } from "./components/TitleBar";
+import { ResizeEdges, TitleBar } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { Icon } from "./components/ui";
 import { HomeView } from "./views/Home";
@@ -161,6 +161,8 @@ function Screen() {
             <PlayerView />
           </Suspense>
         </ErrorBoundary>
+        {/* The player covers the window, so it carries its own resize grips. */}
+        <ResizeEdges />
         <Toasts />
       </>
     );
