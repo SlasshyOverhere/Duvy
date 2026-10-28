@@ -90,7 +90,10 @@ export const api = {
 
   details: async (id: string, type: string) => {
     const details = await call<Details>("meta_details", { id, mediaType: type });
+    // The same title answers to its addon id, its source id and its imdb id.
+    rememberLogo(id, details.logo);
     rememberLogo(details.id, details.logo);
+    rememberLogo(details.imdbId, details.logo);
     return details;
   },
   castPhotos: (names: string[], title: string) =>

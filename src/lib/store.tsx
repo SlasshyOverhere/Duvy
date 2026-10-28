@@ -529,16 +529,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The player is a screen, not a spinner on the previous one: show it at once
   // and let it carry the wait.
   const beginStart = useCallback(
-    (
-      art: StartingArt & { poster?: string | null; id?: string; metaId?: string },
+    async (
+      art: StartingArt & {
+        poster?: string | null;
+        id?: string;
+        metaId?: string;
+        type?: string;
+      },
       sub?: string | null,
     ) => {
       const token = startToken.current + 1;
       startToken.current = token;
+      const metaId = art.metaId ?? art.id ?? null;
+      let logo = art.logo ?? rememberedLogo(metaId);
+      if (!logo && metaId && art.type) {
+        // No cached art: one short round trip beats flashing the raw name.
+        const details = await Promise.race([
+          api.details(metaId, art.type).catch(() => null),
+          new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1200)),
+        ]);
+        if (startToken.current !== token) return token;
+        logo = details?.logo ?? null;
+      }
       setStarting({
         name: art.name,
         sub: sub ?? null,
-        logo: art.logo ?? rememberedLogo(art.metaId ?? art.id) ?? null,
+        logo: logo ?? null,
         background: art.background ?? art.poster ?? null,
       });
       navigate({ name: "player" });
@@ -671,7 +687,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id, name: item.name };
-      const token = beginStart(item);
+      const token = await beginStart(item);
       try {
         // A movie's tt id is what the stream addons key on, so the hunt can run
         // alongside the details fetch instead of queueing behind it.
@@ -782,7 +798,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id: entry.key, name: entry.name };
-      const token = beginStart(
+      const token = await beginStart(
         entry,
         entry.type === "series" ? seasonLabel(entry.season, entry.episode) : null,
       );
