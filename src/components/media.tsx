@@ -425,7 +425,13 @@ export function Hero({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
         >
-          <h1 className="hero-title">{item.name}</h1>
+          <h1 className="hero-title">
+            {item.logo ? (
+              <img className="hero-logo" src={item.logo} alt={item.name} draggable={false} />
+            ) : (
+              item.name
+            )}
+          </h1>
           <div className="hero-meta">
             {item.imdbRating ? (
               <Badge tone="accent">

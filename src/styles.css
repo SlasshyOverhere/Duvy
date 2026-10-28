@@ -1392,6 +1392,16 @@ button.pill:hover {
   text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
 }
 
+.hero-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(460px, 78%);
+  max-height: clamp(64px, 8vw, 118px);
+  margin: 0 auto;
+  object-fit: contain;
+}
+
 .hero-meta {
   display: flex;
   align-items: center;
@@ -4932,6 +4942,11 @@ input[type="range"]::-webkit-slider-thumb {
 
   .hero-title {
     font-size: clamp(1.9rem, 8vw, 2.6rem);
+  }
+
+  .hero-logo {
+    max-width: min(300px, 84%);
+    max-height: 72px;
   }
 
   .hero-overview {
