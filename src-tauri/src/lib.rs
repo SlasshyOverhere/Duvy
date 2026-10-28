@@ -475,6 +475,8 @@ pub fn run() {
             });
 
             updates::watch(app.handle().clone());
+            // A machine with no player fetches one quietly, in the background.
+            player_setup::ensure(app.handle());
             // Cinemeta ships by default, the way Stremio and Nuvio do it.
             tauri::async_runtime::spawn(commands::seed_default_addons(app.handle().clone()));
 

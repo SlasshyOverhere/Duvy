@@ -237,7 +237,7 @@ fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<
 }
 
 /// Spawn without flashing a console window on Windows.
-fn hidden_command(program: &str) -> Command {
+pub(crate) fn hidden_command(program: &str) -> Command {
     #[allow(unused_mut)]
     let mut command = Command::new(program);
     #[cfg(windows)]

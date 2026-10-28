@@ -86,6 +86,10 @@ pub fn player_setup_status(app: AppHandle, state: State<'_, AppState>) -> SetupS
 /// Starts the download once. Returns false when it was already running.
 #[tauri::command]
 pub fn player_setup_start(app: AppHandle) -> bool {
+    start(&app)
+}
+
+fn start(app: &AppHandle) -> bool {
     if RUNNING.swap(true, Ordering::SeqCst) {
         return false;
     }
@@ -99,6 +103,14 @@ pub fn player_setup_start(app: AppHandle) -> bool {
         }
     });
     true
+}
+
+/// First launch with no player: fetch one in the background, no prompt.
+pub fn ensure(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if status(app, &state).state == "missing" {
+        start(app);
+    }
 }
 
 fn emit(app: &AppHandle, state: &str, progress: f64, error: &str) {
@@ -119,6 +131,18 @@ async fn install(app: &AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| format!("Cannot prepare the download: {e}"))?;
 
+    if install_release(app, &http, &dir).await.is_ok() {
+        return Ok(());
+    }
+    // The player release is not published yet: take the build it is cut from.
+    install_pinned(app, &http, &dir).await
+}
+
+async fn install_release(
+    app: &AppHandle,
+    http: &reqwest::Client,
+    dir: &Path,
+) -> Result<(), String> {
     let manifest = http
         .get(format!("{RELEASE}/sha256.txt"))
         .send()
@@ -149,8 +173,70 @@ async fn install(app: &AppHandle) -> Result<(), String> {
             continue;
         }
         let part = dir.join(format!("{name}.part"));
-        fetch(app, &http, name, &part, hash, index, files.len()).await?;
+        fetch(app, http, name, &part, hash, index, files.len()).await?;
         std::fs::rename(&part, &target).map_err(|e| format!("Cannot install {name}: {e}"))?;
+    }
+    Ok(())
+}
+
+/// The upstream build the player release is cut from, checksum and all.
+const PINNED: &str =
+    "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-20261021-git-e471496c56.7z";
+const PINNED_SHA256: &str = "4a355f3e89c83fabc730d33fb4e759dfec747806ed2287b61a90d1681b83e8d3";
+const PLAYER_FILES: [&str; 2] = ["mpv.exe", "d3dcompiler_43.dll"];
+
+async fn install_pinned(
+    app: &AppHandle,
+    http: &reqwest::Client,
+    dir: &Path,
+) -> Result<(), String> {
+    let mut response = http
+        .get(PINNED)
+        .send()
+        .await
+        .map_err(|e| format!("Cannot reach the player download: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("The player download is unavailable: {e}"))?;
+
+    let size = response.content_length().unwrap_or(0);
+    let archive = dir.join("mpv.7z");
+    let mut file = std::fs::File::create(&archive).map_err(|e| format!("Cannot write the player: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut seen: u64 = 0;
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("The player download stalled: {e}"))?
+    {
+        hasher.update(&chunk);
+        file.write_all(&chunk)
+            .map_err(|e| format!("Cannot write the player: {e}"))?;
+        seen += chunk.len() as u64;
+        if size > 0 {
+            emit(app, "downloading", seen as f64 / size as f64, "");
+        }
+    }
+    file.flush().map_err(|e| format!("Cannot write the player: {e}"))?;
+    drop(file);
+
+    if format!("{:x}", hasher.finalize()) != PINNED_SHA256 {
+        let _ = std::fs::remove_file(&archive);
+        return Err("The player download did not match its published checksum.".into());
+    }
+
+    // Windows ships bsdtar, which reads 7z; only the two files are unpacked.
+    let status = crate::player::hidden_command("tar")
+        .arg("-xf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(dir)
+        .args(PLAYER_FILES)
+        .status()
+        .map_err(|e| format!("Cannot unpack the player: {e}"))?;
+    let _ = std::fs::remove_file(&archive);
+    if !status.success() {
+        return Err("Cannot unpack the player archive.".into());
     }
     Ok(())
 }

@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "app": "bun scripts/player-setup.ts && tauri dev --config src-tauri/tauri.dev.conf.json",
+    "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "check": "tsc --noEmit",
     "test": "bun scripts/player.check.ts"
   },
