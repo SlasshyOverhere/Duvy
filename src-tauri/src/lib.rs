@@ -533,6 +533,7 @@ pub fn run() {
             trakt::scrobble,
             debrid::check_cache,
             skip::skip_get,
+            skip::skip_lookup,
             skip::skip_set,
             servers::srv_list,
             servers::srv_add,

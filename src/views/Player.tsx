@@ -1077,7 +1077,9 @@ export function PlayerView() {
   }, [session?.key]);
 
   // Markers are stored per episode, keyed like the session. The command still
-  // names the argument `metaId`.
+  // names the argument `metaId`. With no hand-set markers, IntroDB supplies the
+  // community timestamps, so most shows skip without any setup.
+  const imdbId = details?.imdbId ?? null;
   useEffect(() => {
     fired.current = { intro: false, outro: false };
     setMarkers(null);
@@ -1086,6 +1088,15 @@ export function PlayerView() {
     if (!key || !isTauri()) return;
     let live = true;
     invoke<SkipEntry | null>("skip_get", { metaId: key })
+      .then(
+        (entry) =>
+          entry ??
+          invoke<SkipEntry | null>("skip_lookup", {
+            imdbId,
+            season: session?.season ?? null,
+            episode: session?.episode ?? null,
+          }),
+      )
       .then((entry) => {
         if (live) setMarkers(entry);
       })
@@ -1093,7 +1104,7 @@ export function PlayerView() {
     return () => {
       live = false;
     };
-  }, [session?.key]);
+  }, [session?.key, imdbId, session?.season, session?.episode]);
 
   // The saved level is pushed once per session, then echoes keep the ref true.
   const volumeSession = useRef<string | null>(null);

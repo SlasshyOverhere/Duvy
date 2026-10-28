@@ -1,16 +1,19 @@
-//! Per-show intro and outro markers.
+//! Per-episode intro and outro markers.
 //!
-//! One JSON object under the `skip` key maps a meta id to its markers. The
-//! intro belongs to the show rather than the episode, so a single entry covers
-//! every episode under that id.
+//! One JSON object under the `skip` key maps a session key (`id:season:episode`)
+//! to its markers. Markers the viewer sets by hand win; when there are none,
+//! `skip_lookup` asks IntroDB for the community timestamps, the same source
+//! Nuvio uses.
 
 use crate::db;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::time::Duration;
 use tauri::State;
 
 const KEY: &str = "skip";
+const INTRODB: &str = "https://api.introdb.app/segments";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -102,6 +105,58 @@ pub fn skip_set(
     Ok(Some(entry))
 }
 
+/// Community markers from IntroDB for one episode, or none when it has no entry.
+#[tauri::command]
+pub async fn skip_lookup(
+    imdb_id: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Option<SkipEntry>, String> {
+    if !imdb_id.starts_with("tt") || !imdb_id[2..].bytes().all(|b| b.is_ascii_digit()) {
+        return Ok(None);
+    }
+    let mut url = format!("{INTRODB}?imdb_id={imdb_id}");
+    match (season, episode) {
+        (Some(season), Some(episode)) => url.push_str(&format!("&season={season}&episode={episode}")),
+        _ => url.push_str("&is_movie=true"),
+    }
+    let response = state
+        .http
+        .get(url)
+        .timeout(Duration::from_secs(6))
+        .send()
+        .await
+        .map_err(|e| format!("intro lookup failed: {e}"))?;
+    // A missing entry is the normal case, not an error.
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+    let value = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("intro lookup was not JSON: {e}"))?;
+    let entry = from_segments(&value);
+    Ok((!entry.is_empty()).then_some(entry))
+}
+
+fn from_segments(value: &serde_json::Value) -> SkipEntry {
+    let seg = |key: &str| -> Option<(f64, f64)> {
+        let seg = value.get(key)?;
+        Some((seg.get("start_sec")?.as_f64()?, seg.get("end_sec")?.as_f64()?))
+    };
+    let mut entry = SkipEntry::default();
+    if let Some((start, end)) = seg("intro") {
+        entry.intro_start = Some(start);
+        entry.intro_end = Some(end);
+    }
+    // Only the outro's start is needed; the skip lands on the end of the file.
+    if let Some((start, _)) = seg("outro") {
+        entry.outro_start = Some(start);
+    }
+    entry
+}
+
 fn validate(entry: &SkipEntry) -> Result<(), String> {
     for value in [entry.intro_start, entry.intro_end, entry.outro_start]
         .into_iter()
@@ -166,6 +221,20 @@ mod tests {
             Some(("outro".to_string(), 1440.0))
         );
         assert_eq!(apply(&skip, 1439.0, 1440.0), None);
+    }
+
+    #[test]
+    fn segments_map_to_markers() {
+        let value = serde_json::json!({
+            "intro": { "start_sec": 2.5, "end_sec": 58 },
+            "recap": null,
+            "outro": { "start_sec": 2600, "end_sec": 2650 },
+        });
+        assert_eq!(
+            from_segments(&value),
+            entry((2.5, 58.0), Some(2600.0))
+        );
+        assert!(from_segments(&serde_json::json!({ "intro": null })).is_empty());
     }
 
     #[test]
