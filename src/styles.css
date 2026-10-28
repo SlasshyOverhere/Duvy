@@ -3269,6 +3269,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-bottom-color: var(--accent);
 }
 
+/* The underline is the focus indicator; the global ring would double it and clip. */
+.field input:focus-visible,
+.field select:focus-visible,
+.field-row input:focus-visible,
+.install-form input:focus-visible {
+  outline: none;
+}
+
 .field-row {
   display: flex;
   align-items: flex-end;
