@@ -65,6 +65,8 @@ export const api = {
     remove: (url: string) => call<null>("addons_remove", { url }),
     setEnabled: (url: string, enabled: boolean) =>
       call<null>("addons_set_enabled", { url, enabled }),
+    move: (url: string, delta: number) => call<AddonInfo[]>("addons_move", { url, delta }),
+    refresh: (url: string) => call<AddonInfo>("addons_refresh", { url }),
   },
 
   home: () => call<HomeFeed>("home_feed"),

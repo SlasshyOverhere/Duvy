@@ -209,6 +209,36 @@ pub fn set_addon_enabled(conn: &Connection, url: &str, enabled: bool) -> rusqlit
     Ok(())
 }
 
+/// Swap an addon with its neighbour. Positions are flattened to row order first
+/// so rows that share a value still move exactly one step.
+pub fn move_addon(conn: &Connection, url: &str, delta: i32) -> rusqlite::Result<()> {
+    let addons = list_addons(conn)?;
+    let Some(index) = addons.iter().position(|a| a.url == url) else {
+        return Ok(());
+    };
+    let target = index as i64 + delta as i64;
+    if delta == 0 || target < 0 || target as usize >= addons.len() {
+        return Ok(());
+    }
+    let target = target as usize;
+    let tx = conn.unchecked_transaction()?;
+    for (slot, addon) in addons.iter().enumerate() {
+        tx.execute(
+            "UPDATE addons SET position = ?2 WHERE url = ?1",
+            params![addon.url, slot as i64],
+        )?;
+    }
+    tx.execute(
+        "UPDATE addons SET position = ?2 WHERE url = ?1",
+        params![addons[index].url, target as i64],
+    )?;
+    tx.execute(
+        "UPDATE addons SET position = ?2 WHERE url = ?1",
+        params![addons[target].url, index as i64],
+    )?;
+    tx.commit()
+}
+
 // ---------------------------------------------------------------------------
 // Library
 // ---------------------------------------------------------------------------
@@ -627,4 +657,38 @@ pub fn read_settings(conn: &Connection) -> rusqlite::Result<Value> {
 
 pub fn write_settings(conn: &Connection, value: &Value) -> rusqlite::Result<()> {
     write_kv(conn, "app", value)
+}
+
+#[cfg(test)]
+mod reorder_tests {
+    use super::*;
+
+    fn urls(conn: &Connection) -> Vec<String> {
+        list_addons(conn)
+            .unwrap()
+            .into_iter()
+            .map(|a| a.url)
+            .collect()
+    }
+
+    #[test]
+    fn moving_swaps_one_neighbour() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(V1).unwrap();
+        for url in ["https://a", "https://b", "https://c"] {
+            upsert_addon(&conn, url, url, url, &Value::Null).unwrap();
+        }
+
+        move_addon(&conn, "https://b", -1).unwrap();
+        assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"]);
+        move_addon(&conn, "https://b", -1).unwrap();
+        assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"], "top stays put");
+        move_addon(&conn, "https://a", 1).unwrap();
+        assert_eq!(urls(&conn), ["https://b", "https://c", "https://a"]);
+
+        // Rows left sharing a position still move a single step.
+        conn.execute("UPDATE addons SET position = 0", []).unwrap();
+        move_addon(&conn, "https://c", -1).unwrap();
+        assert_eq!(urls(&conn), ["https://a", "https://c", "https://b"]);
+    }
 }

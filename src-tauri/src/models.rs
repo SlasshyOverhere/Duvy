@@ -96,6 +96,8 @@ pub struct AddonInfo {
     pub types: Vec<String>,
     pub resources: Vec<String>,
     pub catalogs: Vec<crate::addons::CatalogDef>,
+    pub configure_url: Option<String>,
+    pub configuration_required: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug)]

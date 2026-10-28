@@ -273,6 +273,8 @@ pub fn settings_set(patch: Value, state: State<'_, AppState>) -> Result<Settings
 
 fn addon_info(addon: &StoredAddon) -> AddonInfo {
     let manifest = parse_manifest(addon);
+    let configuration_required = behavior_hint(&manifest, "configurationRequired");
+    let configurable = behavior_hint(&manifest, "configurable").unwrap_or(false);
     AddonInfo {
         url: addon.url.clone(),
         addon_id: addon.addon_id.clone(),
@@ -294,7 +296,50 @@ fn addon_info(addon: &StoredAddon) -> AddonInfo {
             .into_iter()
             .collect(),
         catalogs: manifest.catalogs.clone(),
+        configure_url: (configurable || configuration_required.unwrap_or(false))
+            .then(|| format!("{}/configure", addon_base(&addon.url))),
+        configuration_required,
     }
+}
+
+fn behavior_hint(manifest: &Manifest, key: &str) -> Option<bool> {
+    manifest
+        .behavior_hints
+        .as_ref()
+        .and_then(|hints| hints.get(key))
+        .and_then(Value::as_bool)
+}
+
+fn addon_base(url: &str) -> &str {
+    url.strip_suffix("/manifest.json").unwrap_or(url)
+}
+
+/// Write a freshly fetched manifest and hand back the row as the UI sees it.
+fn store_addon(
+    state: &AppState,
+    base: &str,
+    manifest: &Manifest,
+    value: &Value,
+) -> Result<AddonInfo, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    db::upsert_addon(&conn, base, &manifest.id, &manifest.name, value)
+        .map_err(|e| e.to_string())?;
+    let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
+    let stored = addons
+        .iter()
+        .find(|a| a.url == base)
+        .ok_or("Addon was not stored")?;
+    Ok(addon_info(stored))
+}
+
+async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, Manifest), String> {
+    let value = fetch_json(client, &format!("{base}/manifest.json")).await?;
+    let manifest: Manifest = serde_json::from_value(value.clone())
+        .map_err(|e| format!("That URL did not return a valid addon manifest: {e}"))?;
+    if manifest.name.trim().is_empty() || manifest.id.trim().is_empty() {
+        return Err("That manifest is missing an id or name".into());
+    }
+    Ok((value, manifest))
 }
 
 #[tauri::command]
@@ -313,24 +358,34 @@ pub async fn addons_install(
     if base.is_empty() {
         return Err("Enter an addon URL".into());
     }
-    let manifest_url = format!("{base}/manifest.json");
-    let value = fetch_json(&state.http, &manifest_url).await?;
-    let manifest: Manifest = serde_json::from_value(value.clone())
-        .map_err(|e| format!("That URL did not return a valid addon manifest: {e}"))?;
-    if manifest.name.trim().is_empty() || manifest.id.trim().is_empty() {
-        return Err("That manifest is missing an id or name".into());
+    let (value, manifest) = fetch_manifest(&state.http, &base).await?;
+    store_addon(&state, &base, &manifest, &value)
+}
+
+/// Re-read the manifest of an installed addon. The row is only touched once the
+/// new manifest has been fetched and parsed.
+#[tauri::command]
+pub async fn addons_refresh(url: String, state: State<'_, AppState>) -> Result<AddonInfo, String> {
+    let base = addons::normalize_addon_url(&url);
+    if base.is_empty() {
+        return Err("Enter an addon URL".into());
     }
-    {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-        db::upsert_addon(&conn, &base, &manifest.id, &manifest.name, &value)
-            .map_err(|e| e.to_string())?;
-        let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
-        let stored = addons
-            .iter()
-            .find(|a| a.url == base)
-            .ok_or("Addon was not stored")?;
-        Ok(addon_info(stored))
-    }
+    let (value, manifest) = fetch_manifest(&state.http, &base)
+        .await
+        .map_err(|e| format!("Refresh failed: {e}"))?;
+    store_addon(&state, &base, &manifest, &value)
+}
+
+#[tauri::command]
+pub fn addons_move(
+    url: String,
+    delta: i32,
+    state: State<'_, AppState>,
+) -> Result<Vec<AddonInfo>, String> {
+    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    db::move_addon(&conn, &url, delta).map_err(|e| e.to_string())?;
+    let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
+    Ok(addons.iter().map(addon_info).collect())
 }
 
 #[tauri::command]

@@ -143,6 +143,8 @@ export interface AddonInfo {
   types: string[];
   resources: string[];
   catalogs: CatalogDef[];
+  configureUrl?: string | null;
+  configurationRequired?: boolean | null;
 }
 
 export interface LibraryItem {

@@ -469,6 +469,8 @@ pub fn run() {
             commands::addons_install,
             commands::addons_remove,
             commands::addons_set_enabled,
+            commands::addons_move,
+            commands::addons_refresh,
             commands::home_feed,
             commands::catalog,
             commands::search,

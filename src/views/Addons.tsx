@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { api } from "../lib/bridge";
+import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { AddonInfo } from "../lib/types";
-import { Badge, Button, EmptyState, Icon, Spinner, Toggle } from "../components/ui";
+import { Badge, Button, EmptyState, Icon, Spinner, Toggle, type IconName } from "../components/ui";
 
 const RESOURCE_LABELS: Record<string, string> = {
   catalog: "Catalogs",
@@ -45,6 +45,35 @@ function catalogCount(addon: AddonInfo): string {
   return `${count} ${count === 1 ? "catalog" : "catalogs"}`;
 }
 
+function CardButton({
+  icon,
+  label,
+  disabled,
+  rotate,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  disabled?: boolean;
+  rotate?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="icon-btn"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      // Disabled icon buttons keep their colour, so they are faded here.
+      style={disabled ? { opacity: 0.35 } : undefined}
+      onClick={onClick}
+    >
+      <Icon name={icon} size={16} style={rotate ? { transform: `rotate(${rotate}deg)` } : undefined} />
+    </button>
+  );
+}
+
 // Addon management lives in Settings, so this is the body without a page shell.
 export function AddonsPanel() {
   const { addons, booting, refreshAddons, notify } = useApp();
@@ -53,6 +82,7 @@ export function AddonsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const [confirmUrl, setConfirmUrl] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<{ url: string; message: string } | null>(null);
 
   const install = async (raw: string) => {
     setBusy(true);
@@ -94,6 +124,31 @@ export function AddonsPanel() {
       notify(`${addon.name} removed`);
     } catch (e) {
       notify(errorText(e), "error");
+    } finally {
+      setPendingUrl(null);
+    }
+  };
+
+  const move = async (addon: AddonInfo, delta: number) => {
+    setPendingUrl(addon.url);
+    try {
+      await api.addons.move(addon.url, delta);
+      await refreshAddons();
+    } catch (e) {
+      notify(errorText(e), "error");
+    } finally {
+      setPendingUrl(null);
+    }
+  };
+
+  const refresh = async (addon: AddonInfo) => {
+    setPendingUrl(addon.url);
+    setRefreshError(null);
+    try {
+      await api.addons.refresh(addon.url);
+      await refreshAddons();
+    } catch (e) {
+      setRefreshError({ url: addon.url, message: errorText(e) });
     } finally {
       setPendingUrl(null);
     }
@@ -158,10 +213,12 @@ export function AddonsPanel() {
       ) : null}
 
       <div className="addon-list">
-        {addons.map((addon) => {
+        {addons.map((addon, index) => {
           const pending = pendingUrl === addon.url;
+          const pendingAny = pendingUrl !== null;
           const confirming = confirmUrl === addon.url;
           const catalogs = catalogCount(addon);
+          const configureUrl = addon.configureUrl;
 
           return (
             <article className={`addon-card${addon.enabled ? "" : " is-off"}`} key={addon.url}>
@@ -176,6 +233,7 @@ export function AddonsPanel() {
                 <div className="addon-title">
                   <h3>{addon.name}</h3>
                   {addon.version ? <span className="addon-version">v{addon.version}</span> : null}
+                  {addon.configurationRequired ? <Badge tone="warn">Setup required</Badge> : null}
                   {addon.enabled ? null : <Badge tone="warn">Disabled</Badge>}
                 </div>
                 <p className="addon-url">{addon.url}</p>
@@ -190,8 +248,13 @@ export function AddonsPanel() {
                     ))}
                   {catalogs ? <span className="addon-count">{catalogs}</span> : null}
                 </div>
+                {refreshError && refreshError.url === addon.url ? (
+                  <p className="form-error" role="alert">
+                    {refreshError.message}
+                  </p>
+                ) : null}
               </div>
-              <div className="addon-actions">
+              <div className="addon-actions" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
                 {confirming ? (
                   <>
                     <Button
@@ -208,6 +271,31 @@ export function AddonsPanel() {
                   </>
                 ) : (
                   <>
+                    <CardButton
+                      icon="chevron"
+                      label={`Move ${addon.name} up`}
+                      rotate={-90}
+                      disabled={pendingAny || index === 0}
+                      onClick={() => void move(addon, -1)}
+                    />
+                    <CardButton
+                      icon="chevron"
+                      label={`Move ${addon.name} down`}
+                      rotate={90}
+                      disabled={pendingAny || index === addons.length - 1}
+                      onClick={() => void move(addon, 1)}
+                    />
+                    <CardButton
+                      icon="refresh"
+                      label={`Refresh ${addon.name}`}
+                      disabled={pendingAny}
+                      onClick={() => void refresh(addon)}
+                    />
+                    {configureUrl ? (
+                      <Button icon="external" onClick={() => void openExternal(configureUrl)}>
+                        Configure
+                      </Button>
+                    ) : null}
                     <Toggle
                       checked={addon.enabled}
                       label={`${addon.enabled ? "Disable" : "Enable"} ${addon.name}`}
