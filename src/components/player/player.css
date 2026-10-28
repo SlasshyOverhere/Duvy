@@ -1572,12 +1572,6 @@
   color: rgba(255, 255, 255, 0.8);
 }
 
-/* The elapsed counter sits right under the spinner, not on a paragraph margin. */
-.pv .pv-wait .pv-hint {
-  margin: -8px 0 0;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
-}
-
 /* ---- failed source ------------------------------------------------------ */
 
 .pv .pv-next--failed {

@@ -409,7 +409,6 @@ export function PlayerView() {
   const [busy, setBusy] = useState(false);
   // Seconds spent waiting for the source so far, so a slow provider is
   // visible instead of an unchanging spinner.
-  const [waited, setWaited] = useState(0);
 
   const [hud, setHud] = useState<Hud | null>(null);
   // Stremio's centre card: the level moved, so show it big for a moment.
@@ -1412,18 +1411,6 @@ export function PlayerView() {
     }
   };
 
-  // A source that never opens would otherwise spin forever with no way out.
-  useEffect(() => {
-    if (!local || local.ended || local.error || firstFrame || local.duration > 0) {
-      setWaited(0);
-      return;
-    }
-    const started = Date.now();
-    setWaited(0);
-    const timer = window.setInterval(() => setWaited((Date.now() - started) / 1000), 250);
-    return () => window.clearInterval(timer);
-  }, [firstFrame, local?.duration, local?.ended, local?.error]);
-
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
     if (starting) {
@@ -1671,19 +1658,6 @@ export function PlayerView() {
           ) : (
             <h1 className="pv-wait-title">{title}</h1>
           )}
-          <p className="pv-wait-label">Opening stream</p>
-          {/* The counter stays out of the live region, or it announces twice a second. */}
-          <p className="pv-hint" aria-hidden="true">
-            {waited.toFixed(1)}s
-          </p>
-          {waited >= 14 ? (
-            <>
-              <p className="pv-hint">Still opening. This source may be slow or gone.</p>
-              <button type="button" className="btn btn-ghost" onClick={() => void stop()}>
-                Stop
-              </button>
-            </>
-          ) : null}
         </div>
       ) : null}
 
