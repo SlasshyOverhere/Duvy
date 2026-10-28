@@ -19,15 +19,19 @@ export function useMpv(): AppInfo["mpv"] {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ state: string }>("player-setup", (event) => {
-      const { state } = event.payload;
-      if (state !== "ready" && state !== "failed") return;
+    // The boot probe can predate the first-run download, so re-check on mount:
+    // the shell is unmounted while onboarding and the player are open.
+    const probe = () =>
       void api
         .appInfo()
         .then((info) => {
           if (!disposed) setMpv(info.mpv);
         })
         .catch(() => {});
+    probe();
+    void listen<{ state: string }>("player-setup", (event) => {
+      const { state } = event.payload;
+      if (state === "ready" || state === "failed") probe();
     })
       .then((stop) => {
         if (disposed) stop();
