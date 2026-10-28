@@ -343,9 +343,14 @@ export function StreamDrawer({
                 <ul className="stream-list">
                   {group.streams.map((stream, index) => {
                     const url = stream.url?.trim() || null;
-                    const label = stream.name || stream.title || "Source";
-                    const release =
-                      stream.title && stream.title !== stream.name ? stream.title : null;
+                    // Addons put the useful text in different places: MediaFusion
+                    // writes a multi-line description, Torrentio writes a title.
+                    const detail = (stream.description || stream.title || "").trim();
+                    const label =
+                      stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
+                    const body = detail.startsWith(label)
+                      ? detail.slice(label.length).trim()
+                      : detail;
                     const showQuality =
                       stream.quality !== "Auto" &&
                       !label.toLowerCase().includes(stream.quality.toLowerCase());
@@ -368,7 +373,7 @@ export function StreamDrawer({
                             className="stream-play"
                             onClick={() => stream.playable && onPlay(stream)}
                             disabled={!stream.playable}
-                            aria-label={`Play ${release || label}`}
+                            aria-label={`Play ${label}`}
                           >
                             <span className="stream-head">
                               <span className="stream-label">{label}</span>
@@ -376,26 +381,34 @@ export function StreamDrawer({
                                 <span className="stream-quality">{stream.quality}</span>
                               ) : null}
                             </span>
-                            {release ? <span className="stream-release">{release}</span> : null}
-                            {hasMeta ? (
-                              <span className="stream-meta">
-                                {stream.size ? (
-                                  <span className="stream-size">{stream.size}</span>
-                                ) : null}
-                                {stream.seeders != null ? (
-                                  <span className="stream-seeds">
-                                    {stream.seeders.toLocaleString()} seeds
+                            {body ? (
+                              <span className="stream-detail">{body}</span>
+                            ) : (
+                              <>
+                                {hasMeta ? (
+                                  <span className="stream-meta">
+                                    {stream.size ? (
+                                      <span className="stream-size">{stream.size}</span>
+                                    ) : null}
+                                    {stream.seeders != null ? (
+                                      <span className="stream-seeds">
+                                        {stream.seeders.toLocaleString()} seeds
+                                      </span>
+                                    ) : null}
+                                    {stream.badges.map((badge) => (
+                                      <span key={badge}>{badge}</span>
+                                    ))}
+                                    {stream.cached ? (
+                                      <span className="stream-cached">Cached</span>
+                                    ) : null}
                                   </span>
                                 ) : null}
-                                {stream.badges.map((badge) => (
-                                  <span key={badge}>{badge}</span>
-                                ))}
-                                {stream.cached ? (
-                                  <span className="stream-cached">Cached</span>
-                                ) : null}
-                              </span>
+                                {audio ? <span className="stream-audio">{audio}</span> : null}
+                              </>
+                            )}
+                            {stream.sizeBytes != null && stream.size ? (
+                              <span className="stream-size-line">SIZE {stream.size}</span>
                             ) : null}
-                            {audio ? <span className="stream-audio">{audio}</span> : null}
                           </button>
                           {url ? (
                             <button
@@ -407,7 +420,7 @@ export function StreamDrawer({
                                 setMenu({
                                   x: event.clientX,
                                   y: event.clientY,
-                                  title: release || label,
+                                  title: label,
                                   url,
                                 })
                               }
