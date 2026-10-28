@@ -37,6 +37,7 @@ export type IconName =
   | "stop"
   | "key"
   | "info"
+  | "alert"
   | "download"
   | "expand"
   | "compress"
@@ -174,7 +175,8 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
       <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.4-1.1-1.7-3-1.7.7a7.6 7.6 0 0 0-2.6-1.5L14.4 3h-3.4l-.4 2.6a7.6 7.6 0 0 0-2.6 1.5l-1.7-.7-1.7 3 1.4 1.1a7.8 7.8 0 0 0 0 3L4.6 14.6l1.7 3 1.7-.7a7.6 7.6 0 0 0 2.6 1.5l.4 2.6h3.4l.4-2.6a7.6 7.6 0 0 0 2.6-1.5l1.7.7 1.7-3-1.4-1.1Z" />
     </>
   ),
-  play: <path d="M8.5 5.2v13.6l11-6.8-11-6.8Z" fill="currentColor" stroke="none" />,
+  // Ink spans 6.5..17.5 so the triangle sits optically centred in the 24 box.
+  play: <path d="M6.5 5.2v13.6l11-6.8-11-6.8Z" fill="currentColor" stroke="none" />,
   pause: (
     <>
       <rect x="7" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none" />
@@ -271,6 +273,12 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
       <path d="M12 11v5.5M12 7.8v.4" />
     </>
   ),
+  alert: (
+    <>
+      <path d="M12 4.2 21 19.4H3L12 4.2Z" />
+      <path d="M12 9.8v4.2M12 16.9v.3" />
+    </>
+  ),
   download: (
     <>
       <path d="M12 4v11M7.5 11l4.5 4.5L16.5 11" />
@@ -333,7 +341,7 @@ export function Icon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={size >= 32 ? 1.2 : size <= 16 ? 2 : 1.6}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -382,12 +390,14 @@ export function IconButton({
   onClick,
   label,
   active,
+  disabled,
   size = 18,
 }: {
   icon: IconName;
   onClick?: () => void;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   size?: number;
 }) {
   return (
@@ -397,6 +407,7 @@ export function IconButton({
       onClick={onClick}
       aria-label={label}
       title={label}
+      disabled={disabled}
     >
       <Icon name={icon} size={size} />
     </button>
@@ -425,11 +436,14 @@ export function ContextMenu({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const [at, setAt] = useState({ left: x, top: y });
 
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    // Remember who opened the menu so focus can go back there on close.
+    if (!opener.current) opener.current = document.activeElement as HTMLElement | null;
     const box = node.getBoundingClientRect();
     setAt({
       left: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)),
@@ -437,6 +451,13 @@ export function ContextMenu({
     });
     node.querySelector<HTMLButtonElement>(".ctx-item:not(:disabled)")?.focus();
   }, [x, y]);
+
+  useEffect(
+    () => () => {
+      opener.current?.focus?.();
+    },
+    [],
+  );
 
   useEffect(() => {
     const onPointer = (event: PointerEvent) => {
@@ -505,10 +526,12 @@ export function Toggle({
   checked,
   onChange,
   label,
+  disabled,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -518,6 +541,7 @@ export function Toggle({
       aria-label={label}
       className={`toggle${checked ? " is-on" : ""}`}
       onClick={() => onChange(!checked)}
+      disabled={disabled}
     >
       <span className="toggle-knob" />
     </button>
@@ -565,15 +589,6 @@ export function EmptyState({
       <h3>{title}</h3>
       {body ? <p>{body}</p> : null}
       {action}
-    </div>
-  );
-}
-
-export function SectionHeading({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="section-heading">
-      <h2>{title}</h2>
-      {detail ? <span>{detail}</span> : null}
     </div>
   );
 }

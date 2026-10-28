@@ -164,10 +164,12 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     const title = drawer.video
       ? `${details.name} · ${seasonLabel(drawer.video.season, drawer.video.episode ?? drawer.video.number)}`
       : details.name;
-    setDrawer(null);
     try {
       const url = await resolveStream(stream);
       await playRequest({ url, title, startAt: resume, session });
+      // Only close once playback is actually opening, so a failed source can be
+      // retried without reopening the drawer.
+      setDrawer(null);
     } catch (error) {
       notify(error instanceof Error ? error.message : "That source could not be opened.", "error");
     }
@@ -276,7 +278,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                 {inWatchlist ? "In library" : "Library"}
               </Button>
               {trailer ? (
-                <Button icon="external" onClick={() => void openExternal(trailer)}>
+                <Button
+                  icon="external"
+                  onClick={() =>
+                    void openExternal(trailer).catch(() =>
+                      notify("Could not open the trailer", "error"),
+                    )
+                  }
+                >
                   Trailer
                 </Button>
               ) : null}

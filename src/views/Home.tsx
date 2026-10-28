@@ -48,6 +48,7 @@ export function HomeView() {
   const [feed, setFeed] = useState<HomeFeed | null>(cachedFeed);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [slide, setSlide] = useState(0);
 
   const addonSignature = addons.map((addon) => `${addon.url}:${addon.enabled}`).join("|");
@@ -73,7 +74,7 @@ export function HomeView() {
     return () => {
       alive = false;
     };
-  }, [addonSignature]);
+  }, [addonSignature, attempt]);
 
   const featured = (feed?.rows?.[0]?.items ?? []).slice(0, 6);
   const hero = featured[slide] ?? featured[0] ?? null;
@@ -169,7 +170,9 @@ export function HomeView() {
             icon="info"
             title="Could not refresh your home feed"
             body={error}
-            action={<Button onClick={() => window.location.reload()}>Try again</Button>}
+            action={
+              <Button onClick={() => setAttempt((count) => count + 1)}>Try again</Button>
+            }
           />
         ) : null}
 

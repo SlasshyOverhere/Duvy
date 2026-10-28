@@ -74,6 +74,7 @@ export function DebridView() {
   };
 
   const disconnect = async (provider: DebridProvider) => {
+    if (!window.confirm(`Disconnect ${provider.name}? The stored key is deleted.`)) return;
     clearError(provider.id);
     setBusy(provider.id);
     try {

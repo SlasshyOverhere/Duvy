@@ -85,19 +85,14 @@ export function LibraryView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <div className="page-tabs" role="tablist" aria-label="Library">
-            <button type="button" role="tab" aria-selected className="is-active">
+          <nav className="page-tabs" aria-label="Library">
+            <button type="button" className="is-active" aria-current="page">
               Library
             </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={false}
-              onClick={() => navigate({ name: "watched" })}
-            >
+            <button type="button" onClick={() => navigate({ name: "watched" })}>
               Watched
             </button>
-          </div>
+          </nav>
           <h1>Saved for later</h1>
           <p className="page-sub">
             {items.length === library.length
@@ -106,13 +101,12 @@ export function LibraryView() {
           </p>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-          <div className="segmented" role="tablist" aria-label="Filter library by type">
+          <div className="segmented" role="group" aria-label="Filter library by type">
             {FILTERS.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                role="tab"
-                aria-selected={tab === value}
+                aria-pressed={tab === value}
                 className={tab === value ? "is-active" : ""}
                 onClick={() => setTab(value)}
               >

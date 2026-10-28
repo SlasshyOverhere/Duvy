@@ -226,12 +226,7 @@ export function TraktView() {
             className="field-row"
             style={{ alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}
           >
-            <div className="spinner-wrap" style={{ padding: 0, justifyContent: "flex-start" }}>
-              <span className="spinner" />
-              <span className="spinner-label" role="status" aria-live="polite">
-                Waiting for approval…
-              </span>
-            </div>
+            <Spinner label="Waiting for approval…" />
             <Button icon="x" onClick={cancel} disabled={busy !== null}>
               Cancel
             </Button>

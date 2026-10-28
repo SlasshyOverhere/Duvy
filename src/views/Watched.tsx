@@ -74,6 +74,7 @@ export function WatchedView() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<"calendar" | "posters">("calendar");
+  const [expandedDay, setExpandedDay] = useState<number | null>(null);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -141,23 +142,18 @@ export function WatchedView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <div className="page-tabs" role="tablist" aria-label="Library">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={false}
-              onClick={() => navigate({ name: "library" })}
-            >
+          <nav className="page-tabs" aria-label="Library">
+            <button type="button" onClick={() => navigate({ name: "library" })}>
               Library
             </button>
-            <button type="button" role="tab" aria-selected className="is-active">
+            <button type="button" className="is-active" aria-current="page">
               Watched
             </button>
-          </div>
+          </nav>
           <h1>Finished, not forgotten</h1>
           <p className="page-sub">{status}</p>
         </div>
-        <div className="segmented" role="tablist" aria-label="Watched layout">
+        <div className="segmented" role="group" aria-label="Watched layout">
           {(
             [
               ["calendar", "Calendar"],
@@ -167,8 +163,7 @@ export function WatchedView() {
             <button
               key={value}
               type="button"
-              role="tab"
-              aria-selected={mode === value}
+              aria-pressed={mode === value}
               className={mode === value ? "is-active" : ""}
               onClick={() => setMode(value)}
             >
@@ -231,17 +226,20 @@ export function WatchedView() {
             ))}
             {week.cells.map((cell, position) => {
               const isToday = isThisMonth && cell.day === today.getDate();
+              const day = cell.day;
+              const expanded = day !== null && expandedDay === day;
+              const shown = expanded ? cell.entries : cell.entries.slice(0, 4);
               return (
                 <div
-                  key={cell.day ?? `blank-${position}`}
-                  className={`calendar-day${cell.day ? "" : " is-blank"}${
+                  key={day ?? `blank-${position}`}
+                  className={`calendar-day${day ? "" : " is-blank"}${
                     isToday ? " is-today" : ""
                   }`}
                 >
-                  {cell.day ? (
+                  {day ? (
                     <>
-                      <span className="calendar-day-num">{cell.day}</span>
-                      {cell.entries.slice(0, 4).map((item) => {
+                      <span className="calendar-day-num">{day}</span>
+                      {shown.map((item) => {
                         const title = titleOf(item);
                         const code = episodeCode(item);
                         const when = watchedOn(item.watchedAt);
@@ -250,7 +248,7 @@ export function WatchedView() {
                           <button
                             type="button"
                             className="calendar-item"
-                            key={item.metaId}
+                            key={`${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`}
                             onClick={() => open(item)}
                             title={label}
                             aria-label={label}
@@ -264,7 +262,14 @@ export function WatchedView() {
                         );
                       })}
                       {cell.entries.length > 4 ? (
-                        <span className="calendar-more">+{cell.entries.length - 4} more</span>
+                        <button
+                          type="button"
+                          className="calendar-more"
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedDay(expanded ? null : day)}
+                        >
+                          {expanded ? "Show less" : `+${cell.entries.length - 4} more`}
+                        </button>
                       ) : null}
                     </>
                   ) : null}
@@ -279,7 +284,10 @@ export function WatchedView() {
             const title = titleOf(item);
             const meta = [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · ");
             return (
-              <div className="watched-cell" key={item.metaId}>
+              <div
+                className="watched-cell"
+                key={`${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`}
+              >
                 <PosterCard
                   item={{
                     id: item.metaId,

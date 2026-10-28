@@ -70,7 +70,7 @@ function Toasts() {
             className={`toast toast-${toast.tone}`}
           >
             <Icon
-              name={toast.tone === "success" ? "check" : "info"}
+              name={toast.tone === "success" ? "check" : toast.tone === "error" ? "alert" : "info"}
               size={16}
             />
             <span>{toast.text}</span>

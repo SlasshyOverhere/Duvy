@@ -88,6 +88,8 @@ export function StreamDrawer({
     url: string;
   } | null>(null);
   const runId = useRef(0);
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   const chooseFilter = (next: string) => {
     setFilter(next);
@@ -182,10 +184,42 @@ export function StreamDrawer({
     setFilter("all");
   }, [open, filter, groups]);
 
+  // Focus moves into the drawer on open and back to the opener on close, and
+  // Tab stays inside it: it is a modal surface, so the page behind is off limits.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => {
+      opener?.focus?.();
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const node = drawerRef.current;
+      if (!node) return;
+      const items = Array.from(
+        node.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((item) => item.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -205,15 +239,27 @@ export function StreamDrawer({
 
   return (
     <div className="drawer-root">
-      <button type="button" className="drawer-backdrop" aria-label="Close" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Choose a stream">
+      <div className="drawer-backdrop" aria-hidden="true" onClick={onClose} />
+      <aside
+        ref={drawerRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose a stream"
+      >
         <header className="drawer-head">
           <div>
             <p className="drawer-kicker">Sources</p>
             <h2>{title}</h2>
             {subtitle ? <p className="drawer-sub">{subtitle}</p> : null}
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+            ref={closeRef}
+          >
             <Icon name="x" size={18} />
           </button>
         </header>
@@ -222,6 +268,7 @@ export function StreamDrawer({
           <button
             type="button"
             className={`chip${filter === "all" ? " is-active" : ""}`}
+            aria-pressed={filter === "all"}
             onClick={() => chooseFilter("all")}
           >
             All <span>{total}</span>
@@ -231,6 +278,7 @@ export function StreamDrawer({
               key={group.addon}
               type="button"
               className={`chip${filter === group.addon ? " is-active" : ""}`}
+              aria-pressed={filter === group.addon}
               onClick={() => chooseFilter(group.addon)}
             >
               {group.addon}{" "}

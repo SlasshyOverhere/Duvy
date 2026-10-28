@@ -65,8 +65,6 @@ function CardButton({
       aria-label={label}
       title={label}
       disabled={disabled}
-      // Disabled icon buttons keep their colour, so they are faded here.
-      style={disabled ? { opacity: 0.35 } : undefined}
       onClick={onClick}
     >
       <Icon name={icon} size={16} style={rotate ? { transform: `rotate(${rotate}deg)` } : undefined} />
@@ -292,16 +290,22 @@ export function AddonsPanel() {
                       onClick={() => void refresh(addon)}
                     />
                     {configureUrl ? (
-                      <Button icon="external" onClick={() => void openExternal(configureUrl)}>
+                      <Button
+                        icon="external"
+                        onClick={() =>
+                          void openExternal(configureUrl).catch(() =>
+                            notify("Could not open the addon settings", "error"),
+                          )
+                        }
+                      >
                         Configure
                       </Button>
                     ) : null}
                     <Toggle
                       checked={addon.enabled}
                       label={`${addon.enabled ? "Disable" : "Enable"} ${addon.name}`}
-                      onChange={(value) => {
-                        if (!pending) void setEnabled(addon, value);
-                      }}
+                      disabled={pending}
+                      onChange={(value) => void setEnabled(addon, value)}
                     />
                     <button
                       type="button"

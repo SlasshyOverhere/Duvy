@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -15,7 +15,7 @@ function initials(name: string) {
     .join(" · ");
 }
 
-export function PosterCard({
+export const PosterCard = memo(function PosterCard({
   item,
   onOpen,
   onPlay,
@@ -147,7 +147,7 @@ export function PosterCard({
       ) : null}
     </article>
   );
-}
+});
 
 export function Row({
   title,

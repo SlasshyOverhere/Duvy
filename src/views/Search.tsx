@@ -50,9 +50,11 @@ export function SearchView({ query }: { query?: string }) {
   const [results, setResults] = useState<MetaPreview[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [value, setValue] = useState(query ?? "");
   const [recos, setRecos] = useState<HomeRow[]>(cachedRecos);
   const [recoState, setRecoState] = useState<"loading" | "ready" | "error">("loading");
+  const [recoAttempt, setRecoAttempt] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const [recent, setRecent] = useState<string[]>(readRecent);
 
@@ -102,11 +104,12 @@ export function SearchView({ query }: { query?: string }) {
     return () => {
       alive = false;
     };
-  }, [query, addons.length]);
+  }, [query, addons.length, attempt]);
 
   // Recommendations follow the watch history, so they are refetched every visit.
   useEffect(() => {
     let alive = true;
+    setRecoState("loading");
     api
       .recommendations()
       .then((rows) => {
@@ -121,7 +124,7 @@ export function SearchView({ query }: { query?: string }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [recoAttempt]);
 
   // Search returns both kinds at once; split them the way Stremio does.
   const movies = results.filter((item) => item.type === "movie");
@@ -207,7 +210,16 @@ export function SearchView({ query }: { query?: string }) {
           {loading ? (
             <Spinner label="Searching" />
           ) : error ? (
-            <EmptyState icon="info" title="Search failed" body={error} />
+            <EmptyState
+              icon="info"
+              title="Search failed"
+              body={error}
+              action={
+                <Button variant="primary" icon="refresh" onClick={() => setAttempt((count) => count + 1)}>
+                  Try again
+                </Button>
+              }
+            />
           ) : results.length === 0 ? (
             <EmptyState
               icon="search"
@@ -257,7 +269,16 @@ export function SearchView({ query }: { query?: string }) {
         <EmptyState
           icon={null}
           title="Recommendations could not load"
-          body="They are built on this machine from your history. If the app has only just started, give it a moment and reopen this page."
+          body="They are built on this machine from your history. If the app has only just started, give it a moment and try again."
+          action={
+            <Button
+              variant="primary"
+              icon="refresh"
+              onClick={() => setRecoAttempt((count) => count + 1)}
+            >
+              Try again
+            </Button>
+          }
         />
       ) : (
         <EmptyState

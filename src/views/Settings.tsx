@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import { Button, Icon, Toggle, type IconName } from "../components/ui";
+import { Button, Icon, Spinner, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
 import { AddonsPanel } from "./Addons";
 import TraktView from "./Trakt";
@@ -60,7 +60,17 @@ export function SettingsView({ section }: { section?: string }) {
     setMpvPath(settings?.mpvPath ?? "");
   }, [settings?.tmdbApiKey, settings?.mpvPath]);
 
-  if (!settings) return null;
+  const openLink = (url: string) => {
+    void openExternal(url).catch(() => notify("Could not open that link", "error"));
+  };
+
+  if (!settings) {
+    return (
+      <div className="page page-loading">
+        <Spinner label="Loading settings" />
+      </div>
+    );
+  }
 
   const update = async (patch: Parameters<typeof saveSettings>[0]) => {
     try {
@@ -230,7 +240,7 @@ export function SettingsView({ section }: { section?: string }) {
                       Locate mpv
                     </Button>
                     {!appInfo?.mpv ? (
-                      <Button icon="external" onClick={() => void openExternal("https://mpv.io/installation/")}>
+                      <Button icon="external" onClick={() => openLink("https://mpv.io/installation/")}>
                         Get mpv
                       </Button>
                     ) : null}
@@ -244,10 +254,10 @@ export function SettingsView({ section }: { section?: string }) {
                     aria-label="Custom mpv path"
                   />
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       if (mpvPath.trim() === settings.mpvPath.trim()) return;
-                      update({ mpvPath: mpvPath.trim() });
-                      notify("Player path saved");
+                      if (!(await update({ mpvPath: mpvPath.trim() }))) return;
+                      notify("Player path saved", "success");
                     }}
                   >
                     Save
@@ -483,8 +493,8 @@ export function SettingsView({ section }: { section?: string }) {
                   />
                   <Button
                     variant="primary"
-                    onClick={() => {
-                      update({ tmdbApiKey: tmdbKey.trim() });
+                    onClick={async () => {
+                      if (!(await update({ tmdbApiKey: tmdbKey.trim() }))) return;
                       notify(tmdbKey.trim() ? "TMDB key saved" : "TMDB key removed", "success");
                     }}
                   >
@@ -498,7 +508,7 @@ export function SettingsView({ section }: { section?: string }) {
                     <button
                       type="button"
                       className="link-button"
-                      onClick={() => void openExternal("https://www.themoviedb.org/settings/api")}
+                      onClick={() => openLink("https://www.themoviedb.org/settings/api")}
                     >
                       themoviedb.org
                     </button>
@@ -580,13 +590,13 @@ export function SettingsView({ section }: { section?: string }) {
                 <div className="about-actions">
                   <Button
                     icon="external"
-                    onClick={() => void openExternal("https://github.com/NuvioMedia/NuvioDesktop")}
+                    onClick={() => openLink("https://github.com/NuvioMedia/NuvioDesktop")}
                   >
                     Upstream project
                   </Button>
                   <Button
                     icon="external"
-                    onClick={() => void openExternal("https://www.stremio.com/")}
+                    onClick={() => openLink("https://www.stremio.com/")}
                   >
                     Addon protocol
                   </Button>
