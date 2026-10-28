@@ -195,7 +195,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       : details.name;
     try {
       const url = await resolveStream(stream);
-      const opened = await playRequest({ url, title, startAt: resume, session });
+      const opened = await playRequest({ url, title, startAt: resume, session }, stream);
       if (!opened) return;
       rememberSource(session.key, stream);
       // Only close once playback is actually opening, so a failed source can be

@@ -1254,16 +1254,7 @@ pub async fn streams(
             .then_with(|| a.addon.cmp(&b.addon))
             .then_with(|| a.name.cmp(&b.name))
     });
-    let mut seen = HashSet::new();
-    options.retain(|option| {
-        let key = option
-            .url
-            .clone()
-            .or_else(|| option.info_hash.clone())
-            .unwrap_or_else(|| format!("{:?}", option.title));
-        seen.insert(key)
-    });
-    Ok(options)
+    Ok(stream_utils::dedupe(options))
 }
 
 #[tauri::command]

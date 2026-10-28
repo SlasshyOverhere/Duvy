@@ -82,7 +82,7 @@ interface Store {
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   watched: WatchedItem[];
-  playRequest: (request: PlayRequest) => Promise<boolean>;
+  playRequest: (request: PlayRequest, source?: StreamOption | null) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
   buildSession: (details: Details, video: Video | null) => PlaybackSession;
@@ -180,8 +180,13 @@ export function pickSource(
     const match = playable.find((stream) => stream.quality.toLowerCase().includes(wanted));
     if (match) return match;
   }
-  const sameAddon = playing ? playable.find((stream) => stream.addon === playing.addon) : undefined;
-  return sameAddon ?? playable[0];
+  // Keeping the addon that worked must not cost a better picture: it only wins
+  // when it offers the same quality tier as the best source on the list.
+  const best = playable[0];
+  const sameAddon = playing
+    ? playable.find((stream) => stream.addon === playing.addon)
+    : undefined;
+  return sameAddon && sameAddon.quality === best?.quality ? sameAddon : best;
 }
 
 /** The whole source a session played last time, so resuming skips the hunt. */
@@ -721,7 +726,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [leaveStart]);
 
   const playRequest = useCallback(
-    async (request: PlayRequest): Promise<boolean> => {
+    async (request: PlayRequest, source?: StreamOption | null): Promise<boolean> => {
       // A double click used to start two players; the last one won, but both
       // sessions were spawned and both were pushed onto history.
       if (opening.current) return false;
@@ -730,6 +735,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const snapshot = await api.player.open(request);
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
+        // A failed open leaves the previous source playing, so the new one only
+        // becomes the playing source once mpv has actually taken it.
+        setPlayingSource(source ?? null);
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
         return true;
@@ -769,7 +777,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const url = providers.some((provider) => provider.connected)
           ? await api.debrid.resolve(direct)
           : direct;
-        setPlayingSource(stream);
         return url;
       }
 
@@ -791,7 +798,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (providers.some((provider) => provider.connected)) {
         try {
           const url = await api.debrid.resolve(magnet);
-          setPlayingSource(stream);
           return url;
         } catch (error) {
           debridError = error;
@@ -808,7 +814,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         magnet,
         stream.fileIdx != null ? String(stream.fileIdx) : undefined,
       );
-      setPlayingSource(stream);
       return url;
     },
     [settings?.p2pConsent],
@@ -899,7 +904,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
           : details.name;
-        const opened = await playRequest({ url, title: label, startAt: resume, session });
+        const opened = await playRequest({ url, title: label, startAt: resume, session }, source);
         if (opened) rememberSource(session.key, source);
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
@@ -999,15 +1004,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         if (!url || !source) return;
         if (startToken.current !== token) return;
-        const opened = await playRequest({
-          url,
-          title:
-            entry.type === "series"
-              ? `${entry.name} · ${seasonLabel(entry.season, entry.episode)}`
-              : entry.name,
-          startAt: resumePosition(entry.position, entry.duration),
-          session,
-        });
+        const opened = await playRequest(
+          {
+            url,
+            title:
+              entry.type === "series"
+                ? `${entry.name} · ${seasonLabel(entry.season, entry.episode)}`
+                : entry.name,
+            startAt: resumePosition(entry.position, entry.duration),
+            session,
+          },
+          source,
+        );
         if (opened) rememberSource(session.key, source);
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {

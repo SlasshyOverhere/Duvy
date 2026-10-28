@@ -247,6 +247,21 @@ fn magnet_hash(url: &str) -> Option<String> {
     (!hash.is_empty()).then_some(hash)
 }
 
+/// The torrent engine reads a 40-char hex or 32-char base32 info hash; anything
+/// else is not a target, so a row carrying one must not look playable. Matches
+/// `torrent::normalize_source`.
+pub fn valid_hash(value: &str) -> bool {
+    let value = value.trim();
+    let hex = value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let base32 = value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    hex || base32
+}
+
+fn is_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
 pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     let name = stream.name.clone().unwrap_or_default();
     let title = stream.title.clone().unwrap_or_default();
@@ -277,21 +292,19 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     }
 
     let url = stream.url.clone();
-    // A magnet/hash row is playable too: the torrent engine turns it into a
-    // local HTTP stream at playback time.
-    let magnet = url
-        .as_deref()
-        .is_some_and(|u| u.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:")));
+    // A magnet or bare hash row is playable too: the torrent engine turns it
+    // into a local HTTP stream at playback time.
     let info_hash = stream
         .info_hash
         .clone()
-        .or_else(|| url.as_deref().and_then(magnet_hash));
-    let playable = magnet
-        || info_hash.is_some()
-        || url
-            .as_deref()
-            .map(|u| u.starts_with("http://") || u.starts_with("https://"))
-            .unwrap_or(false);
+        .filter(|hash| valid_hash(hash))
+        .or_else(|| url.as_deref().and_then(magnet_hash).filter(|hash| valid_hash(hash)))
+        .or_else(|| {
+            url.as_deref()
+                .filter(|value| valid_hash(value))
+                .map(str::to_string)
+        });
+    let playable = info_hash.is_some() || url.as_deref().is_some_and(is_http_url);
 
     StreamOption {
         addon: addon.to_string(),
@@ -312,6 +325,30 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
         playable,
         score,
     }
+}
+
+/// One row per distinct target. Two rows with the same hash at different file
+/// indexes are two files of one pack, so both survive.
+pub fn dedupe(options: Vec<StreamOption>) -> Vec<StreamOption> {
+    let mut seen = std::collections::HashSet::new();
+    options
+        .into_iter()
+        .filter(|option| {
+            let url = option.url.as_deref().filter(|url| !url.is_empty());
+            match (url, &option.info_hash) {
+                (Some(url), _) => seen.insert(url.to_ascii_lowercase()),
+                (None, Some(hash)) => seen.insert(format!(
+                    "{}#{}",
+                    hash.to_ascii_lowercase(),
+                    option
+                        .file_idx
+                        .map(|index| index.to_string())
+                        .unwrap_or_default()
+                )),
+                (None, None) => false,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -343,7 +380,7 @@ mod tests {
         assert!(normalize("A", &direct).playable);
 
         let torrent = Stream {
-            info_hash: Some("abc123".into()),
+            info_hash: Some("cab507494d02ebb1178b38f2e9d7be299c86b862".into()),
             name: Some("Torrent".into()),
             ..Default::default()
         };
@@ -413,5 +450,90 @@ mod tests {
         assert_eq!(super::find_seeders("👤 1234"), Some(1234));
         assert_eq!(super::find_seeders("★★★★ 720p seeders: 88"), Some(88));
         assert_eq!(super::find_seeders("日本語のタイトル"), None);
+    }
+
+    const HASH: &str = "cab507494d02ebb1178b38f2e9d7be299c86b862";
+
+    fn pack_row(file_idx: i64) -> StreamOption {
+        normalize(
+            "A",
+            &Stream {
+                info_hash: Some(HASH.into()),
+                file_idx: Some(file_idx),
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn drops_rows_without_a_usable_target() {
+        // A bare hash in `url` is what the frontend resolves as a torrent.
+        let bare = normalize(
+            "A",
+            &Stream {
+                url: Some(HASH.into()),
+                ..Default::default()
+            },
+        );
+        assert!(bare.playable);
+        assert_eq!(bare.info_hash.as_deref(), Some(HASH));
+
+        // A magnet with no btih, and a hash the engine cannot read, are not
+        // selectable targets: they used to fail only after the click.
+        let empty_magnet = normalize(
+            "A",
+            &Stream {
+                url: Some("magnet:?dn=film".into()),
+                ..Default::default()
+            },
+        );
+        assert!(!empty_magnet.playable);
+        assert!(empty_magnet.info_hash.is_none());
+
+        let junk = normalize(
+            "A",
+            &Stream {
+                info_hash: Some("abc123".into()),
+                ..Default::default()
+            },
+        );
+        assert!(!junk.playable);
+        assert!(junk.info_hash.is_none());
+    }
+
+    #[test]
+    fn dedupe_keeps_each_file_of_a_pack() {
+        let rows = dedupe(vec![pack_row(0), pack_row(1), pack_row(1)]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].file_idx, Some(0));
+        assert_eq!(rows[1].file_idx, Some(1));
+    }
+
+    #[test]
+    fn dedupe_drops_notice_rows_and_repeats() {
+        let notice = normalize(
+            "A",
+            &Stream {
+                name: Some("Download the app".into()),
+                ..Default::default()
+            },
+        );
+        assert!(dedupe(vec![notice]).is_empty());
+
+        let direct = |url: &str| {
+            normalize(
+                "A",
+                &Stream {
+                    url: Some(url.into()),
+                    ..Default::default()
+                },
+            )
+        };
+        let rows = dedupe(vec![
+            direct("https://x/y.mp4"),
+            direct("https://x/y.mp4"),
+            direct("https://x/z.mp4"),
+        ]);
+        assert_eq!(rows.len(), 2);
     }
 }
