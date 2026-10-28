@@ -4,7 +4,7 @@ import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row } from "../components/media";
-import { Badge, Button, EmptyState, Icon, Spinner } from "../components/ui";
+import { Button, EmptyState, Icon, Spinner } from "../components/ui";
 import {
   episodeCode,
   placeholderGradient,
@@ -247,18 +247,25 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <div className="detail-scrim" />
         <div className="detail-body">
           <div className="detail-poster">
-            {details.poster ? <img src={details.poster} alt={details.name} /> : null}
+            {details.poster ? <img src={details.poster} alt="" /> : null}
           </div>
           <div className="detail-info">
-            <p className="kicker">
-              {details.type === "series" ? "Show" : "Movie"}
-              {details.year ? ` · ${details.year}` : ""}
-            </p>
-            <h1>{details.name}</h1>
+            <h1 className="detail-title">
+              {details.logo ? (
+                <img
+                  className="detail-logo"
+                  src={details.logo}
+                  alt={details.name}
+                  draggable={false}
+                />
+              ) : (
+                details.name
+              )}
+            </h1>
             <div className="detail-meta">
-              {details.rating ? (
-                <Badge tone="accent">★ {details.rating}</Badge>
-              ) : null}
+              <span>{details.type === "series" ? "Show" : "Movie"}</span>
+              {details.year ? <span>{details.year}</span> : null}
+              {details.rating ? <span>★ {details.rating}</span> : null}
               {details.runtime ? <span>{details.runtime}</span> : null}
               {details.status ? <span>{details.status}</span> : null}
               {(details.genres ?? []).slice(0, 3).map((genre) => (

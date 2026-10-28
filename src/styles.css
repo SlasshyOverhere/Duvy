@@ -1663,13 +1663,17 @@ button.pill:hover {
    Details
    --------------------------------------------------------------------------- */
 
+/* Hallmark · screen: title detail · system: app tokens (Instrument Sans,
+   amber accent, black paper) · recomposed hero, no new palette.
+   Pre-emit: P5 H4 E5 S5 R4 V4. */
+
 .detail-page {
-  padding: 0 0 96px;
+  padding: 0 0 clamp(72px, 9vh, 120px);
 }
 
 .detail-hero {
   position: relative;
-  min-height: clamp(540px, 76vh, 820px);
+  min-height: min(86vh, 780px);
   display: flex;
   align-items: flex-end;
   overflow: hidden;
@@ -1682,39 +1686,54 @@ button.pill:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 20%;
+  object-position: 50% 18%;
 }
 
+/* A long, finely eased hand-off into the page colour. The last stop is the
+   page's own black, so the art dissolves instead of ending on a band. */
 .detail-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
+  background:
+    linear-gradient(
       to top,
       var(--bg) 0%,
-      rgba(14, 12, 10, 0.86) 26%,
-      rgba(14, 12, 10, 0.22) 72%,
-      rgba(14, 12, 10, 0.4) 100%
+      rgba(0, 0, 0, 0.95) 9%,
+      rgba(0, 0, 0, 0.82) 18%,
+      rgba(0, 0, 0, 0.6) 28%,
+      rgba(0, 0, 0, 0.38) 38%,
+      rgba(0, 0, 0, 0.2) 50%,
+      rgba(0, 0, 0, 0.08) 64%,
+      rgba(0, 0, 0, 0) 100%
     ),
-    linear-gradient(to right, rgba(9, 8, 6, 0.72) 0%, rgba(9, 8, 6, 0) 62%);
+    linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.74) 0%,
+      rgba(0, 0, 0, 0.42) 30%,
+      rgba(0, 0, 0, 0.08) 58%,
+      rgba(0, 0, 0, 0) 78%
+    );
 }
 
 .detail-body {
   position: relative;
+  z-index: 1;
   width: 100%;
-  display: flex;
-  align-items: flex-end;
-  gap: clamp(22px, 2.8vw, 40px);
-  padding: clamp(140px, 17vh, 190px) var(--pad) clamp(30px, 4vh, 48px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(20px, 2.6vw, 38px);
+  padding: clamp(150px, 20vh, 230px) var(--pad) clamp(30px, 4.5vh, 56px);
 }
 
 .detail-poster {
-  width: 200px;
-  flex: 0 0 200px;
+  width: 184px;
   aspect-ratio: 2 / 3;
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 26px 50px -26px rgba(0, 0, 0, 0.95);
 }
 
 .detail-poster img {
@@ -1725,23 +1744,44 @@ button.pill:hover {
 
 .detail-info {
   min-width: 0;
-  padding-bottom: 4px;
+  max-width: 780px;
+  padding-bottom: 2px;
 }
 
-.detail-info h1 {
-  margin: 6px 0 0;
-  font-size: clamp(1.9rem, 3.4vw, 3rem);
-  line-height: 1.04;
+/* The title art is the composition when the addon has it; the name carries it
+   otherwise. Both sit on the same baseline. */
+.detail-title {
+  margin: 0;
+  max-width: 24ch;
+  font-size: clamp(2.2rem, 4.2vw, 3.6rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.detail-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(460px, 78%);
+  max-height: clamp(84px, 11vw, 150px);
+  object-fit: contain;
+  object-position: left bottom;
 }
 
 .detail-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 16px;
+  row-gap: 4px;
+  margin-top: 14px;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+.detail-meta > * + *::before {
+  content: "·";
+  margin: 0 10px;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .detail-genre {
@@ -1750,34 +1790,52 @@ button.pill:hover {
 
 .detail-overview {
   margin-top: 16px;
-  max-width: 66ch;
+  max-width: 62ch;
   font-size: 14.5px;
-  line-height: 1.68;
+  line-height: 1.7;
   color: var(--muted);
 }
 
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 26px;
 }
 
-.detail-facts {
-  margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
+/* One strong action, the rest quiet commands: no wall of outlined twins. */
+.detail-actions .btn-ghost {
+  padding-left: 13px;
+  padding-right: 13px;
+  border-color: transparent;
   color: var(--muted);
 }
 
+.detail-actions .btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.detail-facts {
+  margin-top: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 66ch;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .detail-facts span {
+  display: inline-block;
+  min-width: 64px;
   color: var(--faint);
-  margin-right: 7px;
 }
 
 .detail-facts p {
+  margin: 0;
   color: var(--muted);
 }
 
@@ -3743,12 +3801,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .detail-body {
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
-
-  .detail-info {
-    flex: 1 1 300px;
+    align-items: end;
   }
 
   .episode {
