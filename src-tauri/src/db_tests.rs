@@ -33,12 +33,12 @@ fn schema_migration_is_idempotent_and_keeps_rows() {
     };
 
     let conn = db::open(&path).expect("first open");
-    assert_eq!(version(&conn), 1);
+    assert_eq!(version(&conn), 2);
     db::write_kv(&conn, "kept", &json!({ "yes": true })).expect("write");
     drop(conn);
 
     let conn = db::open(&path).expect("second open");
-    assert_eq!(version(&conn), 1, "reopening must not re-run migrations");
+    assert_eq!(version(&conn), 2, "reopening must not re-run migrations");
     assert_eq!(
         db::read_kv(&conn, "kept").unwrap(),
         Some(json!({ "yes": true })),
@@ -56,12 +56,40 @@ fn schema_migration_is_idempotent_and_keeps_rows() {
     for expected in [
         "idx_progress_meta",
         "idx_progress_updated",
+        "idx_progress_meta_updated",
         "idx_watched_meta",
         "idx_library_added",
     ] {
         assert!(indexes.iter().any(|name| name == expected), "missing {expected}");
     }
     drop(stmt);
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn existing_database_upgrades_to_the_new_index() {
+    let path = temp_path();
+    let conn = db::open(&path).expect("first open");
+    // Rewind to the schema an older build left behind.
+    conn.execute_batch("DROP INDEX idx_progress_meta_updated; PRAGMA user_version = 1;")
+        .expect("rewind");
+    drop(conn);
+
+    let conn = db::open(&path).expect("upgrade");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 2);
+    let found: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_progress_meta_updated'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(found, 1, "the new migration must reach an existing database");
 
     cleanup(conn, path);
 }
@@ -139,6 +167,150 @@ fn progress_tracks_and_clears() {
 
     db::clear_progress(&conn, "tt123:1:2").expect("clear");
     assert!(db::list_progress(&conn).unwrap().is_empty());
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn finished_titles_are_not_offered_for_resume() {
+    let (conn, path) = temp_database();
+    let item = db::ProgressItem {
+        key: "tt5".into(),
+        meta_id: "tt5".into(),
+        media_type: "movie".into(),
+        name: "A Film".into(),
+        poster: None,
+        background: None,
+        season: None,
+        episode: None,
+        episode_title: None,
+        position: 950.0,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_progress(&conn, &item).expect("finished");
+    assert!(
+        db::list_progress(&conn).unwrap().is_empty(),
+        "a finished title would restart from the end"
+    );
+
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            position: 800.0,
+            ..item
+        },
+    )
+    .expect("unfinished");
+    assert_eq!(db::list_progress(&conn).unwrap().len(), 1);
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn clear_progress_removes_the_watched_mark() {
+    let (conn, path) = temp_database();
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt6".into(),
+            meta_id: "tt6".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            poster: None,
+            background: None,
+            season: None,
+            episode: None,
+            episode_title: None,
+            position: 990.0,
+            duration: 1000.0,
+            updated_at: 0,
+        },
+    )
+    .expect("finished");
+    db::set_watched(&conn, "tt6", "tt6", true).expect("mark");
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 1);
+
+    db::clear_progress(&conn, "tt6").expect("clear");
+    assert!(
+        db::list_watched(&conn).unwrap().is_empty(),
+        "the mark must not outlive the playhead"
+    );
+    assert!(db::list_watched_items(&conn).unwrap().is_empty());
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn save_progress_clamps_position_into_the_duration() {
+    let (conn, path) = temp_database();
+    let item = db::ProgressItem {
+        key: "tt8".into(),
+        meta_id: "tt8".into(),
+        media_type: "movie".into(),
+        name: "A Film".into(),
+        poster: None,
+        background: None,
+        season: None,
+        episode: None,
+        episode_title: None,
+        position: 5000.0,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_progress(&conn, &item).expect("over duration");
+    assert_eq!(
+        db::get_progress(&conn, "tt8").unwrap().unwrap().position,
+        1000.0
+    );
+
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            position: -20.0,
+            ..item
+        },
+    )
+    .expect("under zero");
+    assert_eq!(
+        db::get_progress(&conn, "tt8").unwrap().unwrap().position,
+        0.0
+    );
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn marking_a_finished_title_unwatched_removes_it() {
+    let (conn, path) = temp_database();
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt3".into(),
+            meta_id: "tt3".into(),
+            media_type: "movie".into(),
+            name: "A Film".into(),
+            poster: None,
+            background: None,
+            season: None,
+            episode: None,
+            episode_title: None,
+            position: 990.0,
+            duration: 1000.0,
+            updated_at: 0,
+        },
+    )
+    .expect("finished");
+    db::set_watched(&conn, "tt3", "tt3", true).expect("mark");
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 1);
+
+    db::set_watched(&conn, "tt3", "tt3", false).expect("unwatch");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    assert!(
+        db::list_watched_items(&conn).unwrap().is_empty(),
+        "progress past the threshold still counts as watched"
+    );
+    assert!(db::get_progress(&conn, "tt3").unwrap().is_none());
 
     cleanup(conn, path);
 }

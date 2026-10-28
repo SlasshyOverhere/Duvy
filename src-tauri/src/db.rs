@@ -14,6 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Db(pub Mutex<Connection>);
 
+/// Share of a title's duration after which it counts as finished.
+pub const FINISHED_AT: f64 = 0.9;
+
 const PRAGMAS: &str = r#"
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -82,7 +85,11 @@ CREATE INDEX IF NOT EXISTS idx_watched_meta ON watched(meta_id);
 CREATE INDEX IF NOT EXISTS idx_library_added ON library(added_at);
 "#;
 
-const MIGRATIONS: &[&str] = &[V1];
+const V2: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_progress_meta_updated ON progress(meta_id, updated_at DESC);
+"#;
+
+const MIGRATIONS: &[&str] = &[V1, V2];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
@@ -346,10 +353,10 @@ pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
         "SELECT key, meta_id, media_type, name, poster, background, season, episode,
                 episode_title, position, duration, updated_at
          FROM progress
-         WHERE duration > 0 AND position > 5
+         WHERE duration > 0 AND position > 5 AND position < duration * ?1
          ORDER BY updated_at DESC LIMIT 60",
     )?;
-    let rows = stmt.query_map([], ProgressItem::from_row)?;
+    let rows = stmt.query_map(params![FINISHED_AT], ProgressItem::from_row)?;
     rows.collect()
 }
 
@@ -365,7 +372,7 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
            FROM progress
            WHERE duration > 0
              AND position > 5
-             AND position < duration * 0.9
+             AND position < duration * ?1
              -- Only a finished mark newer than the position hides the title.
              -- One left over from an earlier run must not outrank playback
              -- that happened after it.
@@ -379,7 +386,7 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
          ORDER BY updated_at DESC
          LIMIT 30",
     )?;
-    let rows = stmt.query_map([], ProgressItem::from_row)?;
+    let rows = stmt.query_map(params![FINISHED_AT], ProgressItem::from_row)?;
     rows.collect()
 }
 
@@ -395,7 +402,14 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
 }
 
 pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
-    conn.execute(
+    // Container metadata can report a duration shorter than the playhead.
+    let position = if p.duration > 0.0 {
+        p.position.clamp(0.0, p.duration)
+    } else {
+        p.position
+    };
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
                                episode, episode_title, position, duration, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -413,7 +427,7 @@ pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()
             p.season,
             p.episode,
             p.episode_title,
-            p.position,
+            position,
             p.duration,
             now()
         ],
@@ -421,15 +435,18 @@ pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()
     // A position short of the end means the title is being watched again, so a
     // finished mark from an earlier run no longer applies. Without this it stays
     // out of Continue watching for good.
-    if p.duration > 0.0 && p.position < p.duration * 0.92 {
-        conn.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
+    if p.duration > 0.0 && position < p.duration * FINISHED_AT {
+        tx.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
     }
-    Ok(())
+    tx.commit()
 }
 
 pub fn clear_progress(conn: &Connection, key: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
-    Ok(())
+    // The finished mark has to go too, or the title reappears in Watched.
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+    tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
+    tx.commit()
 }
 
 /// Drops watching history only. Library, addons, settings and people stay, so
@@ -516,7 +533,12 @@ pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -
             params![key, meta_id, now()],
         )?;
     } else {
-        conn.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
+        // Watched also counts progress finished at FINISHED_AT, so the playhead
+        // has to go with the mark or the title stays in Watched.
+        let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
+        tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+        tx.commit()?;
     }
     Ok(())
 }
@@ -556,12 +578,12 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
                SELECT 1 FROM progress p
                WHERE p.key = w.key
                  AND p.duration > 0
-                 AND p.position < p.duration * 0.9
+                 AND p.position < p.duration * ?1
                  AND p.updated_at > w.updated_at
              )
            UNION ALL
            SELECT meta_id, updated_at FROM progress
-           WHERE duration > 0 AND position >= duration * 0.9
+           WHERE duration > 0 AND position >= duration * ?1
          ),
          latest AS (SELECT meta_id, MAX(at) AS at FROM marks GROUP BY meta_id)
          SELECT l.meta_id, l.at,
@@ -578,7 +600,7 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
          ORDER BY l.at DESC
          LIMIT 300",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![FINISHED_AT], |row| {
         Ok(WatchedItem {
             meta_id: row.get(0)?,
             watched_at: row.get(1)?,

@@ -819,7 +819,11 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let season = int(row, "season");
         let episode = int(row, "episode");
         let key = local_key(&content_id, season, episode);
-        let updated = int(row, "last_watched");
+        // Some Nuvio rows store last_watched in seconds; the local clock is ms.
+        let updated = match int(row, "last_watched") {
+            at if at > 0 && at < 1_000_000_000_000 => at * 1000,
+            at => at,
+        };
         let position = int(row, "position") as f64 / 1000.0;
         let duration = int(row, "duration") as f64 / 1000.0;
         if duration <= 0.0 {
