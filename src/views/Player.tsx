@@ -1276,7 +1276,11 @@ export function PlayerView() {
       }
       const at = posRef.current;
       // skip_set replaces the entry whole, so the other marker is carried over.
-      const merged: SkipEntry = { ...(markers ?? {}), ...patch };
+      // A save can land before skip_get: read the stored entry first then.
+      const known =
+        markers ??
+        (await invoke<SkipEntry | null>("skip_get", { metaId: key }).catch(() => null));
+      const merged: SkipEntry = { ...(known ?? {}), ...patch };
       try {
         const entry = await invoke<SkipEntry | null>("skip_set", {
           metaId: key,
@@ -1324,7 +1328,9 @@ export function PlayerView() {
       if (locked && key !== "Escape") return;
       // A panel or the resume prompt owns the keyboard; Escape still closes it.
       if ((surface || resumeAt != null) && key !== "Escape") return;
-      if (event.repeat) return;
+      // Holding a seek or volume key keeps stepping; every other key acts once.
+      const seeks = /^(Arrow(Left|Right|Up|Down)|j|J|l|L)$/.test(key);
+      if (event.repeat && !seeks) return;
       let handled = true;
       switch (key) {
         case " ":
@@ -1590,7 +1596,6 @@ export function PlayerView() {
     <div
       ref={rootRef}
       className={`pv${chrome ? " pv--awake" : ""}${failed ? " pv--failed" : ""}${locked ? " pv--locked" : ""}${surface ? " pv--panel" : ""}`}
-      onPointerDown={bump}
       onPointerMove={bump}
       onFocusCapture={() => {
         if (!locked) setChrome(true);
@@ -2355,7 +2360,7 @@ export function PlayerView() {
                 </button>
               </div>
               <div className="pv-more-marks">
-                <p className="pv-section-label">Skip intro markers for this show</p>
+                <p className="pv-section-label">Skip intro markers for this episode</p>
                 <div className="pv-row">
                   <button
                     type="button"
