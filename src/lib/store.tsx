@@ -523,21 +523,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Only the hash and the file index: a stray addon parameter never rides along.
       const magnet = `magnet:?xt=urn:btih:${hash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`;
 
-      // A cached torrent can play through debrid without turning P2P on.
-      const providers = await api.debrid.providers().catch(() => []);
-      if (providers.some((provider) => provider.connected)) {
-        try {
-          const url = await api.debrid.resolve(magnet);
+      if (!settings?.p2pConsent) {
+        // Debrid can still play a cached copy without the local engine.
+        const providers = await api.debrid.providers().catch(() => []);
+        if (providers.some((provider) => provider.connected)) {
+          const url = await api.debrid.resolve(magnet).catch(() => "");
           if (url) {
             setPlayingSource(stream);
             return url;
           }
-        } catch {
-          // Not cached, or the account failed: fall through to the local engine.
         }
-      }
-
-      if (!settings?.p2pConsent) {
         throw new Error(
           "That is a torrent source. Allow P2P playback in Settings before starting it.",
         );
