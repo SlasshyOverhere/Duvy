@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import { Button, Icon, Spinner, Toggle, type IconName } from "../components/ui";
+import { Badge, Button, Icon, Spinner, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
 import { StremioSync } from "./settings/StremioSync";
 import { AddonsPanel } from "./Addons";
@@ -12,26 +12,218 @@ import TorrentView from "./Torrent";
 import { MediaServers } from "./settings/MediaServers";
 import { Updates } from "./settings/Updates";
 
-const SECTIONS: { id: string; label: string; icon: IconName }[] = [
-  { id: "general", label: "General", icon: "sliders" },
-  { id: "playback", label: "Playback", icon: "play" },
-  { id: "addons", label: "Addons", icon: "puzzle" },
-  { id: "servers", label: "Servers", icon: "tv" },
-  { id: "integrations", label: "Integrations", icon: "key" },
-  { id: "sync", label: "Sync", icon: "refresh" },
-  { id: "about", label: "About", icon: "info" },
+type Section = {
+  id: string;
+  label: string;
+  icon: IconName;
+  group: string;
+  blurb: string;
+  keywords: string;
+};
+
+const SECTIONS: Section[] = [
+  {
+    id: "general",
+    label: "General",
+    icon: "sliders",
+    group: "App",
+    blurb: "Accent, motion and the language your media plays in.",
+    keywords: "accent colour color theme appearance motion animation density rows language audio subtitle",
+  },
+  {
+    id: "playback",
+    label: "Playback",
+    icon: "play",
+    group: "Playback",
+    blurb: "How mpv plays, remembers your place and moves between episodes.",
+    keywords: "mpv player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk",
+  },
+  {
+    id: "addons",
+    label: "Addons",
+    icon: "puzzle",
+    group: "Connections",
+    blurb: "Catalogs, metadata and streams come from the addons you install.",
+    keywords: "addon install url stremio protocol catalog stream manifest",
+  },
+  {
+    id: "servers",
+    label: "Media servers",
+    icon: "tv",
+    group: "Connections",
+    blurb: "Jellyfin and Emby libraries on your own network.",
+    keywords: "jellyfin emby server library login address",
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    icon: "key",
+    group: "Connections",
+    blurb: "TMDB artwork, Trakt history and debrid accounts.",
+    keywords: "tmdb key trakt debrid real-debrid alldebrid premiumize api account",
+  },
+  {
+    id: "sync",
+    label: "Sync",
+    icon: "cloud",
+    group: "Connections",
+    blurb: "Keep progress and library in step across your devices.",
+    keywords: "nuvio cloud stremio account sync profile backup",
+  },
+  {
+    id: "about",
+    label: "About",
+    icon: "info",
+    group: "System",
+    blurb: "Version, updates and the playback log.",
+    keywords: "version update release diagnostics log license platform data directory",
+  },
 ];
 
+const NAV_GROUPS = ["App", "Playback", "Connections", "System"];
+
 const ACCENTS = [
-  { id: "ember", label: "Ember", color: "#f4b350" },
-  { id: "violet", label: "Violet", color: "#a78bfa" },
-  { id: "mint", label: "Mint", color: "#4ade80" },
-  { id: "rose", label: "Rose", color: "#fb7185" },
+  { id: "ember", label: "Ember" },
+  { id: "violet", label: "Violet" },
+  { id: "mint", label: "Mint" },
+  { id: "rose", label: "Rose" },
 ];
+
+const QUALITY: ["auto" | "4k" | "1080p" | "720p", string][] = [
+  ["auto", "Auto"],
+  ["4k", "4K"],
+  ["1080p", "1080p"],
+  ["720p", "720p"],
+];
+
+function Card({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="settings-group">
+      <h2>{title}</h2>
+      {description ? <p className="settings-hint">{description}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+function Row({
+  title,
+  description,
+  control,
+}: {
+  title: string;
+  description?: string;
+  control?: ReactNode;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row-copy">
+        <h3>{title}</h3>
+        {description ? <p>{description}</p> : null}
+      </div>
+      {control ? <div className="settings-control">{control}</div> : null}
+    </div>
+  );
+}
+
+function Callout({
+  tone = "info",
+  title,
+  children,
+}: {
+  tone?: "info" | "warn" | "danger";
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`settings-callout is-${tone}`}>
+      <Icon name={tone === "info" ? "info" : "alert"} size={15} />
+      <div className="settings-callout-copy">
+        {title ? <strong>{title}</strong> : null}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Range({
+  label,
+  min,
+  max,
+  step,
+  value,
+  suffix = "",
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  const fill = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  return (
+    <div className="range-wrap">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={label}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ "--fill": `${fill}%` } as CSSProperties}
+      />
+      <output>
+        {value}
+        {suffix}
+      </output>
+    </div>
+  );
+}
+
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: [T, string][];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map(([id, text]) => (
+        <button
+          key={id}
+          type="button"
+          className={value === id ? "is-active" : ""}
+          aria-pressed={value === id}
+          onClick={() => onChange(id)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function SettingsView({ section }: { section?: string }) {
   const { settings, appInfo, saveSettings, notify, playRequest } = useApp();
   const [tab, setTab] = useState(section ?? "general");
+  const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
   const [mpvPath, setMpvPath] = useState(settings?.mpvPath ?? "");
   const [log, setLog] = useState<string[]>([]);
@@ -116,95 +308,151 @@ export function SettingsView({ section }: { section?: string }) {
     await playRequest({ url: selected, title: name });
   };
 
+  const needle = query.trim().toLowerCase();
+  const visible = SECTIONS.filter(
+    (item) => !needle || `${item.label} ${item.keywords}`.toLowerCase().includes(needle),
+  );
+  const active = SECTIONS.find((item) => item.id === tab) ?? SECTIONS[0];
+
   return (
     <div className="page settings-page">
-      <header className="page-head">
+      <header className="settings-head">
         <div>
-          <p className="kicker">Settings</p>
-          <h1>Make it yours</h1>
-          <p className="page-sub">Everything is stored locally in a single SQLite file.</p>
+          <h1>Settings</h1>
+          <p>Changes apply as you make them. Everything is stored locally on this machine.</p>
         </div>
       </header>
 
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Settings sections">
-          {SECTIONS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tab === item.id ? "is-active" : ""}
-              onClick={() => setTab(item.id)}
-            >
-              <Icon name={item.icon} size={17} />
-              {item.label}
-            </button>
-          ))}
+          <label className="settings-search">
+            <Icon name="search" size={15} />
+            <input
+              value={query}
+              onChange={(event) => {
+                const value = event.target.value;
+                setQuery(value);
+                const q = value.trim().toLowerCase();
+                if (!q) return;
+                // Jump to the first section that matches, so the panel follows the query.
+                const hit = SECTIONS.find((item) =>
+                  `${item.label} ${item.keywords}`.toLowerCase().includes(q),
+                );
+                if (hit) setTab(hit.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && visible.length > 0) {
+                  setTab(visible[0].id);
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Escape") setQuery("");
+              }}
+              placeholder="Search settings"
+              aria-label="Search settings"
+              spellCheck={false}
+            />
+          </label>
+
+          {NAV_GROUPS.map((group) => {
+            const items = visible.filter((item) => item.group === group);
+            if (items.length === 0) return null;
+            return (
+              <div className="settings-nav-group" key={group}>
+                {needle ? null : <p className="settings-nav-label">{group}</p>}
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={tab === item.id ? "is-active" : ""}
+                    aria-current={tab === item.id ? "page" : undefined}
+                    onClick={() => setTab(item.id)}
+                  >
+                    <Icon name={item.icon} size={16} className="settings-nav-icon" />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+
+          {visible.length === 0 ? (
+            <p className="settings-nav-empty">Nothing matches “{query.trim()}”.</p>
+          ) : null}
         </nav>
 
         <div className="settings-body">
+          <header className="settings-body-head">
+            <h2>{active.label}</h2>
+            <p>{active.blurb}</p>
+          </header>
+
           {tab === "general" ? (
             <>
-              <section className="settings-group">
-                <h2>Appearance</h2>
-                <p className="settings-hint">Accent colour is applied across the app instantly.</p>
-                <div className="accent-row">
-                  {ACCENTS.map((accent) => (
-                    <button
-                      key={accent.id}
-                      type="button"
-                      className={`accent-swatch${settings.accent === accent.id ? " is-active" : ""}`}
-                      onClick={() => update({ accent: accent.id })}
-                      aria-label={accent.label}
-                      aria-pressed={settings.accent === accent.id}
-                    >
-                      <span style={{ background: accent.color }} />
-                      {accent.label}
-                    </button>
-                  ))}
+              <Card title="Appearance">
+                <div className="settings-block">
+                  <div className="settings-block-copy">
+                    <h3>Accent colour</h3>
+                    <p>Carries through buttons, focus rings and progress bars.</p>
+                  </div>
+                  <div className="accent-row">
+                    {ACCENTS.map((accent) => (
+                      <button
+                        key={accent.id}
+                        type="button"
+                        className={`accent-option accent-${accent.id}${
+                          settings.accent === accent.id ? " is-active" : ""
+                        }`}
+                        onClick={() => update({ accent: accent.id })}
+                        aria-pressed={settings.accent === accent.id}
+                      >
+                        <span className="accent-dot">
+                          {settings.accent === accent.id ? <Icon name="check" size={14} /> : null}
+                        </span>
+                        {accent.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </section>
 
-              <section className="settings-group">
-                <div className="settings-row">
-                  <div>
-                    <h3>Reduce motion</h3>
-                    <p>Skip hover scaling and row animation.</p>
-                  </div>
-                  <Toggle
-                    checked={settings.reduceMotion}
-                    onChange={(value) => update({ reduceMotion: value })}
-                    label="Reduce motion"
-                  />
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Home rows</h3>
-                    <p>How many catalog rows appear on Home.</p>
-                  </div>
-                  <div className="range-wrap">
-                    <input
-                      type="range"
+                <Row
+                  title="Reduce motion"
+                  description="Skip hover scaling and row animation."
+                  control={
+                    <Toggle
+                      checked={settings.reduceMotion}
+                      onChange={(value) => update({ reduceMotion: value })}
+                      label="Reduce motion"
+                    />
+                  }
+                />
+                <Row
+                  title="Home rows"
+                  description="How many catalog rows appear on Home."
+                  control={
+                    <Range
+                      label="Home rows"
                       min={2}
                       max={16}
                       step={1}
                       value={settings.homeRowsLimit}
-                      onChange={(event) => update({ homeRowsLimit: Number(event.target.value) })}
-                      aria-label="Home rows"
+                      onChange={(value) => update({ homeRowsLimit: value })}
                     />
-                    <span>{settings.homeRowsLimit}</span>
-                  </div>
-                </div>
-              </section>
+                  }
+                />
+              </Card>
 
-              <section className="settings-group">
-                <h2>Regional</h2>
-                <div className="field-grid">
+              <Card
+                title="Language"
+                description="The preferred track when a title offers more than one."
+              >
+                <div className="field-grid settings-fields">
                   <label className="field">
                     <span>Audio language</span>
                     <input
                       value={settings.audioLanguage}
                       onChange={(event) => update({ audioLanguage: event.target.value })}
                       placeholder="eng"
+                      spellCheck={false}
                     />
                   </label>
                   <label className="field">
@@ -213,26 +461,30 @@ export function SettingsView({ section }: { section?: string }) {
                       value={settings.subtitleLanguage}
                       onChange={(event) => update({ subtitleLanguage: event.target.value })}
                       placeholder="eng"
+                      spellCheck={false}
                     />
                   </label>
                 </div>
-              </section>
+              </Card>
             </>
           ) : null}
 
           {tab === "playback" ? (
             <>
-              <section className="settings-group">
-                <h2>Player</h2>
-                <p className="settings-hint">
-                  Video is decoded by mpv in its own process and drawn straight into this window, hardware
-                  accelerated and separate from the UI thread. The player chrome renders on top of it.
-                </p>
+              <Card
+                title="Player"
+                description="mpv decodes video in its own process and draws straight into this window, so playback stays off the UI thread."
+              >
                 <div className={`mpv-card${appInfo?.mpv ? " is-ready" : " is-missing"}`}>
                   <div className="mpv-status">
                     <span className="mpv-dot" />
-                    <div>
-                      <h3>{appInfo?.mpv ? "mpv is ready" : "mpv not found"}</h3>
+                    <div className="mpv-status-copy">
+                      <div className="mpv-status-title">
+                        <h3>{appInfo?.mpv ? "mpv is ready" : "mpv not found"}</h3>
+                        <Badge tone={appInfo?.mpv ? "good" : "warn"}>
+                          {appInfo?.mpv ? "Ready" : "Missing"}
+                        </Badge>
+                      </div>
                       <p>{appInfo?.mpv?.version ?? "Install mpv to enable playback."}</p>
                       {appInfo?.mpv ? <code>{appInfo.mpv.path}</code> : null}
                     </div>
@@ -248,13 +500,18 @@ export function SettingsView({ section }: { section?: string }) {
                     ) : null}
                   </div>
                 </div>
-                <div className="field-row">
-                  <input
-                    value={mpvPath}
-                    onChange={(event) => setMpvPath(event.target.value)}
-                    placeholder="Custom mpv path (optional)"
-                    aria-label="Custom mpv path"
-                  />
+
+                <div className="field-row settings-path">
+                  <label className="field">
+                    <span>Custom path</span>
+                    <input
+                      value={mpvPath}
+                      onChange={(event) => setMpvPath(event.target.value)}
+                      placeholder="Auto-detected when empty"
+                      aria-label="Custom mpv path"
+                      spellCheck={false}
+                    />
+                  </label>
                   <Button
                     onClick={async () => {
                       if (mpvPath.trim() === settings.mpvPath.trim()) return;
@@ -265,234 +522,195 @@ export function SettingsView({ section }: { section?: string }) {
                     Save
                   </Button>
                 </div>
-              </section>
+              </Card>
 
-              <section className="settings-group">
-                <div className="settings-row">
-                  <div>
-                    <h3>Hardware decoding</h3>
-                    <p>Let mpv pick the fastest safe decoder (recommended).</p>
-                  </div>
-                  <Toggle
-                    checked={settings.hardwareDecoding}
-                    onChange={(value) => update({ hardwareDecoding: value })}
-                    label="Hardware decoding"
-                  />
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Resume playback</h3>
-                    <p>Continue from where you stopped, per episode.</p>
-                  </div>
-                  <Toggle
-                    checked={settings.autoResume}
-                    onChange={(value) => update({ autoResume: value })}
-                    label="Resume playback"
-                  />
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Play next episode</h3>
-                    <p>Automatically continue a series when an episode ends.</p>
-                  </div>
-                  <Toggle
-                    checked={settings.autoPlayNext}
-                    onChange={(value) => update({ autoPlayNext: value })}
-                    label="Play next episode"
-                  />
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Preferred quality</h3>
-                    <p>Try this quality first. Auto takes the best-ranked source available.</p>
-                  </div>
-                  <div className="field-row" style={{ margin: 0 }} role="group" aria-label="Preferred quality">
-                    {[
-                      ["auto", "Auto"],
-                      ["4k", "4K"],
-                      ["1080p", "1080p"],
-                      ["720p", "720p"],
-                    ].map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`chip${settings.preferredQuality === value ? " is-active" : ""}`}
-                        aria-pressed={settings.preferredQuality === value}
-                        onClick={() => update({ preferredQuality: value })}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Track progress</h3>
-                    <p>Keep a Continue Watching row and mark finished titles.</p>
-                  </div>
-                  <Toggle
-                    checked={settings.trackProgress}
-                    onChange={(value) => update({ trackProgress: value })}
-                    label="Track progress"
-                  />
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <h3>Skip step</h3>
-                    <p>Seconds moved by the skip buttons and arrow keys.</p>
-                  </div>
-                  <div className="range-wrap">
-                    <input
-                      type="range"
+              <Card title="Behaviour">
+                <Row
+                  title="Hardware decoding"
+                  description="Let mpv pick the fastest safe decoder."
+                  control={
+                    <Toggle
+                      checked={settings.hardwareDecoding}
+                      onChange={(value) => update({ hardwareDecoding: value })}
+                      label="Hardware decoding"
+                    />
+                  }
+                />
+                <Row
+                  title="Resume playback"
+                  description="Continue from where you stopped, per episode."
+                  control={
+                    <Toggle
+                      checked={settings.autoResume}
+                      onChange={(value) => update({ autoResume: value })}
+                      label="Resume playback"
+                    />
+                  }
+                />
+                <Row
+                  title="Play next episode"
+                  description="Automatically continue a series when an episode ends."
+                  control={
+                    <Toggle
+                      checked={settings.autoPlayNext}
+                      onChange={(value) => update({ autoPlayNext: value })}
+                      label="Play next episode"
+                    />
+                  }
+                />
+                <Row
+                  title="Track progress"
+                  description="Keep a Continue Watching row and mark finished titles."
+                  control={
+                    <Toggle
+                      checked={settings.trackProgress}
+                      onChange={(value) => update({ trackProgress: value })}
+                      label="Track progress"
+                    />
+                  }
+                />
+                <Row
+                  title="Preferred quality"
+                  description="Try this quality first. Auto takes the best-ranked source."
+                  control={
+                    <Segmented
+                      label="Preferred quality"
+                      value={settings.preferredQuality}
+                      options={QUALITY}
+                      onChange={(value) => update({ preferredQuality: value })}
+                    />
+                  }
+                />
+                <Row
+                  title="Skip step"
+                  description="Seconds moved by the skip buttons and arrow keys."
+                  control={
+                    <Range
+                      label="Skip step"
                       min={5}
                       max={60}
                       step={5}
                       value={settings.seekStep}
-                      onChange={(event) => update({ seekStep: Number(event.target.value) })}
-                      aria-label="Skip step"
+                      suffix="s"
+                      onChange={(value) => update({ seekStep: value })}
                     />
-                    <span>{settings.seekStep}s</span>
-                  </div>
-                </div>
-              </section>
+                  }
+                />
+              </Card>
 
-              <section className="settings-group">
-                <h2>Peer-to-peer streaming</h2>
-                <p className="settings-hint">
-                  Torrent sources are off until you opt in. Nothing joins a swarm before that, and
-                  Debrid and direct links keep working either way.
-                </p>
+              <Card
+                title="Peer-to-peer streaming"
+                description="Torrent sources stay off until you opt in. Debrid and direct links work either way."
+              >
                 {settings.p2pConsent ? (
                   <>
-                    <div className="settings-row">
-                      <div>
-                        <h3>P2P playback is on</h3>
-                        <p>Turn this off to hide torrent sources. A running session keeps going until you stop it below.</p>
-                      </div>
-                      <Toggle
-                        label="Allow P2P playback"
-                        checked
-                        onChange={(next) => update({ p2pConsent: next })}
-                      />
-                    </div>
-                    <p className="settings-note">
-                      <Icon name="info" size={14} />
-                      <span>
-                        Swarm peers can see your IP while a torrent streams. Streamed pieces are
-                        cached on this machine and deleted when the torrent session stops; leftovers
-                        above {settings.p2pCacheMb} MB are wiped before the next torrent starts.
-                      </span>
-                    </p>
+                    <Row
+                      title="P2P playback is on"
+                      description="Torrent sources appear in search and detail pages. A running session keeps going until you stop it below."
+                      control={
+                        <Toggle
+                          label="Allow P2P playback"
+                          checked
+                          onChange={(next) => update({ p2pConsent: next })}
+                        />
+                      }
+                    />
+                    <Callout tone="warn" title="Your IP is visible to the swarm">
+                      Streamed pieces are cached on disk and deleted when the session stops. Leftovers
+                      above {settings.p2pCacheMb} MB are wiped before the next torrent starts.
+                    </Callout>
                   </>
                 ) : (
                   <>
-                    <div className="settings-row">
-                      <div>
-                        <h3>P2P playback is off</h3>
-                        <p>Torrent sources stay out of search and detail pages.</p>
-                      </div>
-                      <Button onClick={() => setP2pReview((open) => !open)}>
-                        {p2pReview ? "Close" : "Review and enable"}
-                      </Button>
-                    </div>
+                    <Row
+                      title="P2P playback is off"
+                      description="Torrent sources stay out of search and detail pages."
+                      control={
+                        <Button onClick={() => setP2pReview((open) => !open)}>
+                          {p2pReview ? "Close" : "Review and enable"}
+                        </Button>
+                      }
+                    />
                     {p2pReview ? (
-                      <>
-                        <p className="settings-hint">
-                          <strong>Your IP address becomes visible.</strong> A torrent stream
-                          connects you to other peers, so everyone in that swarm can see the address
-                          you connect from, exactly like any torrent client. Your internet provider
-                          can see the traffic as well.
-                        </p>
-                        <p className="settings-hint">
-                          <strong>Pieces are cached on disk.</strong> The parts being streamed are
-                          written to a local torrent cache, capped at {settings.p2pCacheMb} MB. That
-                          cache is deleted when the torrent session stops. If a file is still locked
-                          and the wipe cannot finish, the next start tries again before streaming.
-                        </p>
-                        <p className="settings-hint">
-                          <strong>It is easy to undo.</strong> Switch P2P playback off on this tab
-                          and torrent sources disappear. A stream already running keeps going until
-                          you stop its session below.
-                        </p>
-                        <label
-                          className="settings-hint"
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 9,
-                            color: "var(--muted)",
-                          }}
-                        >
+                      <Callout tone="warn" title="Enabling P2P exposes your IP address">
+                        <ul>
+                          <li>
+                            Every peer in the swarm sees the address you connect from, exactly like any
+                            torrent client. Your internet provider sees the traffic too.
+                          </li>
+                          <li>
+                            Streamed pieces are cached on disk, capped at {settings.p2pCacheMb} MB, and
+                            deleted when the session stops.
+                          </li>
+                          <li>
+                            Switch P2P off at any time to hide torrent sources. A stream already
+                            running keeps going until you stop it below.
+                          </li>
+                        </ul>
+                        <label className="settings-check">
                           <input
                             type="checkbox"
                             checked={p2pAck}
                             onChange={(event) => setP2pAck(event.target.checked)}
-                            style={{ marginTop: 3 }}
                           />
-                          <span>
-                            I understand my IP address will be visible to the torrent swarm.
-                          </span>
+                          <span>I understand my IP address will be visible to the torrent swarm.</span>
                         </label>
-                        <div className="about-actions">
-                          <Button
-                            variant="primary"
-                            disabled={!p2pAck}
-                            onClick={async () => {
-                              if (!(await update({ p2pConsent: true }))) return;
-                              setP2pAck(false);
-                              setP2pReview(false);
-                              notify("P2P playback enabled", "success");
-                            }}
-                          >
-                            Enable P2P playback
-                          </Button>
-                        </div>
-                      </>
+                        <Button
+                          variant="primary"
+                          disabled={!p2pAck}
+                          onClick={async () => {
+                            if (!(await update({ p2pConsent: true }))) return;
+                            setP2pAck(false);
+                            setP2pReview(false);
+                            notify("P2P playback enabled", "success");
+                          }}
+                        >
+                          Enable P2P playback
+                        </Button>
+                      </Callout>
                     ) : null}
                   </>
                 )}
-                <div className="settings-row">
-                  <div>
-                    <h3>Disk cache</h3>
-                    <p className="settings-hint">
-                      The torrent cache is wiped when a session stops and before the next start.
-                      This cap bounds anything the system still has open if a wipe cannot finish.
-                    </p>
-                  </div>
-                  <span className="settings-value">{settings.p2pCacheMb} MB</span>
-                </div>
+
+                <Row
+                  title="Disk cache"
+                  description="Bounds anything the system still holds open if a wipe cannot finish."
+                  control={<span className="settings-value">{settings.p2pCacheMb} MB</span>}
+                />
+
                 <div className="settings-embed">
                   <TorrentView />
                 </div>
-              </section>
+              </Card>
 
-              <section className="settings-group">
-                <h2>Try the player</h2>
-                <p className="settings-hint">
-                  Play a local video to confirm mpv, hardware decoding and progress tracking work.
-                </p>
+              <Card
+                title="Try the player"
+                description="Play a local video to confirm mpv, hardware decoding and progress tracking work."
+              >
                 <Button icon="film" onClick={() => void playLocalFile()}>
                   Open a video file
                 </Button>
-              </section>
+              </Card>
             </>
           ) : null}
 
           {tab === "integrations" ? (
             <>
-              <section className="settings-group">
-                <h2>TMDB</h2>
-                <p className="settings-hint">
-                  Adds curated discovery rows, richer artwork, cast and trailers. Your key is stored locally.
-                </p>
-                <div className="field-row">
-                  <input
-                    value={tmdbKey}
-                    onChange={(event) => setTmdbKey(event.target.value)}
-                    placeholder="TMDB v3 API key"
-                    aria-label="TMDB API key"
-                    spellCheck={false}
-                  />
+              <Card
+                title="TMDB"
+                description="Adds curated discovery rows, richer artwork, cast and trailers. Your key is stored locally."
+              >
+                <div className="field-row settings-path">
+                  <label className="field">
+                    <span>API key</span>
+                    <input
+                      value={tmdbKey}
+                      onChange={(event) => setTmdbKey(event.target.value)}
+                      placeholder="TMDB v3 API key"
+                      aria-label="TMDB API key"
+                      spellCheck={false}
+                    />
+                  </label>
                   <Button
                     variant="primary"
                     onClick={async () => {
@@ -517,21 +735,25 @@ export function SettingsView({ section }: { section?: string }) {
                     . This product uses the TMDB API but is not endorsed or certified by TMDB.
                   </span>
                 </p>
-              </section>
+              </Card>
 
-              <section className="settings-group">
-                <h2>Trakt</h2>
+              <Card
+                title="Trakt"
+                description="Watched flags, episode history and resume points move both ways through your own Trakt API app."
+              >
                 <div className="settings-embed">
                   <TraktView />
                 </div>
-              </section>
+              </Card>
 
-              <section className="settings-group">
-                <h2>Debrid</h2>
+              <Card
+                title="Debrid"
+                description="A debrid account turns a cached torrent into a direct HTTPS link, so playback starts without waiting on peers."
+              >
                 <div className="settings-embed">
                   <DebridView />
                 </div>
-              </section>
+              </Card>
             </>
           ) : null}
 
@@ -541,29 +763,17 @@ export function SettingsView({ section }: { section?: string }) {
               <StremioSync />
             </>
           ) : null}
+
           {tab === "servers" ? <MediaServers /> : null}
 
-          {tab === "addons" ? (
-            <>
-              <section className="settings-group">
-                <h2>Addons</h2>
-                <p className="settings-hint">
-                  BetterNuvio speaks the open Stremio addon protocol. Nothing is bundled and nothing
-                  is scraped; every catalog, metadata record and stream comes from a URL you add.
-                </p>
-              </section>
-              <AddonsPanel />
-            </>
-          ) : null}
+          {tab === "addons" ? <AddonsPanel /> : null}
 
           {tab === "about" ? (
             <>
-              <section className="settings-group">
-                <h2>BetterNuvio</h2>
-                <p className="settings-hint">
-                  An unofficial, performance-first reimplementation inspired by Nuvio Desktop. Not affiliated
-                  with or endorsed by Nuvio Media.
-                </p>
+              <Card
+                title="BetterNuvio"
+                description="An unofficial, performance-first reimplementation inspired by Nuvio Desktop. Not affiliated with or endorsed by Nuvio Media."
+              >
                 <dl className="about-list">
                   <div>
                     <dt>Version</dt>
@@ -601,34 +811,27 @@ export function SettingsView({ section }: { section?: string }) {
                   >
                     Upstream project
                   </Button>
-                  <Button
-                    icon="external"
-                    onClick={() => openLink("https://www.stremio.com/")}
-                  >
+                  <Button icon="external" onClick={() => openLink("https://www.stremio.com/")}>
                     Addon protocol
                   </Button>
                 </div>
-              </section>
+              </Card>
 
               <Updates />
 
-              <section className="settings-group">
-                <h2>Diagnostics</h2>
-                <p className="settings-hint">
-                  Every step between pressing play and the first frame, with the time since the
-                  request and the gap since the step above. The same lines are written to{" "}
-                  <code>playback.log</code> next to the database.
-                </p>
-                <details>
-                  <summary
-                    style={{ cursor: "pointer", fontSize: 13, color: "var(--muted)", padding: "4px 0" }}
-                  >
-                    Recent playback log
+              <Card
+                title="Diagnostics"
+                description="Every step between pressing play and the first frame, with the time since the request and the gap since the step above."
+              >
+                <details className="settings-disclosure">
+                  <summary>
+                    <span>Recent playback log</span>
+                    <Icon name="chevron" size={14} />
                   </summary>
                   {log.length ? (
                     <pre className="log-view">{log.join("\n")}</pre>
                   ) : (
-                    <p className="settings-hint" style={{ marginTop: 12 }}>
+                    <p className="settings-hint">
                       {isTauri()
                         ? "Nothing logged yet. Play something, then refresh."
                         : "The playback log is only available in the desktop app."}
@@ -636,15 +839,17 @@ export function SettingsView({ section }: { section?: string }) {
                   )}
                 </details>
                 <div className="about-actions">
-                  <Button
-                    icon="refresh"
-                    disabled={!isTauri()}
-                    onClick={() => void loadLog()}
-                  >
+                  <Button icon="refresh" disabled={!isTauri()} onClick={() => void loadLog()}>
                     Refresh log
                   </Button>
                 </div>
-              </section>
+                <p className="settings-note">
+                  <Icon name="info" size={14} />
+                  <span>
+                    The same lines are written to <code>playback.log</code> next to the database.
+                  </span>
+                </p>
+              </Card>
             </>
           ) : null}
         </div>

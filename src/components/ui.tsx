@@ -53,6 +53,7 @@ export type IconName =
   | "episodes"
   | "lock"
   | "unlock"
+  | "cloud"
   | "minus";
 
 const STROKE: Partial<Record<IconName, ReactNode>> = {
@@ -319,6 +320,7 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
     </>
   ),
   minus: <path d="M5 12h14" />,
+  cloud: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10Z" />,
 };
 
 export function Icon({
