@@ -629,17 +629,20 @@ async fn push_library(
     if changes.is_empty() {
         return Ok(0);
     }
-    api(
-        http,
-        "datastorePut",
-        &json!({
-            "type": "DatastorePut",
-            "authKey": key,
-            "collection": LIBRARY_COLLECTION,
-            "changes": changes,
-        }),
-    )
-    .await?;
+    // A large library would otherwise be one oversized request.
+    for chunk in changes.chunks(100) {
+        api(
+            http,
+            "datastorePut",
+            &json!({
+                "type": "DatastorePut",
+                "authKey": key,
+                "collection": LIBRARY_COLLECTION,
+                "changes": chunk,
+            }),
+        )
+        .await?;
+    }
     Ok(changes.len() as i64)
 }
 
