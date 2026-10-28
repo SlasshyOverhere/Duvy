@@ -1935,6 +1935,7 @@ export function PlayerView() {
                         <button
                           type="button"
                           className={`pv-toggle${subStyle.bold ? " is-on" : ""}`}
+                          aria-label="Bold subtitles"
                           aria-pressed={subStyle.bold}
                           onClick={() => patchSubStyle({ bold: !subStyle.bold })}
                         >
@@ -1986,6 +1987,7 @@ export function PlayerView() {
                         <button
                           type="button"
                           className={`pv-toggle${subStyle.outline ? " is-on" : ""}`}
+                          aria-label="Subtitle outline"
                           aria-pressed={subStyle.outline}
                           onClick={() => patchSubStyle({ outline: !subStyle.outline })}
                         >
