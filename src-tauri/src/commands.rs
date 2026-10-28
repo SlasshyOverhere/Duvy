@@ -1445,18 +1445,37 @@ pub async fn player_open(
     if let Some(host) = host {
         crate::refit_webview(host);
     }
-    let player = Player::spawn(
+    let player = match Player::spawn(
         app.clone(),
         &settings,
         &request,
         host,
         mpv_dir(&app).as_deref(),
-    )?;
+    ) {
+        Ok(player) => player,
+        Err(error) => {
+            // The previous player is already gone, so a screen left behind
+            // would be a frozen picture that refuses every control.
+            if !crate::player_is_live(&app) {
+                release_window(&app);
+                let _ = app.emit("player:closed", 0u64);
+            }
+            return Err(error);
+        }
+    };
     // Frames cached for the previous source are meaningless now.
     crate::frame::clear();
     let snapshot = player.snapshot();
     *state.player.lock().map_err(|_| "player is busy")? = Some(player);
     Ok(snapshot)
+}
+
+/// Hand the window back when no mpv is left to paint into it.
+fn release_window(app: &AppHandle) {
+    set_window_shadow(app, true);
+    if let Some(host) = crate::video_host(app) {
+        crate::refit_webview(host);
+    }
 }
 
 /// Toggle the window's own drop shadow, which also decides whether the host
@@ -1524,18 +1543,21 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
         let mut guard = state.player.lock().map_err(|_| "player is busy")?;
         guard.take()
     };
+    let stopped = player.is_some();
+    let generation = player.as_ref().map(Player::generation).unwrap_or(0);
     if let Some(mut player) = player {
         player.kill();
         std::thread::spawn(move || drop(player));
     }
-    let _ = crate::torrent::shutdown().await;
-    set_window_shadow(&app, true);
-    if let Some(host) = crate::video_host(&app) {
-        crate::refit_webview(host);
+    // Hand the window and the screen back now. Waiting for the torrent engine
+    // used to emit this seconds late, wiping a playback started meanwhile.
+    if stopped && !crate::player_is_live(&app) {
+        release_window(&app);
+        // A player we killed on purpose does not close on its own, so this is
+        // the only chance the UI gets to drop the snapshot and re-read progress.
+        let _ = app.emit("player:closed", generation);
     }
-    // A player we killed on purpose does not close on its own, so this is the
-    // only chance the UI gets to drop the snapshot and re-read progress.
-    let _ = app.emit("player:closed", ());
+    let _ = crate::torrent::shutdown().await;
     Ok(())
 }
 

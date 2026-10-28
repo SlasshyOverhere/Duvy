@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -67,6 +67,10 @@ pub struct Snapshot {
     pub active_sub: Option<i64>,
     pub chapters: Vec<Chapter>,
     pub session: Option<PlaybackSession>,
+    /// Which player produced this snapshot, so a dead player's late events can
+    /// be ignored by the UI.
+    #[serde(default)]
+    pub generation: u64,
 }
 
 impl Default for Snapshot {
@@ -90,6 +94,7 @@ impl Default for Snapshot {
             active_sub: None,
             chapters: Vec::new(),
             session: None,
+            generation: 0,
         }
     }
 }
@@ -116,9 +121,14 @@ pub struct Player {
     final_saved: AtomicBool,
     /// Exactly what mpv was handed, so frame previews decode the same stream.
     source: String,
+    /// Stamped on every snapshot and event, so the UI can drop a dead player's.
+    generation: u64,
     #[cfg_attr(windows, allow(dead_code))]
     pipe: String,
 }
+
+/// One id per mpv process, so stale events can never be mistaken for the new one.
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 // ---------------------------------------------------------------------------
 // mpv discovery
@@ -904,10 +914,12 @@ impl Player {
         }
         crate::playback_log::mark("waiting for the first frame");
 
+        let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
         let snapshot = Snapshot {
             playing: true,
             title: request.title.clone(),
             session: request.session.clone(),
+            generation,
             ..Default::default()
         };
 
@@ -938,12 +950,17 @@ impl Player {
             session,
             final_saved: AtomicBool::new(false),
             source: request.url.clone(),
+            generation,
             pipe,
         })
     }
 
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn source(&self) -> &str {
@@ -1301,11 +1318,29 @@ fn spawn_reader(
         // The pipe is gone, so the ticker has nothing left to report. Without
         // this it keeps emitting ticks for a player that no longer exists.
         let replaced = stop.swap(true, Ordering::Relaxed);
+        let generation = snapshot.lock().map(|snap| snap.generation).unwrap_or(0);
         crate::playback_log::mark("control pipe closed");
+        // Drop this player from the slot so the next open starts clean and
+        // controls stop writing into a dead process. A newer player may already
+        // own the slot, so only our own is cleared.
+        if let Some(state) = app.try_state::<AppState>() {
+            let doomed = match state.player.lock() {
+                Ok(mut guard)
+                    if guard
+                        .as_ref()
+                        .is_some_and(|player| Arc::ptr_eq(&player.snapshot, &snapshot)) =>
+                {
+                    guard.take()
+                }
+                _ => None,
+            };
+            // Dropping kills and reaps mpv, which must not happen under the lock.
+            drop(doomed);
+        }
         // A player we killed on purpose (stop, or a new source taking over) is
         // not news: closing it would blank the snapshot of the new playback.
         if !replaced {
-            let _ = app.emit("player:closed", ());
+            let _ = app.emit("player:closed", generation);
         }
     });
 }

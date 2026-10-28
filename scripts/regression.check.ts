@@ -1,4 +1,5 @@
-// Updater regression guards. Run with: bun scripts/regression.check.ts
+// Updater and player lifecycle regression guards.
+// Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +7,9 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel: string) => readFileSync(root + rel, "utf8");
 
 const updates = read("src-tauri/src/updates.rs");
+const commands = read("src-tauri/src/commands.rs");
+const player = read("src-tauri/src/player.rs");
+const store = read("src/lib/store.tsx");
 
 /** Slice a top-level Rust function: from `fn name` to the next `}` in column 0. */
 function rustFn(src: string, name: string): string {
@@ -78,6 +82,69 @@ run("download progress is throttled", () => {
   const install = rustFn(updates, "update_install");
   if (!/elapsed\(\)/.test(install)) {
     return ["update:progress is emitted for every network chunk"];
+  }
+  return [];
+});
+
+run("stop closes the screen before torrent teardown", () => {
+  const out: string[] = [];
+  const stop = rustFn(commands, "player_stop");
+  if (!stop) return ["commands.rs: player_stop() not found"];
+  const closed = stop.indexOf('emit("player:closed"');
+  const torrent = stop.indexOf("torrent::shutdown");
+  if (closed < 0) out.push("player_stop does not emit player:closed");
+  else if (torrent >= 0 && closed > torrent) {
+    out.push("player_stop emits player:closed only after the torrent teardown await");
+  }
+  return out;
+});
+
+run("failed open closes the screen", () => {
+  const open = rustFn(commands, "player_open");
+  if (!open) return ["commands.rs: player_open() not found"];
+  if (!open.includes('emit("player:closed"')) {
+    return ["player_open leaves the player screen up when the spawn fails"];
+  }
+  return [];
+});
+
+run("closed pipe frees the player slot", () => {
+  const reader = rustFn(player, "spawn_reader");
+  if (!reader) return ["player.rs: spawn_reader() not found"];
+  if (!reader.includes("ptr_eq")) {
+    return ["spawn_reader keeps a dead player in the state slot"];
+  }
+  return [];
+});
+
+run("player snapshots carry a generation", () => {
+  if (!/\bgeneration\b/.test(player)) {
+    return ["player.rs: snapshots carry no generation, so stale ticks can win"];
+  }
+  return [];
+});
+
+run("store ignores stale player events", () => {
+  const out: string[] = [];
+  if (!/playerGen/.test(store)) {
+    return ["store.tsx: no generation guard on player events"];
+  }
+  if (!/playerGen\.current/.test(store)) {
+    out.push("store.tsx: playerGen is never compared");
+  }
+  return out;
+});
+
+run("playRequest reports a refused open", () => {
+  if (!/if\s*\(opening\.current\)\s*return false;/.test(store)) {
+    return ["playRequest returns true when another open is already running"];
+  }
+  return [];
+});
+
+run("cancelled start cannot clear the next start", () => {
+  if (!/pending\.current === chain/.test(store)) {
+    return ["a finished start clears the pending guard of a newer one"];
   }
   return [];
 });
