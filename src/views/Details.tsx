@@ -322,32 +322,32 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   </Button>
                 ) : null}
               </div>
+            </div>
 
-              <div className="detail-credits">
-                <dl className="detail-facts">
-                  {(details.director ?? []).length ? (
-                    <div className="detail-fact">
-                      <dt>Director</dt>
-                      <dd>{(details.director ?? []).join(", ")}</dd>
-                    </div>
-                  ) : null}
-                  {(details.writer ?? []).length ? (
-                    <div className="detail-fact">
-                      <dt>Writer</dt>
-                      <dd>{(details.writer ?? []).join(", ")}</dd>
-                    </div>
-                  ) : null}
-                  {(details.country ?? []).length ? (
-                    <div className="detail-fact">
-                      <dt>Country</dt>
-                      <dd>{(details.country ?? []).join(", ")}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-                {details.source === "tmdb" ? (
-                  <p className="detail-source">Metadata from TMDB</p>
+            <div className="detail-credits">
+              <dl className="detail-facts">
+                {(details.director ?? []).length ? (
+                  <div className="detail-fact">
+                    <dt>Director</dt>
+                    <dd>{(details.director ?? []).join(", ")}</dd>
+                  </div>
                 ) : null}
-              </div>
+                {(details.writer ?? []).length ? (
+                  <div className="detail-fact">
+                    <dt>Writer</dt>
+                    <dd>{(details.writer ?? []).join(", ")}</dd>
+                  </div>
+                ) : null}
+                {(details.country ?? []).length ? (
+                  <div className="detail-fact">
+                    <dt>Country</dt>
+                    <dd>{(details.country ?? []).join(", ")}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {details.source === "tmdb" ? (
+                <p className="detail-source">Metadata from TMDB</p>
+              ) : null}
             </div>
           </div>
         </div>

@@ -1786,22 +1786,21 @@ button.pill:hover {
     );
 }
 
-/* Poster and facts share one baseline; the poster crosses the art seam so the
-   backdrop and the shelf read as a single frame. */
+/* Poster and facts share one bottom edge: the card lands on the action row
+   rather than hanging above it. */
 .detail-body {
   position: relative;
   z-index: 1;
   display: grid;
   grid-template-columns: var(--detail-poster) minmax(0, 1fr);
-  align-items: start;
-  gap: var(--detail-gap);
+  align-items: end;
+  gap: 0 var(--detail-gap);
   padding-block: clamp(14px, 1.6vw, 22px) clamp(20px, 2.6vw, 32px);
 }
 
 .detail-poster {
   width: 100%;
   aspect-ratio: 2 / 3;
-  margin-top: calc(-1 * clamp(56px, 9vh, 92px));
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
@@ -1907,9 +1906,9 @@ button.pill:hover {
   color: var(--text);
 }
 
-/* Credits stay attached to the synopsis and actions instead of drifting to
-   the far edge of a wide screen. */
+/* Credits stay attached to the actions, under them in the copy column. */
 .detail-credits {
+  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -1949,6 +1948,12 @@ button.pill:hover {
 
 .detail-section {
   margin-top: clamp(36px, 4vw, 52px);
+}
+
+/* The shared row scroller pads 6px for focus rings; pull it back so posters
+   share the same edge as the poster, cast grid and episode thumbs above. */
+.detail-page .row-scroller {
+  margin-inline: -6px;
 }
 
 .detail-section h2,
@@ -2093,7 +2098,7 @@ button.pill:hover {
 
 .cast-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 132px));
+  grid-template-columns: repeat(auto-fill, minmax(116px, 156px));
   gap: clamp(14px, 1.5vw, 20px);
 }
 
@@ -4114,12 +4119,8 @@ input[type="range"]::-webkit-slider-thumb {
 
   .detail-body {
     grid-template-columns: clamp(120px, 19vw, 152px) minmax(0, 1fr);
-    gap: 20px;
+    gap: 0 20px;
     padding-block: 10px 22px;
-  }
-
-  .detail-poster {
-    margin-top: calc(-1 * clamp(40px, 6vh, 62px));
   }
 
   .detail-title {
@@ -4227,6 +4228,11 @@ input[type="range"]::-webkit-slider-thumb {
     margin-top: -46px;
   }
 
+  .detail-credits {
+    grid-column: 1;
+    margin-top: 0;
+  }
+
   .detail-logo {
     max-width: min(230px, 82%);
     max-height: 64px;
@@ -4242,6 +4248,10 @@ input[type="range"]::-webkit-slider-thumb {
 
   .detail-facts {
     gap: 6px 22px;
+  }
+
+  .episode-thumb {
+    max-width: none;
   }
 }
 
