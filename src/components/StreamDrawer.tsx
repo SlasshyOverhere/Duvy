@@ -1,8 +1,41 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../lib/bridge";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
-import { Badge, Button, EmptyState, Icon } from "./ui";
+import { Badge, Button, ContextMenu, EmptyState, Icon } from "./ui";
+
+const FILTER_KEY = "streams.filter";
+
+// The play button keeps the row's column layout; the action menu sits beside it.
+const ROW_GRID: CSSProperties = { gridTemplateColumns: "minmax(0, 1fr) auto" };
+const PLAY_GRID: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "76px minmax(0, 1fr) 26px",
+  gap: 14,
+  alignItems: "start",
+  padding: 0,
+  border: 0,
+  background: "none",
+  textAlign: "left",
+};
+
+function readFilter(): string {
+  try {
+    return localStorage.getItem(FILTER_KEY) ?? "all";
+  } catch {
+    return "all";
+  }
+}
+
+function isBrowsable(url: string) {
+  return /^https?:\/\//i.test(url);
+}
+
+function copyText(text: string) {
+  const clipboard = navigator.clipboard;
+  if (!clipboard) return Promise.reject(new Error("Clipboard unavailable"));
+  return clipboard.writeText(text);
+}
 
 const QUALITY_TONE: Record<string, "accent" | "good" | "neutral" | "warn"> = {
   "4K": "accent",
@@ -45,10 +78,35 @@ export function StreamDrawer({
   onClose: () => void;
   onPlay: (stream: StreamOption) => void;
 }) {
-  const { addons: installed } = useApp();
+  const { addons: installed, notify } = useApp();
   const [groups, setGroups] = useState<Group[]>([]);
-  const [filter, setFilter] = useState<string>("all");
+  const [filter, setFilter] = useState<string>(readFilter);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    title: string;
+    url: string;
+  } | null>(null);
   const runId = useRef(0);
+
+  const chooseFilter = (next: string) => {
+    setFilter(next);
+    try {
+      localStorage.setItem(FILTER_KEY, next);
+    } catch {
+      // Storage can be blocked; the choice then lasts for the session only.
+    }
+  };
+
+  const copyLink = (url: string) => {
+    copyText(url)
+      .then(() => notify("Stream link copied"))
+      .catch(() => notify("Could not copy the stream link", "error"));
+  };
+
+  const openLink = (url: string) => {
+    void openExternal(url).catch(() => notify("Could not open that link", "error"));
+  };
 
   // Every addon is asked on its own, so the first answer can be shown while
   // the rest are still scraping. One dead addon only costs its own section.
@@ -97,8 +155,9 @@ export function StreamDrawer({
   useEffect(() => {
     if (!open || !request) return;
     runId.current += 1;
-    // A filter left over from the last title would hide every new result.
-    setFilter("all");
+    // Reopen on the addon the viewer last picked.
+    setFilter(readFilter());
+    setMenu(null);
     setGroups(
       targets.map((addon) => ({ addon, streams: [], state: "loading", error: null })),
     );
@@ -115,6 +174,13 @@ export function StreamDrawer({
     request?.imdbId,
     signature,
   ]);
+
+  // A remembered addon that is gone from this list must not hide every stream.
+  useEffect(() => {
+    if (!open || filter === "all") return;
+    if (!groups.length || groups.some((group) => group.addon === filter)) return;
+    setFilter("all");
+  }, [open, filter, groups]);
 
   useEffect(() => {
     if (!open) return;
@@ -156,7 +222,7 @@ export function StreamDrawer({
           <button
             type="button"
             className={`chip${filter === "all" ? " is-active" : ""}`}
-            onClick={() => setFilter("all")}
+            onClick={() => chooseFilter("all")}
           >
             All <span>{total}</span>
           </button>
@@ -165,7 +231,7 @@ export function StreamDrawer({
               key={group.addon}
               type="button"
               className={`chip${filter === group.addon ? " is-active" : ""}`}
-              onClick={() => setFilter(group.addon)}
+              onClick={() => chooseFilter(group.addon)}
             >
               {group.addon}{" "}
               <span>{group.state === "loading" ? "…" : group.streams.length}</span>
@@ -206,55 +272,100 @@ export function StreamDrawer({
 
               {group.streams.length ? (
                 <ul className="stream-list">
-                  {group.streams.map((stream, index) => (
-                    <li key={`${group.addon}-${index}`}>
-                      <button
-                        type="button"
-                        className={`stream-row${stream.playable ? "" : " is-disabled"}`}
-                        onClick={() => stream.playable && onPlay(stream)}
-                        disabled={!stream.playable}
-                      >
-                        <span className="stream-quality">
-                          <span
-                            className={`quality quality-${QUALITY_TONE[stream.quality] ?? "neutral"}`}
+                  {group.streams.map((stream, index) => {
+                    const url = stream.url?.trim() || null;
+                    return (
+                      <li key={`${group.addon}-${index}`}>
+                        <div className="stream-row" style={ROW_GRID}>
+                          <button
+                            type="button"
+                            style={{ ...PLAY_GRID, opacity: stream.playable ? 1 : 0.4 }}
+                            onClick={() => stream.playable && onPlay(stream)}
+                            disabled={!stream.playable}
+                            aria-label={`Play ${stream.name || stream.title || "source"}`}
                           >
-                            {stream.quality}
-                          </span>
-                          {stream.cached ? <Badge tone="good">Cached</Badge> : null}
-                        </span>
-                        <span className="stream-main">
-                          <span className="stream-title">
-                            {stream.name || stream.title || "Source"}
-                          </span>
-                          <span className="stream-meta">
-                            {stream.size ? <span>{stream.size}</span> : null}
-                            {stream.seeders != null ? <span>{stream.seeders} seeds</span> : null}
-                            {stream.languages.length ? (
-                              <span>{stream.languages.join(", ")}</span>
-                            ) : null}
-                          </span>
-                          {stream.badges.length ? (
-                            <span className="stream-badges">
-                              {stream.badges.map((badge) => (
-                                <Badge key={badge}>{badge}</Badge>
-                              ))}
+                            <span className="stream-quality">
+                              <span
+                                className={`quality quality-${QUALITY_TONE[stream.quality] ?? "neutral"}`}
+                              >
+                                {stream.quality}
+                              </span>
+                              {stream.cached ? <Badge tone="good">Cached</Badge> : null}
                             </span>
+                            <span className="stream-main">
+                              <span className="stream-title">
+                                {stream.name || stream.title || "Source"}
+                              </span>
+                              <span className="stream-meta">
+                                {stream.size ? <span>{stream.size}</span> : null}
+                                {stream.seeders != null ? <span>{stream.seeders} seeds</span> : null}
+                                {stream.languages.length ? (
+                                  <span>{stream.languages.join(", ")}</span>
+                                ) : null}
+                              </span>
+                              {stream.badges.length ? (
+                                <span className="stream-badges">
+                                  {stream.badges.map((badge) => (
+                                    <Badge key={badge}>{badge}</Badge>
+                                  ))}
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="stream-action">
+                              {stream.playable ? (
+                                <Icon name="play" size={16} />
+                              ) : (
+                                <span className="stream-locked">P2P soon</span>
+                              )}
+                            </span>
+                          </button>
+                          {url ? (
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              aria-label="Stream link actions"
+                              title="Stream link actions"
+                              onClick={(event) =>
+                                setMenu({
+                                  x: event.clientX,
+                                  y: event.clientY,
+                                  title: stream.name || stream.title || "Stream",
+                                  url,
+                                })
+                              }
+                            >
+                              <Icon name="more" size={16} />
+                            </button>
                           ) : null}
-                        </span>
-                        <span className="stream-action">
-                          {stream.playable ? (
-                            <Icon name="play" size={16} />
-                          ) : (
-                            <span className="stream-locked">P2P soon</span>
-                          )}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
             </section>
           ))}
+
+          {menu ? (
+            <ContextMenu
+              x={menu.x}
+              y={menu.y}
+              title={menu.title}
+              onClose={() => setMenu(null)}
+              actions={
+                isBrowsable(menu.url)
+                  ? [
+                      { label: "Copy link", onSelect: () => copyLink(menu.url) },
+                      {
+                        label: "Open in browser",
+                        icon: "external",
+                        onSelect: () => openLink(menu.url),
+                      },
+                    ]
+                  : [{ label: "Copy link", onSelect: () => copyLink(menu.url) }]
+              }
+            />
+          ) : null}
 
           {settled && total === 0 ? (
             <EmptyState
