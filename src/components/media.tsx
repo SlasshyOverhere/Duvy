@@ -35,6 +35,8 @@ export function PosterCard({
   const { playItem, progress: history, refreshProgress, notify } = useApp();
   const entry = history.find((row) => row.metaId === item.id);
   const gradient = placeholderGradient(item.name);
+  const shape = item.posterShape?.toLowerCase();
+  const shapeClass = shape === "square" || shape === "landscape" ? `is-${shape}` : "is-poster";
 
   const actions: ContextAction[] = [
     {
@@ -75,7 +77,7 @@ export function PosterCard({
   return (
     <article className={`poster-card${wide ? " is-wide" : ""}`}>
       <div
-        className="poster-frame"
+        className={`poster-frame ${shapeClass}`}
         role="button"
         tabIndex={0}
         aria-label={item.name}

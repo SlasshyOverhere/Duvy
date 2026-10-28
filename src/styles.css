@@ -969,6 +969,19 @@ button.pill:hover {
   aspect-ratio: 16 / 9;
 }
 
+/* Addon posterShape: square/landscape art must not be cropped to 2/3. */
+.poster-frame.is-poster {
+  aspect-ratio: 2 / 3;
+}
+
+.poster-frame.is-square {
+  aspect-ratio: 1 / 1;
+}
+
+.poster-frame.is-landscape {
+  aspect-ratio: 16 / 9;
+}
+
 .poster-frame:hover,
 .poster-frame:focus-visible {
   outline-color: var(--accent);
