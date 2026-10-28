@@ -77,7 +77,7 @@ interface Store {
   notify: (text: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
-  isWatched: (metaId: string) => boolean;
+  watched: WatchedItem[];
   playRequest: (request: PlayRequest) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
@@ -597,11 +597,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [progress],
   );
 
-  const isWatched = useCallback(
-    (metaId: string) => watched.some((item) => item.metaId === metaId),
-    [watched],
-  );
-
   // The player is a screen, not a spinner on the previous one: show it at once
   // and let it carry the wait.
   const beginStart = useCallback(
@@ -997,7 +992,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
-      isWatched,
+      watched,
       playRequest,
       playItem,
       resumeEntry,
@@ -1032,7 +1027,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
-      isWatched,
+      watched,
       playRequest,
       playItem,
       resumeEntry,

@@ -32,9 +32,9 @@ export const PosterCard = memo(function PosterCard({
 }) {
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const { playItem, progress: history, refreshProgress, notify, isWatched } = useApp();
-  const entry = history.find((row) => row.metaId === item.id);
-  const watched = isWatched(item.id);
+  const { playItem, progress: history, refreshProgress, notify, watched } = useApp();
+  const marked = watched.some((row) => row.metaId === item.id);
+  const entry = marked ? undefined : history.find((row) => row.metaId === item.id);
   const gradient = placeholderGradient(item.name);
   const shape = item.posterShape?.toLowerCase();
   const shapeClass = shape === "square" || shape === "landscape" ? `is-${shape}` : "is-poster";
@@ -64,9 +64,9 @@ export const PosterCard = memo(function PosterCard({
     });
   }
   actions.push({
-    label: watched ? "Mark as unwatched" : "Mark as watched",
-    icon: watched ? "x" : "check",
-    onSelect: () => markWatched(!watched),
+    label: marked ? "Mark as unwatched" : "Mark as watched",
+    icon: marked ? "x" : "check",
+    onSelect: () => markWatched(!marked),
   });
   if (entry) {
     actions.push({

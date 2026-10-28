@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/bridge";
 import { cachedFeed, saveFeed } from "../lib/feed";
 import { useApp } from "../lib/store";
-import type { HomeFeed } from "../lib/types";
+import type { HomeFeed, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
 import { progressPercent, seasonLabel } from "../lib/format";
@@ -44,6 +44,7 @@ export function HomeView() {
     toggleLibrary,
     inLibrary,
     progress,
+    watched,
   } = useApp();
   const [feed, setFeed] = useState<HomeFeed | null>(cachedFeed);
   const [loading, setLoading] = useState(true);
@@ -91,7 +92,28 @@ export function HomeView() {
     if (slide >= featured.length) setSlide(0);
   }, [featured.length, slide]);
 
+  // Continue watching off live store state, so a mark or a clear lands without
+  // reloading the whole feed.
+  const continuing = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: ProgressItem[] = [];
+    for (const row of progress) {
+      if (row.duration <= 0 || row.position <= 5) continue;
+      if (progressPercent(row.position, row.duration) >= 90) continue;
+      if (seen.has(row.metaId)) continue;
+      const marked = watched.some(
+        (mark) =>
+          mark.metaId === row.metaId && mark.season === row.season && mark.episode === row.episode,
+      );
+      if (marked) continue;
+      seen.add(row.metaId);
+      rows.push(row);
+    }
+    return rows.slice(0, 30);
+  }, [progress, watched]);
+
   const resumeProgress = (metaId: string): number | undefined => {
+    if (watched.some((mark) => mark.metaId === metaId)) return undefined;
     const entry = progress.find((item) => item.metaId === metaId);
     return entry ? progressPercent(entry.position, entry.duration) : undefined;
   };
@@ -142,12 +164,12 @@ export function HomeView() {
           />
         ) : null}
 
-        {feed && feed.continueWatching.length > 0 ? (
+        {continuing.length > 0 ? (
           <Row
             title="Continue watching"
             detail={<span className="row-detail">Pick up where you left off</span>}
           >
-            {feed.continueWatching.map((entry) => (
+            {continuing.map((entry) => (
               <ContinueCard
                 key={entry.key}
                 entry={entry}
