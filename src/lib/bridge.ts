@@ -14,6 +14,7 @@ import type {
   NuvioStatus,
   NuvioSyncReport,
   PlayRequest,
+  PlayerSetup,
   PlayerSnapshot,
   ProgressItem,
   Settings,
@@ -57,6 +58,11 @@ export const api = {
   appInfo: () => call<AppInfo>("app_info"),
   playbackLog: (lines?: number) => call<string[]>("playback_log", { lines }),
   mpvDetect: (path?: string) => call<AppInfo["mpv"]>("mpv_detect", { path }),
+
+  playerSetup: {
+    status: () => call<PlayerSetup>("player_setup_status"),
+    start: () => call<boolean>("player_setup_start"),
+  },
 
   settings: {
     get: () => call<Settings>("settings_get"),

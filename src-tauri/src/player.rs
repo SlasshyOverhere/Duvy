@@ -163,6 +163,11 @@ fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<
         candidates.push(explicit.to_string());
     }
 
+    // A player this app downloaded on first run sits next to the database.
+    if let Some(path) = crate::player_setup::installed() {
+        candidates.push(path);
+    }
+
     // The copy shipped with the installer wins over anything on PATH, so
     // playback does not depend on the user installing mpv themselves.
     if let Some(dir) = resource_dir {

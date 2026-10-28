@@ -78,6 +78,19 @@ const SECTIONS: Section[] = [
     blurb: "Check for a new release and install it without leaving the app.",
     keywords: "update release version download install changelog",
   },
+  // Build-only, so a release never ships a panel that does nothing.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          id: "developer",
+          label: "Developer",
+          icon: "monitor" as IconName,
+          group: "System",
+          blurb: "Build-only tools. Nothing here exists in a release.",
+          keywords: "developer dev debug onboarding preview first run test",
+        },
+      ]
+    : []),
 ];
 
 const NAV_GROUPS = ["App", "Playback", "Connections", "System"];
@@ -803,6 +816,22 @@ export function SettingsView({ section }: { section?: string }) {
           {tab === "addons" ? <AddonsPanel /> : null}
 
           {tab === "update" ? <Updates /> : null}
+
+          {tab === "developer" ? (
+            <Card
+              title="First run"
+              description="Replays the onboarding screens over the app. Nothing is saved, no account is contacted and no player download starts."
+            >
+              <Button
+                variant="primary"
+                onClick={() =>
+                  window.dispatchEvent(new Event("betternuvio:preview-onboarding"))
+                }
+              >
+                Preview onboarding
+              </Button>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>

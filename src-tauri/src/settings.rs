@@ -49,6 +49,8 @@ pub struct Settings {
     pub ignored_update_version: String,
     /// The bundled metadata addons have been installed once already.
     pub defaults_seeded: bool,
+    /// First-run setup has been completed or skipped.
+    pub onboarded: bool,
 }
 
 impl Default for Settings {
@@ -78,6 +80,7 @@ impl Default for Settings {
             auto_update_check: true,
             ignored_update_version: String::new(),
             defaults_seeded: false,
+            onboarded: false,
         }
     }
 }
@@ -86,6 +89,8 @@ impl Settings {
     pub fn load(conn: &Connection) -> Self {
         let stored = db::read_settings(conn).unwrap_or(Value::Null);
         let mut settings = Settings::default();
+        // An install that ran before onboarding existed is already past it.
+        let known = stored.get("onboarded").is_some();
         if stored.is_object() {
             if let Ok(merged) = serde_json::from_value::<Settings>(merge(
                 serde_json::to_value(&settings).unwrap_or(Value::Null),
@@ -93,6 +98,9 @@ impl Settings {
             )) {
                 settings = merged;
             }
+        }
+        if !known && settings.defaults_seeded {
+            settings.onboarded = true;
         }
         settings
     }

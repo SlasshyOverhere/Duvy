@@ -182,6 +182,15 @@ export interface Settings {
   traktScrobble: boolean;
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;
+  onboarded: boolean;
+}
+
+/** First-run player provisioning, mirrored from the Rust setup module. */
+export interface PlayerSetup {
+  state: "ready" | "missing" | "downloading" | "failed";
+  source: string;
+  version: string;
+  error: string;
 }
 
 /** A release newer than the running build. */

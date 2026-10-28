@@ -41,7 +41,7 @@ fn parse_manifest(addon: &StoredAddon) -> Manifest {
     serde_json::from_value(addon.manifest.clone()).unwrap_or_default()
 }
 
-fn load_settings(state: &AppState) -> Settings {
+pub(crate) fn load_settings(state: &AppState) -> Settings {
     match state.db.0.lock() {
         Ok(conn) => Settings::load(&conn),
         // A poisoned lock means an earlier panic; recovering keeps the app up.

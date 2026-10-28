@@ -13,6 +13,7 @@ mod models;
 mod nuvio_sync;
 mod playback_log;
 mod player;
+mod player_setup;
 mod secret;
 mod servers;
 mod settings;
@@ -462,6 +463,8 @@ pub fn run() {
             };
             let http = http_client();
 
+            player_setup::init(app.handle());
+
             app.manage(AppState {
                 db: db::Db(Mutex::new(connection)),
                 http,
@@ -484,6 +487,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::mpv_detect,
+            player_setup::player_setup_status,
+            player_setup::player_setup_start,
             commands::playback_log,
             commands::settings_get,
             commands::settings_set,

@@ -120,6 +120,7 @@ let settings: Settings = {
   traktScrobble: true,
   autoUpdateCheck: true,
   ignoredUpdateVersion: "",
+  onboarded: true,
 };
 
 let addons: AddonInfo[] = [

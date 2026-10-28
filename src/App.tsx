@@ -1,10 +1,11 @@
-import { Component, Suspense, lazy, useEffect, type ReactNode } from "react";
+import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
 import { TitleBar } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { Icon } from "./components/ui";
 import { PlayerView } from "./views/Player";
+import { Onboarding } from "./views/Onboarding";
 
 // Playback stays in the first chunk because the player must open instantly;
 // every other screen is fetched the first time it is opened.
@@ -85,7 +86,23 @@ function Toasts() {
 }
 
 function Screen() {
-  const { route, booting, bootError } = useApp();
+  const { route, booting, bootError, settings } = useApp();
+  const [preview, setPreview] = useState(false);
+
+  // Dev builds can replay first run from Settings without touching saved state.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const show = () => setPreview(true);
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreview(false);
+    };
+    window.addEventListener("betternuvio:preview-onboarding", show);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("betternuvio:preview-onboarding", show);
+      window.removeEventListener("keydown", key);
+    };
+  }, []);
 
   // While something is playing the window shows the native video surface, so
   // the document itself has to stop painting its background.
@@ -121,6 +138,11 @@ function Screen() {
         </button>
       </div>
     );
+  }
+
+  // First run owns the window until it is answered or skipped.
+  if (settings && !settings.onboarded) {
+    return <Onboarding />;
   }
 
   if (route.name === "player") {
@@ -159,6 +181,11 @@ function Screen() {
         </div>
         <Toasts />
       </div>
+      {preview ? (
+        <div className="ob-preview">
+          <Onboarding preview onExit={() => setPreview(false)} />
+        </div>
+      ) : null}
     </div>
   );
 }
