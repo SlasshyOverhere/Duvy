@@ -175,8 +175,8 @@ const STROKE: Partial<Record<IconName, ReactNode>> = {
       <path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.4-1.1-1.7-3-1.7.7a7.6 7.6 0 0 0-2.6-1.5L14.4 3h-3.4l-.4 2.6a7.6 7.6 0 0 0-2.6 1.5l-1.7-.7-1.7 3 1.4 1.1a7.8 7.8 0 0 0 0 3L4.6 14.6l1.7 3 1.7-.7a7.6 7.6 0 0 0 2.6 1.5l.4 2.6h3.4l.4-2.6a7.6 7.6 0 0 0 2.6-1.5l1.7.7 1.7-3-1.4-1.1Z" />
     </>
   ),
-  // Ink spans 6.5..17.5 so the triangle sits optically centred in the 24 box.
-  play: <path d="M6.5 5.2v13.6l11-6.8-11-6.8Z" fill="currentColor" stroke="none" />,
+  // A triangle's mass sits a third in from the base, so the path shifts right.
+  play: <path d="M8.5 5.2v13.6l11-6.8-11-6.8Z" fill="currentColor" stroke="none" />,
   pause: (
     <>
       <rect x="7" y="5" width="3.4" height="14" rx="1" fill="currentColor" stroke="none" />
