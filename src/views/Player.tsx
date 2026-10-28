@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
 import { noSourceError, pickSource, rememberSource, rememberedSource, useApp, usePlayer } from "../lib/store";
+import { rememberedLogo } from "../lib/art";
 import type {
   Details,
   PlayerSnapshot,
@@ -1452,6 +1453,7 @@ export function PlayerView() {
   // mpv reports the cache relative to the playhead; the bar wants where it ends.
   const bufferedPercent = bufferPercent(position, local.buffered ?? 0, duration);
   const title = session?.name ?? local.title;
+  const artLogo = details?.logo ?? rememberedLogo(session?.metaId) ?? null;
   const artBackground =
     details?.background ?? session?.background ?? session?.poster ?? null;
   const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
@@ -1653,8 +1655,8 @@ export function PlayerView() {
           {artBackground ? (
             <img className="pv-wait-bg" src={artBackground} alt="" draggable={false} />
           ) : null}
-          {details?.logo ? (
-            <img className="pv-pulse" src={details.logo} alt="" draggable={false} />
+          {artLogo ? (
+            <img className="pv-pulse" src={artLogo} alt="" draggable={false} />
           ) : (
             <h1 className="pv-wait-title">{title}</h1>
           )}

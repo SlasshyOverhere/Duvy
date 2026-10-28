@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { rememberLogo } from "./art";
 import type {
   AddonInfo,
   AppInfo,
@@ -69,7 +70,14 @@ export const api = {
     refresh: (url: string) => call<AddonInfo>("addons_refresh", { url }),
   },
 
-  home: () => call<HomeFeed>("home_feed"),
+  home: async () => {
+    const feed = await call<HomeFeed>("home_feed");
+    // Every card on the page knows its logo, so a later start has it at once.
+    for (const row of feed.rows) {
+      for (const meta of row.items) rememberLogo(meta.id, meta.logo);
+    }
+    return feed;
+  },
   recommendations: () => call<HomeRow[]>("recommendations"),
   catalog: (args: {
     addonUrl: string;
@@ -80,7 +88,11 @@ export const api = {
   }) => call<{ metas: MetaPreview[] }>("catalog", args),
   search: (query: string) => call<MetaPreview[]>("search", { query }),
 
-  details: (id: string, type: string) => call<Details>("meta_details", { id, mediaType: type }),
+  details: async (id: string, type: string) => {
+    const details = await call<Details>("meta_details", { id, mediaType: type });
+    rememberLogo(details.id, details.logo);
+    return details;
+  },
   castPhotos: (names: string[], title: string) =>
     call<Record<string, string>>("cast_photos", { names, title }),
   similar: (mediaType: string, genre: string, exclude: string) =>

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./bridge";
+import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
 import type {
   AddonInfo,
@@ -528,13 +529,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The player is a screen, not a spinner on the previous one: show it at once
   // and let it carry the wait.
   const beginStart = useCallback(
-    (art: StartingArt & { poster?: string | null }, sub?: string | null) => {
+    (
+      art: StartingArt & { poster?: string | null; id?: string; metaId?: string },
+      sub?: string | null,
+    ) => {
       const token = startToken.current + 1;
       startToken.current = token;
       setStarting({
         name: art.name,
         sub: sub ?? null,
-        logo: art.logo ?? null,
+        logo: art.logo ?? rememberedLogo(art.metaId ?? art.id) ?? null,
         background: art.background ?? art.poster ?? null,
       });
       navigate({ name: "player" });
