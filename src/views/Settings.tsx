@@ -36,7 +36,8 @@ const SECTIONS: Section[] = [
     icon: "play",
     group: "Playback",
     blurb: "How mpv plays, remembers your place and moves between episodes.",
-    keywords: "mpv player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk",
+    keywords:
+      "mpv player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
   },
   {
     id: "addons",
@@ -259,6 +260,71 @@ function Range({
         {value}
         {suffix}
       </output>
+    </div>
+  );
+}
+
+const BUFFER_UNITS: [string, string][] = [
+  ["sec", "s"],
+  ["min", "min"],
+  ["mb", "MB"],
+  ["gb", "GB"],
+];
+
+function BufferField({
+  label,
+  value,
+  unit,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  onChange: (value: number, unit: string) => void;
+}) {
+  // The draft is free text so a value can be cleared and retyped; it only
+  // becomes a number on blur or Enter, never mid-keystroke.
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const read = () => Math.min(65536, Math.max(1, Math.round(Number(draft)) || 1));
+  const commit = () => {
+    const next = read();
+    setDraft(String(next));
+    if (next !== value) onChange(next, unit);
+  };
+
+  return (
+    <div className="buffer-field">
+      <input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={65536}
+        value={draft}
+        aria-label={label}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+          if (event.key === "Escape") setDraft(String(value));
+        }}
+      />
+      <span className="buffer-sep" aria-hidden="true">
+        /
+      </span>
+      <select
+        value={unit}
+        aria-label={`${label} unit`}
+        onChange={(event) => onChange(read(), event.target.value)}
+      >
+        {BUFFER_UNITS.map(([id, text]) => (
+          <option key={id} value={id}>
+            {text}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -643,6 +709,47 @@ export function SettingsView({ section }: { section?: string }) {
                     />
                   }
                 />
+              </Card>
+
+              <Card
+                title="Memory buffer"
+                description="How much of the stream stays in RAM ahead of and behind the playhead. Nothing is written to disk."
+              >
+                <Row
+                  title="Forward buffer"
+                  description="Read ahead so a slow source does not stall playback."
+                  control={
+                    <BufferField
+                      label="Forward buffer"
+                      value={settings.bufferForwardValue}
+                      unit={settings.bufferForwardUnit}
+                      onChange={(value, unit) =>
+                        update({ bufferForwardValue: value, bufferForwardUnit: unit })
+                      }
+                    />
+                  }
+                />
+                <Row
+                  title="Backward buffer"
+                  description="Keep recent data in memory so stepping back is instant."
+                  control={
+                    <BufferField
+                      label="Backward buffer"
+                      value={settings.bufferBackwardValue}
+                      unit={settings.bufferBackwardUnit}
+                      onChange={(value, unit) =>
+                        update({ bufferBackwardValue: value, bufferBackwardUnit: unit })
+                      }
+                    />
+                  }
+                />
+                <p className="settings-note">
+                  <Icon name="info" size={14} />
+                  <span>
+                    mpv only caps the back buffer in bytes, so a time value there is read as 1 MB
+                    per second.
+                  </span>
+                </p>
               </Card>
 
               <Card

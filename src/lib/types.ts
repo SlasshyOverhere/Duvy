@@ -179,6 +179,10 @@ export interface Settings {
   nuvioApiKey: string;
   p2pConsent: boolean;
   p2pCacheMb: number;
+  bufferForwardValue: number;
+  bufferForwardUnit: string;
+  bufferBackwardValue: number;
+  bufferBackwardUnit: string;
   traktScrobble: boolean;
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;

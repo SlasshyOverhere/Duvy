@@ -41,6 +41,12 @@ pub struct Settings {
     pub p2p_consent: bool,
     /// Upper bound for the torrent cache, in megabytes.
     pub p2p_cache_mb: i64,
+    /// How much to cache ahead of the playhead. Unit is "sec", "min", "mb" or "gb".
+    pub buffer_forward_value: i64,
+    pub buffer_forward_unit: String,
+    /// How much past data to keep for seeking back. Same units as the forward buffer.
+    pub buffer_backward_value: i64,
+    pub buffer_backward_unit: String,
     /// Send watched events to Trakt while playing.
     pub trakt_scrobble: bool,
     /// Look for a new release on launch and every few hours.
@@ -76,6 +82,10 @@ impl Default for Settings {
             nuvio_api_key: String::new(),
             p2p_consent: false,
             p2p_cache_mb: 2048,
+            buffer_forward_value: 256,
+            buffer_forward_unit: "mb".into(),
+            buffer_backward_value: 75,
+            buffer_backward_unit: "mb".into(),
             trakt_scrobble: true,
             auto_update_check: true,
             ignored_update_version: String::new(),

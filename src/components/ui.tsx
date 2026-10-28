@@ -563,6 +563,34 @@ export function Badge({
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
+/** IMDb wordmark, inline so it ships offline and stays crisp at any size. */
+export function ImdbMark({ height = 12 }: { height?: number }) {
+  return (
+    <svg
+      className="imdb-mark"
+      viewBox="0 0 46 22"
+      height={height}
+      width={height * (46 / 22)}
+      role="img"
+      aria-label="IMDb"
+    >
+      <rect width="46" height="22" rx="3" fill="#F5C518" />
+      <text
+        x="23"
+        y="11"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontFamily="'Arial Black', Arial, sans-serif"
+        fontSize="13"
+        fontWeight="900"
+        fill="#000"
+      >
+        IMDb
+      </text>
+    </svg>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="spinner-wrap" role="status" aria-live="polite">

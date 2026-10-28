@@ -73,12 +73,8 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
         .get("backdrop_path")
         .and_then(|v| v.as_str())
         .map(backdrop_url);
-    let rating = item
-        .get("vote_average")
-        .and_then(|v| v.as_f64())
-        .filter(|v| *v > 0.0)
-        .map(|v| format!("{v:.1}"));
-
+    // TMDB's `vote_average` is not IMDb's score, so it is left out rather than
+    // shown under the IMDb mark.
     Some(MetaPreview {
         id,
         media_type,
@@ -93,7 +89,7 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string()),
         release_info: year_from(item),
-        imdb_rating: rating,
+        imdb_rating: None,
         genres: item.get("genre_ids").and_then(|v| v.as_array()).map(|_| vec![]),
         runtime: None,
     })
