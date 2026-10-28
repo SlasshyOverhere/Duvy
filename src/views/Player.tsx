@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
-import { noSourceError, pickSource, useApp, usePlayer } from "../lib/store";
+import { noSourceError, pickSource, rememberSource, rememberedSource, useApp, usePlayer } from "../lib/store";
 import type {
   Details,
   PlayerSnapshot,
@@ -609,6 +609,7 @@ export function PlayerView() {
       setBusy(true);
       try {
         const nextSession = buildSession(details, video);
+        const memory = rememberedSource(nextSession.key);
         const sources = await api.streams({
           id: details.imdbId ?? details.id,
           mediaType: details.type,
@@ -621,6 +622,7 @@ export function PlayerView() {
           settings?.preferredQuality ?? "auto",
           settings?.p2pConsent ?? false,
           playingSource,
+          memory,
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
@@ -632,12 +634,13 @@ export function PlayerView() {
             ? saved.position
             : 0;
         skipResume.current = nextSession.key;
-        await playRequest({
+        const opened = await playRequest({
           url,
           title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
           startAt,
           session: nextSession,
         });
+        if (opened) rememberSource(nextSession.key, source);
         if (!alive.current) return;
         pushPlaybackPrefs();
       } catch (e) {
@@ -956,12 +959,13 @@ export function PlayerView() {
       try {
         const url = await resolveStream(stream);
         if (!alive.current) return;
-        await playRequest({
+        const opened = await playRequest({
           url,
           title: local?.title || session.name,
           startAt: posRef.current,
           session,
         });
+        if (opened) rememberSource(session.key, stream);
         if (!alive.current) return;
         // The same session object is reused, so nothing else re-applies the
         // settings to the new mpv.

@@ -135,10 +135,27 @@ export function pickSource(
   quality: string,
   p2pAllowed = true,
   playing?: StreamOption | null,
+  remembered?: SourceMemory | null,
 ): StreamOption | undefined {
   const playable = options.filter(
     (stream) => stream.playable && (p2pAllowed || Boolean(stream.url)),
   );
+  // The source this session used last time wins, as long as the addon still
+  // offers it.
+  if (remembered) {
+    const same = playable.find((stream) =>
+      remembered.infoHash
+        ? stream.addon === remembered.addon &&
+          stream.infoHash?.toLowerCase() === remembered.infoHash.toLowerCase() &&
+          (remembered.fileIdx == null || stream.fileIdx === remembered.fileIdx)
+        : remembered.url
+          ? stream.addon === remembered.addon && stream.url === remembered.url
+          : stream.addon === remembered.addon &&
+            stream.quality === remembered.quality &&
+            (stream.fileIdx ?? null) === remembered.fileIdx,
+    );
+    if (same) return same;
+  }
   if (playing?.infoHash) {
     const pack = playing.infoHash.toLowerCase();
     const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
@@ -151,6 +168,45 @@ export function pickSource(
   }
   const sameAddon = playing ? playable.find((stream) => stream.addon === playing.addon) : undefined;
   return sameAddon ?? playable[0];
+}
+
+/** The whole source a session played last time, so resuming skips the hunt. */
+export type SourceMemory = StreamOption;
+
+const SOURCE_MEMORY_KEY = "betternuvio:sources";
+const SOURCE_MEMORY_LIMIT = 200;
+
+function readSourceMemory(): Record<string, SourceMemory> {
+  try {
+    const raw = window.localStorage.getItem(SOURCE_MEMORY_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, SourceMemory>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function rememberedSource(key: string | null | undefined): SourceMemory | null {
+  if (!key) return null;
+  const found = readSourceMemory()[key];
+  return found && typeof found.addon === "string" && typeof found.quality === "string"
+    ? found
+    : null;
+}
+
+export function rememberSource(key: string | null | undefined, stream: StreamOption): void {
+  if (!key) return;
+  try {
+    const all = readSourceMemory();
+    all[key] = stream;
+    const keys = Object.keys(all);
+    for (const stale of keys.slice(0, Math.max(0, keys.length - SOURCE_MEMORY_LIMIT))) {
+      delete all[stale];
+    }
+    window.localStorage.setItem(SOURCE_MEMORY_KEY, JSON.stringify(all));
+  } catch {
+    // Storage can be blocked; the hunt simply picks fresh next time.
+  }
 }
 
 /** Explain why nothing could play, without sending the user to the addons page for a consent gate. */
@@ -611,9 +667,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // alongside the details fetch instead of queueing behind it.
         const early =
           item.type === "movie" && item.id.startsWith("tt")
-            ? api.streams({ id: item.id, mediaType: item.type })
+            ? api.streams({ id: item.id, mediaType: item.type }).catch(() => null)
             : null;
-        const [details, prefetched] = await Promise.all([api.details(item.id, item.type), early]);
+        const details = await api.details(item.id, item.type);
         if (startToken.current !== token) return;
         let video: Video | null = null;
         if (details.type === "series") {
@@ -633,34 +689,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
+        const memory = rememberedSource(session.key);
         const stored = progressFor(session.key);
         const resume =
           settings?.autoResume && !fromStart
             ? resumePosition(stored?.position ?? 0, stored?.duration ?? 0)
             : 0;
-        const options =
-          (details.type === item.type ? prefetched : null) ??
-          (await api.streams({
-            id: details.imdbId ?? details.id,
-            mediaType: details.type,
-            season: session.season,
-            episode: session.episode,
-            imdbId: details.imdbId,
-          }));
-        if (startToken.current !== token) return;
-        const source = pickSource(
-          options,
-          settings?.preferredQuality ?? "auto",
-          settings?.p2pConsent ?? false,
-          playingSource,
-        );
-        if (!source) throw noSourceError(options, settings?.p2pConsent ?? false);
-        const url = await resolveStream(source);
+        let source: StreamOption | null = null;
+        let url: string | null = null;
+        if (memory) {
+          // The same source worked last time: skip the hunt and resolve it.
+          try {
+            url = await resolveStream(memory);
+            source = memory;
+          } catch {
+            url = null;
+          }
+        }
+        if (!source) {
+          const options =
+            (details.type === item.type ? await early : null) ??
+            (await api.streams({
+              id: details.imdbId ?? details.id,
+              mediaType: details.type,
+              season: session.season,
+              episode: session.episode,
+              imdbId: details.imdbId,
+            }));
+          if (startToken.current !== token) return;
+          const found = pickSource(
+            options,
+            settings?.preferredQuality ?? "auto",
+            settings?.p2pConsent ?? false,
+            playingSource,
+            memory,
+          );
+          if (!found) throw noSourceError(options, settings?.p2pConsent ?? false);
+          url = await resolveStream(found);
+          source = found;
+        }
+        if (!url || !source) return;
         if (startToken.current !== token) return;
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
           : details.name;
         const opened = await playRequest({ url, title: label, startAt: resume, session });
+        if (opened) rememberSource(session.key, source);
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
         // The screen is already open, so a failed hunt returns to where it began.
@@ -701,16 +775,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const token = beginStart(entry.name, entry.poster ?? null);
       try {
         // The entry already carries every session field, and a tt id is exactly
-        // what the stream addons key on. Fetching details first only resolved
-        // that same id, at the cost of a full metadata round trip before the hunt.
+        // what the stream addons key on, so metadata is only needed to hunt.
         const imdbId = entry.metaId.startsWith("tt") ? entry.metaId : null;
-        const details = imdbId ? null : await api.details(entry.metaId, entry.type);
-        if (startToken.current !== token) return;
-        if (details && entry.type === "series" && details.videos.length === 0) {
-          setStarting(null);
-          navigate({ name: "details", id: entry.metaId, type: entry.type });
-          return;
-        }
         const session: PlaybackSession = {
           key: entry.key,
           metaId: entry.metaId,
@@ -722,22 +788,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode ?? null,
           episodeTitle: entry.episodeTitle ?? null,
         };
-        const sources = await api.streams({
-          id: imdbId ?? details?.imdbId ?? details?.id ?? entry.metaId,
-          mediaType: details?.type ?? entry.type,
-          season: entry.season,
-          episode: entry.episode,
-          imdbId: imdbId ?? details?.imdbId ?? null,
-        });
-        if (startToken.current !== token) return;
-        const source = pickSource(
-          sources,
-          settings?.preferredQuality ?? "auto",
-          settings?.p2pConsent ?? false,
-          playingSource,
-        );
-        if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
-        const url = await resolveStream(source);
+        const memory = rememberedSource(session.key);
+        let source: StreamOption | null = null;
+        let url: string | null = null;
+        if (memory) {
+          // The same source worked last time: skip the hunt and resolve it.
+          try {
+            url = await resolveStream(memory);
+            source = memory;
+          } catch {
+            url = null;
+          }
+        }
+        if (!source) {
+          const details = imdbId ? null : await api.details(entry.metaId, entry.type);
+          if (startToken.current !== token) return;
+          if (details && entry.type === "series" && details.videos.length === 0) {
+            setStarting(null);
+            navigate({ name: "details", id: entry.metaId, type: entry.type });
+            return;
+          }
+          const sources = await api.streams({
+            id: imdbId ?? details?.imdbId ?? details?.id ?? entry.metaId,
+            mediaType: details?.type ?? entry.type,
+            season: entry.season,
+            episode: entry.episode,
+            imdbId: imdbId ?? details?.imdbId ?? null,
+          });
+          if (startToken.current !== token) return;
+          const found = pickSource(
+            sources,
+            settings?.preferredQuality ?? "auto",
+            settings?.p2pConsent ?? false,
+            playingSource,
+            memory,
+          );
+          if (!found) throw noSourceError(sources, settings?.p2pConsent ?? false);
+          url = await resolveStream(found);
+          source = found;
+        }
+        if (!url || !source) return;
         if (startToken.current !== token) return;
         const opened = await playRequest({
           url,
@@ -748,6 +838,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           startAt: resumePosition(entry.position, entry.duration),
           session,
         });
+        if (opened) rememberSource(session.key, source);
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
         if (startToken.current === token) {

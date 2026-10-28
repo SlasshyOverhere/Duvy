@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
-import { useApp } from "../lib/store";
+import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row } from "../components/media";
@@ -166,7 +166,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       : details.name;
     try {
       const url = await resolveStream(stream);
-      await playRequest({ url, title, startAt: resume, session });
+      const opened = await playRequest({ url, title, startAt: resume, session });
+      if (!opened) return;
+      rememberSource(session.key, stream);
       // Only close once playback is actually opening, so a failed source can be
       // retried without reopening the drawer.
       setDrawer(null);
