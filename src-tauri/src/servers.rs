@@ -423,7 +423,10 @@ pub async fn srv_stream(
         Ok(reply) if reply.status().is_success() => {
             reply.json::<Value>().await.ok().and_then(|value| media_source(&value))
         }
-        _ => None,
+        // A server that answered may still serve the static stream without a
+        // source id, but a dead one must say so instead of failing in mpv.
+        Ok(_) => None,
+        Err(error) => return Err(unreachable(&server.kind, &error)),
     };
     Ok(stream_url(
         &server.url,

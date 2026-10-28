@@ -133,6 +133,12 @@ pub async fn shutdown() -> Result<(), String> {
     Ok(())
 }
 
+/// The URL the running engine serves, so a caller can tell whether a new
+/// playback needs it. `None` when no torrent is running.
+pub async fn serving_url() -> Option<String> {
+    engine().lock().await.as_ref().map(|running| running.url.clone())
+}
+
 #[tauri::command]
 pub async fn stats(_state: State<'_, AppState>) -> Result<TorrentStats, String> {
     let guard = engine().lock().await;

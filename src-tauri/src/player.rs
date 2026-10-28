@@ -1014,21 +1014,22 @@ impl Player {
                 )
             }
             "seek" => {
-                let position = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
+                // A missing target used to default to 0 and restart the film.
+                let position = number_value(value.as_ref(), "Seek position")?;
                 send(
                     &mut writer,
                     json!({"command": ["set_property", "time-pos", position]}),
                 )
             }
             "seek-rel" => {
-                let delta = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let delta = number_value(value.as_ref(), "Seek step")?;
                 send(
                     &mut writer,
                     json!({"command": ["seek", delta, "relative+exact"]}),
                 )
             }
             "volume" => {
-                let volume = value.and_then(|v| v.as_f64()).unwrap_or(100.0);
+                let volume = number_value(value.as_ref(), "Volume")?;
                 send(&mut writer, json!({"command": ["set_property", "volume", volume]}))
             }
             "mute" => {
@@ -1042,7 +1043,7 @@ impl Player {
                 )
             }
             "speed" => {
-                let speed = value.and_then(|v| v.as_f64()).unwrap_or(1.0);
+                let speed = number_value(value.as_ref(), "Speed")?;
                 send(&mut writer, json!({"command": ["set_property", "speed", speed]}))
             }
             "audio" => {
@@ -1286,7 +1287,8 @@ fn spawn_reader(
                 "file-loaded" => {
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
-                        snap.paused = false;
+                        // Leave `paused` alone: clearing it here undid a pause
+                        // pressed while the stream was still opening.
                         snap.ended = false;
                         snap.error = None;
                     }
@@ -1320,9 +1322,10 @@ fn spawn_reader(
         let replaced = stop.swap(true, Ordering::Relaxed);
         let generation = snapshot.lock().map(|snap| snap.generation).unwrap_or(0);
         crate::playback_log::mark("control pipe closed");
-        // Drop this player from the slot so the next open starts clean and
-        // controls stop writing into a dead process. A newer player may already
-        // own the slot, so only our own is cleared.
+        // Take our own player out of the slot so controls stop writing into a
+        // dead process, and so whoever owns the take owns the close event. A
+        // newer player may already own the slot, so only our own is cleared.
+        let mut owned = false;
         if let Some(state) = app.try_state::<AppState>() {
             let doomed = match state.player.lock() {
                 Ok(mut guard)
@@ -1330,6 +1333,7 @@ fn spawn_reader(
                         .as_ref()
                         .is_some_and(|player| Arc::ptr_eq(&player.snapshot, &snapshot)) =>
                 {
+                    owned = true;
                     guard.take()
                 }
                 _ => None,
@@ -1339,7 +1343,10 @@ fn spawn_reader(
         }
         // A player we killed on purpose (stop, or a new source taking over) is
         // not news: closing it would blank the snapshot of the new playback.
-        if !replaced {
+        if owned && !replaced && !crate::player_is_live(&app) {
+            // mpv left on its own (crash or quit), so nobody else hands the
+            // window back and it would stay frameless behind the menu.
+            crate::commands::release_window(&app);
             let _ = app.emit("player:closed", generation);
         }
     });
@@ -1474,7 +1481,10 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
     if session.key.is_empty() || snap.duration <= 0.0 || snap.position <= 5.0 {
         return;
     }
-    let state = app.state::<AppState>();
+    // A player dropped on its own thread can outlive the app's managed state.
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
     let settings = crate::settings::load_cached(&state);
     if !settings.track_progress {
         return;
@@ -1611,6 +1621,40 @@ mod tests {
         assert_eq!(
             written_lines(&buffer),
             vec![json!({"command": ["seek", 10.0, "relative+exact"]})]
+        );
+    }
+
+    #[test]
+    fn seek_targets_must_be_numbers() {
+        let (writer, buffer) = fake_player();
+        // A missing target used to mean 0, which restarted the film.
+        assert!(Player::send_action(&writer, "seek", None).is_err());
+        assert!(Player::send_action(&writer, "seek", Some(json!("30"))).is_err());
+        assert!(Player::send_action(&writer, "seek-rel", None).is_err());
+        assert!(buffer.lock().unwrap().is_empty());
+
+        Player::send_action(&writer, "seek", Some(json!(42.5))).unwrap();
+        assert_eq!(
+            written_lines(&buffer),
+            vec![json!({"command": ["set_property", "time-pos", 42.5]})]
+        );
+    }
+
+    #[test]
+    fn volume_and_speed_must_be_numbers() {
+        let (writer, buffer) = fake_player();
+        assert!(Player::send_action(&writer, "volume", None).is_err());
+        assert!(Player::send_action(&writer, "speed", None).is_err());
+        assert!(buffer.lock().unwrap().is_empty());
+
+        Player::send_action(&writer, "volume", Some(json!(65))).unwrap();
+        Player::send_action(&writer, "speed", Some(json!(1.5))).unwrap();
+        assert_eq!(
+            written_lines(&buffer),
+            vec![
+                json!({"command": ["set_property", "volume", 65.0]}),
+                json!({"command": ["set_property", "speed", 1.5]}),
+            ]
         );
     }
 

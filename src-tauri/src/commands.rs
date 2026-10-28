@@ -1437,6 +1437,12 @@ pub async fn player_open(
         previous.kill();
         std::thread::spawn(move || drop(previous));
     }
+    // A torrent left behind by the previous source keeps downloading with no
+    // reader once its mpv is gone. Only the engine serving this exact URL (the
+    // frontend starts it before opening) survives the switch.
+    if crate::torrent::serving_url().await.as_deref() != Some(request.url.as_str()) {
+        let _ = crate::torrent::shutdown().await;
+    }
     crate::playback_log::mark("starting mpv");
     // The picture owns the whole window. tao leaves the undecorated shadow on,
     // and that makes the host inset the client rect by the resize frame, so the
@@ -1471,7 +1477,7 @@ pub async fn player_open(
 }
 
 /// Hand the window back when no mpv is left to paint into it.
-fn release_window(app: &AppHandle) {
+pub(crate) fn release_window(app: &AppHandle) {
     set_window_shadow(app, true);
     if let Some(host) = crate::video_host(app) {
         crate::refit_webview(host);
