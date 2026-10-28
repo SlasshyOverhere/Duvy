@@ -353,10 +353,10 @@ pub fn list_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
         "SELECT key, meta_id, media_type, name, poster, background, season, episode,
                 episode_title, position, duration, updated_at
          FROM progress
-         WHERE duration > 0 AND position > 5 AND position < duration * ?1
+         WHERE duration > 0 AND position > 5
          ORDER BY updated_at DESC LIMIT 60",
     )?;
-    let rows = stmt.query_map(params![FINISHED_AT], ProgressItem::from_row)?;
+    let rows = stmt.query_map([], ProgressItem::from_row)?;
     rows.collect()
 }
 

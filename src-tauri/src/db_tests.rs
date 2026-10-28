@@ -172,7 +172,7 @@ fn progress_tracks_and_clears() {
 }
 
 #[test]
-fn finished_titles_are_not_offered_for_resume() {
+fn finished_titles_stay_in_history_but_not_in_continue_watching() {
     let (conn, path) = temp_database();
     let item = db::ProgressItem {
         key: "tt5".into(),
@@ -189,8 +189,10 @@ fn finished_titles_are_not_offered_for_resume() {
         updated_at: 0,
     };
     db::save_progress(&conn, &item).expect("finished");
+    // The episode list and the history rail still need this row.
+    assert_eq!(db::list_progress(&conn).unwrap().len(), 1);
     assert!(
-        db::list_progress(&conn).unwrap().is_empty(),
+        db::list_continue_watching(&conn).unwrap().is_empty(),
         "a finished title would restart from the end"
     );
 
@@ -202,7 +204,7 @@ fn finished_titles_are_not_offered_for_resume() {
         },
     )
     .expect("unfinished");
-    assert_eq!(db::list_progress(&conn).unwrap().len(), 1);
+    assert_eq!(db::list_continue_watching(&conn).unwrap().len(), 1);
 
     cleanup(conn, path);
 }
