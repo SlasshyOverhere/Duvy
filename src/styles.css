@@ -5398,17 +5398,24 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--surface-2);
 }
 
-/* The padding keeps the focus ring clear while the height animates. */
-.ob-form-wrap {
-  overflow: hidden;
-  padding-bottom: 12px;
-  margin-bottom: -12px;
-}
-
 .ob-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* A selected account opens its own credentials right under its card. */
+.ob-provider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ob-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 20px 8px;
 }
 
 .ob-actions {

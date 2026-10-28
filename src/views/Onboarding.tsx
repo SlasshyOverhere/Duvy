@@ -113,8 +113,10 @@ export function Onboarding({
   const [step, setStep] = useState<Step>("welcome");
   const [chosen, setChosen] = useState<Provider[]>([]);
   const [signedIn, setSignedIn] = useState<Provider[]>([]);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [creds, setCreds] = useState<Record<Provider, { email: string; password: string }>>({
+    nuvio: { email: "", password: "" },
+    stremio: { email: "", password: "" },
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [player, setPlayer] = useState<PlayerSetup | null>(null);
@@ -191,9 +193,10 @@ export function Onboarding({
     setError(null);
     const done: Provider[] = [];
     const failed: string[] = [];
-    // One email and password for both, in order; a rejected account must not
+    // Each account signs in with its own credentials; a rejected one must not
     // cost the one that worked.
     for (const id of pending) {
+      const { email, password } = creds[id];
       try {
         if (id === "nuvio") await api.nuvio.signIn(email.trim(), password, false);
         else await api.stremio.signIn(email.trim(), password);
@@ -217,6 +220,10 @@ export function Onboarding({
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
     setError(null);
+  };
+
+  const setCred = (id: Provider, field: "email" | "password", value: string) => {
+    setCreds((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
   };
 
   const downloading = player?.state === "downloading";
@@ -297,140 +304,138 @@ export function Onboarding({
                   </motion.p>
                 </header>
 
-                <div className="ob-providers" role="group" aria-label="Account provider">
-                  {PROVIDERS.map((item, index) => {
-                    const done = signedIn.includes(item.id);
-                    const picked = done || chosen.includes(item.id);
-                    return (
-                      <motion.button
-                        key={item.id}
-                        type="button"
-                        className="ob-provider"
-                        aria-pressed={picked}
-                        data-signed-in={done || undefined}
-                        disabled={busy || done}
-                        onClick={() => toggle(item.id)}
-                        initial={still ? false : { opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{
-                          duration: still ? 0 : 0.5,
-                          delay: still ? 0 : 0.12 + index * 0.07,
-                          ease: EASE,
-                        }}
-                      >
-                        <span>
-                          <span className="ob-provider-name">{item.name}</span>
-                          <span className="ob-provider-note">{done ? "Signed in" : item.note}</span>
-                        </span>
-                        <AnimatePresence initial={false}>
-                          {picked ? (
-                            <motion.span
-                              key="check"
-                              className="ob-check"
-                              initial={{ scale: 0.4, opacity: 0 }}
-                              animate={{ scale: 1, opacity: 1 }}
-                              exit={{ scale: 0.4, opacity: 0 }}
-                              transition={{ type: "spring", stiffness: 520, damping: 30 }}
-                            >
-                              <Icon name="check" size={16} />
-                            </motion.span>
-                          ) : null}
-                        </AnimatePresence>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-
-                <AnimatePresence initial={false} mode="wait">
-                  {pending.length ? (
-                    <motion.div
-                      key="form"
-                      className="ob-form-wrap"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: still ? 0 : 0.36, ease: EASE }}
-                    >
-                      <form
-                        className="ob-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void signIn();
-                        }}
-                      >
-                        <label className="field">
-                          <span>Email</span>
-                          <input
-                            type="email"
-                            value={email}
-                            onChange={(event) => setEmail(event.target.value)}
-                            autoComplete="username"
-                            placeholder="you@example.com"
-                            disabled={busy}
-                            required
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Password</span>
-                          <input
-                            type="password"
-                            value={password}
-                            onChange={(event) => setPassword(event.target.value)}
-                            autoComplete="current-password"
-                            placeholder="Your password"
-                            disabled={busy}
-                            required
-                          />
-                        </label>
-                        {error ? (
-                          <motion.p
-                            className="ob-error"
-                            role="alert"
-                            initial={still ? false : { opacity: 0, x: -6 }}
-                            animate={{ opacity: 1, x: 0 }}
-                          >
-                            {error}
-                          </motion.p>
-                        ) : null}
-                        <div className="ob-actions">
-                          {busy ? (
-                            <span className="ob-sync">
-                              <Spinner label="Syncing your library…" />
-                            </span>
-                          ) : (
-                            <Button type="submit" variant="primary" disabled={!canFinish}>
-                              {downloading
-                                ? "Preparing the player..."
-                                : pending.length > 1
-                                  ? "Sign in to both"
-                                  : "Sign in"}
-                            </Button>
-                          )}
-                          <button
+                <form
+                  className="ob-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void signIn();
+                  }}
+                >
+                  <div className="ob-providers" role="group" aria-label="Account provider">
+                    {PROVIDERS.map((item, index) => {
+                      const done = signedIn.includes(item.id);
+                      const picked = done || chosen.includes(item.id);
+                      return (
+                        <div className="ob-provider-group" key={item.id}>
+                          <motion.button
                             type="button"
-                            className="ob-skip"
-                            onClick={() => void finish()}
-                            disabled={busy || !canFinish}
+                            className="ob-provider"
+                            aria-pressed={picked}
+                            data-signed-in={done || undefined}
+                            disabled={busy || done}
+                            onClick={() => toggle(item.id)}
+                            initial={still ? false : { opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{
+                              duration: still ? 0 : 0.5,
+                              delay: still ? 0 : 0.12 + index * 0.07,
+                              ease: EASE,
+                            }}
                           >
-                            Skip for now
-                          </button>
+                            <span>
+                              <span className="ob-provider-name">{item.name}</span>
+                              <span className="ob-provider-note">
+                                {done ? "Signed in" : item.note}
+                              </span>
+                            </span>
+                            <AnimatePresence initial={false}>
+                              {picked ? (
+                                <motion.span
+                                  key="check"
+                                  className="ob-check"
+                                  initial={{ scale: 0.4, opacity: 0 }}
+                                  animate={{ scale: 1, opacity: 1 }}
+                                  exit={{ scale: 0.4, opacity: 0 }}
+                                  transition={{ type: "spring", stiffness: 520, damping: 30 }}
+                                >
+                                  <Icon name="check" size={16} />
+                                </motion.span>
+                              ) : null}
+                            </AnimatePresence>
+                          </motion.button>
+                          {/* Each account keeps its own sign-in: the two rarely match. */}
+                          {picked && !done ? (
+                            <div className="ob-fields">
+                              <label className="field">
+                                <span>Email</span>
+                                <input
+                                  type="email"
+                                  aria-label={`${item.name} email`}
+                                  value={creds[item.id].email}
+                                  onChange={(event) => setCred(item.id, "email", event.target.value)}
+                                  autoComplete="username"
+                                  placeholder="you@example.com"
+                                  disabled={busy}
+                                  required
+                                />
+                              </label>
+                              <label className="field">
+                                <span>Password</span>
+                                <input
+                                  type="password"
+                                  aria-label={`${item.name} password`}
+                                  value={creds[item.id].password}
+                                  onChange={(event) =>
+                                    setCred(item.id, "password", event.target.value)
+                                  }
+                                  autoComplete="current-password"
+                                  placeholder="Your password"
+                                  disabled={busy}
+                                  required
+                                />
+                              </label>
+                            </div>
+                          ) : null}
                         </div>
-                      </form>
-                    </motion.div>
-                  ) : signedIn.length ? (
-                    <motion.div key="signed-in" className="ob-actions" {...rise(0.1)}>
+                      );
+                    })}
+                  </div>
+
+                  {error ? (
+                    <motion.p
+                      className="ob-error"
+                      role="alert"
+                      initial={still ? false : { opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                    >
+                      {error}
+                    </motion.p>
+                  ) : null}
+
+                  <div className="ob-actions">
+                    {busy ? (
+                      <span className="ob-sync">
+                        <Spinner label="Syncing your library…" />
+                      </span>
+                    ) : pending.length ? (
+                      <>
+                        <Button type="submit" variant="primary" disabled={!canFinish}>
+                          {downloading
+                            ? "Preparing the player..."
+                            : pending.length > 1
+                              ? "Sign in to both"
+                              : "Sign in"}
+                        </Button>
+                        <button
+                          type="button"
+                          className="ob-skip"
+                          onClick={() => void finish()}
+                          disabled={!canFinish}
+                        >
+                          Skip for now
+                        </button>
+                      </>
+                    ) : (
                       <Button variant="primary" onClick={() => void finish()} disabled={!canFinish}>
-                        {downloading ? "Preparing the player..." : "Continue"}
+                        {downloading
+                          ? "Preparing the player..."
+                          : signedIn.length
+                            ? "Continue"
+                            : "Continue without an account"}
                       </Button>
-                    </motion.div>
-                  ) : (
-                    <motion.div key="actions" className="ob-actions" {...rise(0.24)}>
-                      <Button variant="primary" onClick={() => void finish()} disabled={!canFinish}>
-                        {downloading ? "Preparing the player..." : "Continue without an account"}
-                      </Button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    )}
+                  </div>
+                </form>
 
                 {ready ? null : (
                   <motion.p className="ob-foot" {...rise(0.3)}>
