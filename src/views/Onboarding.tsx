@@ -11,7 +11,7 @@ import {
 import { api, isTauri } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { TitleBar } from "../components/TitleBar";
-import { Button, Icon } from "../components/ui";
+import { Button, Icon, Spinner } from "../components/ui";
 import type { PlayerSetup } from "../lib/types";
 
 type Step = "welcome" | "account";
@@ -111,7 +111,8 @@ export function Onboarding({
 } = {}) {
   const { saveSettings, refreshProgress, refreshLibrary, refreshAddons, notify } = useApp();
   const [step, setStep] = useState<Step>("welcome");
-  const [provider, setProvider] = useState<Provider | null>(null);
+  const [chosen, setChosen] = useState<Provider[]>([]);
+  const [signedIn, setSignedIn] = useState<Provider[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -174,8 +175,12 @@ export function Onboarding({
     }
   }, [preview, onExit, saveSettings, notify]);
 
+  // Only the providers that still need a sign-in keep the form on screen, so
+  // adding the second account after the first one lands stays possible.
+  const pending = chosen.filter((id) => !signedIn.includes(id));
+
   const signIn = async () => {
-    if (!provider) return;
+    if (!pending.length) return;
     // The preview must never reach a real backend.
     if (preview) {
       notify("Preview only. Nothing was sent.", "info");
@@ -184,20 +189,34 @@ export function Onboarding({
     }
     setBusy(true);
     setError(null);
-    try {
-      if (provider === "nuvio") {
-        await api.nuvio.signIn(email.trim(), password, false);
-      } else {
-        await api.stremio.signIn(email.trim(), password);
+    const done: Provider[] = [];
+    const failed: string[] = [];
+    // One email and password for both, in order; a rejected account must not
+    // cost the one that worked.
+    for (const id of pending) {
+      try {
+        if (id === "nuvio") await api.nuvio.signIn(email.trim(), password, false);
+        else await api.stremio.signIn(email.trim(), password);
+        done.push(id);
+      } catch (e) {
+        failed.push(`${PROVIDERS.find((item) => item.id === id)?.name ?? id}: ${message(e)}`);
       }
-      await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
-      notify(`Signed in. Your library and progress are syncing.`, "success");
-      await finish();
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
     }
+    if (done.length) {
+      setSignedIn((current) => [...current, ...done]);
+      await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
+      notify("Signed in. Your library and progress are syncing.", "success");
+    }
+    setError(failed.length ? failed.join("\n") : null);
+    setBusy(false);
+  };
+
+  const toggle = (id: Provider) => {
+    if (busy || signedIn.includes(id)) return;
+    setChosen((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+    setError(null);
   };
 
   const downloading = player?.state === "downloading";
@@ -273,51 +292,57 @@ export function Onboarding({
                     Bring your history with you
                   </motion.h1>
                   <motion.p className="ob-lede" {...rise(0.08)}>
-                    Pick where your library already lives. Nothing is uploaded until you sign in.
+                    Pick where your library already lives, one or both. Nothing is uploaded until
+                    you sign in.
                   </motion.p>
                 </header>
 
                 <div className="ob-providers" role="group" aria-label="Account provider">
-                  {PROVIDERS.map((item, index) => (
-                    <motion.button
-                      key={item.id}
-                      type="button"
-                      className="ob-provider"
-                      aria-pressed={provider === item.id}
-                      disabled={busy}
-                      onClick={() => setProvider(provider === item.id ? null : item.id)}
-                      initial={still ? false : { opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{
-                        duration: still ? 0 : 0.5,
-                        delay: still ? 0 : 0.12 + index * 0.07,
-                        ease: EASE,
-                      }}
-                    >
-                      <span>
-                        <span className="ob-provider-name">{item.name}</span>
-                        <span className="ob-provider-note">{item.note}</span>
-                      </span>
-                      <AnimatePresence initial={false}>
-                        {provider === item.id ? (
-                          <motion.span
-                            key="check"
-                            className="ob-check"
-                            initial={{ scale: 0.4, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.4, opacity: 0 }}
-                            transition={{ type: "spring", stiffness: 520, damping: 30 }}
-                          >
-                            <Icon name="check" size={16} />
-                          </motion.span>
-                        ) : null}
-                      </AnimatePresence>
-                    </motion.button>
-                  ))}
+                  {PROVIDERS.map((item, index) => {
+                    const done = signedIn.includes(item.id);
+                    const picked = done || chosen.includes(item.id);
+                    return (
+                      <motion.button
+                        key={item.id}
+                        type="button"
+                        className="ob-provider"
+                        aria-pressed={picked}
+                        data-signed-in={done || undefined}
+                        disabled={busy || done}
+                        onClick={() => toggle(item.id)}
+                        initial={still ? false : { opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{
+                          duration: still ? 0 : 0.5,
+                          delay: still ? 0 : 0.12 + index * 0.07,
+                          ease: EASE,
+                        }}
+                      >
+                        <span>
+                          <span className="ob-provider-name">{item.name}</span>
+                          <span className="ob-provider-note">{done ? "Signed in" : item.note}</span>
+                        </span>
+                        <AnimatePresence initial={false}>
+                          {picked ? (
+                            <motion.span
+                              key="check"
+                              className="ob-check"
+                              initial={{ scale: 0.4, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ scale: 0.4, opacity: 0 }}
+                              transition={{ type: "spring", stiffness: 520, damping: 30 }}
+                            >
+                              <Icon name="check" size={16} />
+                            </motion.span>
+                          ) : null}
+                        </AnimatePresence>
+                      </motion.button>
+                    );
+                  })}
                 </div>
 
-                <AnimatePresence initial={false}>
-                  {provider ? (
+                <AnimatePresence initial={false} mode="wait">
+                  {pending.length ? (
                     <motion.div
                       key="form"
                       className="ob-form-wrap"
@@ -341,6 +366,7 @@ export function Onboarding({
                             onChange={(event) => setEmail(event.target.value)}
                             autoComplete="username"
                             placeholder="you@example.com"
+                            disabled={busy}
                             required
                           />
                         </label>
@@ -352,6 +378,7 @@ export function Onboarding({
                             onChange={(event) => setPassword(event.target.value)}
                             autoComplete="current-password"
                             placeholder="Your password"
+                            disabled={busy}
                             required
                           />
                         </label>
@@ -366,17 +393,19 @@ export function Onboarding({
                           </motion.p>
                         ) : null}
                         <div className="ob-actions">
-                          <Button
-                            type="submit"
-                            variant="primary"
-                            disabled={busy || !canFinish}
-                          >
-                            {busy
-                              ? "Signing in..."
-                              : downloading
+                          {busy ? (
+                            <span className="ob-sync">
+                              <Spinner label="Syncing your library…" />
+                            </span>
+                          ) : (
+                            <Button type="submit" variant="primary" disabled={!canFinish}>
+                              {downloading
                                 ? "Preparing the player..."
-                                : "Sign in"}
-                          </Button>
+                                : pending.length > 1
+                                  ? "Sign in to both"
+                                  : "Sign in"}
+                            </Button>
+                          )}
                           <button
                             type="button"
                             className="ob-skip"
@@ -387,6 +416,12 @@ export function Onboarding({
                           </button>
                         </div>
                       </form>
+                    </motion.div>
+                  ) : signedIn.length ? (
+                    <motion.div key="signed-in" className="ob-actions" {...rise(0.1)}>
+                      <Button variant="primary" onClick={() => void finish()} disabled={!canFinish}>
+                        {downloading ? "Preparing the player..." : "Continue"}
+                      </Button>
                     </motion.div>
                   ) : (
                     <motion.div key="actions" className="ob-actions" {...rise(0.24)}>

@@ -262,28 +262,46 @@ pub async fn headshot(client: &reqwest::Client, name: &str, title: &str) -> Opti
 
 /// Fill the title and art that a synced progress title never carried.
 /// Input is `(meta_id, media_type)`; output adds name, poster, backdrop.
+///
+/// A fresh account can miss hundreds of rows, so the lookups run a few at a
+/// time instead of one after another: the same work in a fraction of the wait.
 pub async fn fill_missing(
     client: &reqwest::Client,
     rows: Vec<(String, String)>,
 ) -> Vec<(String, String, Option<String>, Option<String>)> {
+    const IN_FLIGHT: usize = 8;
     let mut filled = Vec::new();
     let mut failures = 0;
-    for (meta_id, media_type) in rows {
-        if !meta_id.starts_with("tt") {
-            continue;
+    let mut queue = rows.into_iter().filter(|(meta_id, _)| meta_id.starts_with("tt"));
+    let mut tasks = tokio::task::JoinSet::new();
+    loop {
+        while tasks.len() < IN_FLIGHT {
+            let Some((meta_id, media_type)) = queue.next() else {
+                break;
+            };
+            let client = client.clone();
+            tasks.spawn(async move {
+                let found = details(&client, &meta_id, &media_type).await;
+                (meta_id, found)
+            });
         }
-        match details(client, &meta_id, &media_type).await {
-            Some(found) => {
+        let Some(done) = tasks.join_next().await else {
+            break;
+        };
+        match done {
+            Ok((meta_id, Some(found))) => {
                 failures = 0;
                 filled.push((meta_id, found.name, found.poster, found.background));
             }
-            None => {
+            Ok((_, None)) => {
                 // Both sources down: stop hammering them and try again later.
                 failures += 1;
                 if failures >= 3 {
+                    tasks.abort_all();
                     break;
                 }
             }
+            Err(_) => {}
         }
     }
     filled

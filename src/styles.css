@@ -5391,6 +5391,13 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: default;
 }
 
+/* A signed-in account is done, not unavailable, so it keeps its lit state. */
+.ob-provider[data-signed-in]:disabled {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
 /* The padding keeps the focus ring clear while the height animates. */
 .ob-form-wrap {
   overflow: hidden;
@@ -5436,6 +5443,28 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
   color: var(--danger);
   overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+/* The wait is the sync, so say so where the button was. */
+.ob-sync {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+}
+
+.ob-sync .spinner-wrap {
+  gap: 10px;
+  padding: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.ob-sync .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 1.6px;
 }
 
 .ob-foot {
