@@ -38,7 +38,6 @@ function errorText(error: unknown) {
 
 export function StreamDrawer({
   title,
-  subtitle,
   open,
   request,
   onClose,
@@ -71,6 +70,30 @@ export function StreamDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  // Which edges still hide chips, so the row can say so and offer a step arrow.
+  const measure = useCallback(() => {
+    const node = filtersRef.current;
+    if (!node) return;
+    const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
+    const next = { left: node.scrollLeft > 1, right: rest > 1 };
+    setEdges((current) =>
+      current.left === next.left && current.right === next.right ? current : next,
+    );
+  }, []);
+
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure, open, groups]);
+
+  const step = (direction: number) => {
+    const node = filtersRef.current;
+    if (!node) return;
+    node.scrollBy({ left: direction * node.clientWidth * 0.8, behavior: "smooth" });
+  };
 
   // The filter row is wider than the panel and a mouse has no sideways wheel,
   // so the row itself is draggable.
@@ -98,9 +121,11 @@ export function StreamDrawer({
 
   const chooseFilter = (next: string) => {
     if (drag.current.moved) return;
-    setFilter(next);
+    // The chip you are already on clears the filter: there is no All chip.
+    const value = next === filter ? "all" : next;
+    setFilter(value);
     try {
-      localStorage.setItem(FILTER_KEY, next);
+      localStorage.setItem(FILTER_KEY, value);
     } catch {
       // Storage can be blocked; the choice then lasts for the session only.
     }
@@ -252,91 +277,85 @@ export function StreamDrawer({
         className="drawer"
         role="dialog"
         aria-modal="true"
-        aria-label="Choose a stream"
+        aria-label={`Sources for ${title}`}
       >
-        <header className="drawer-head">
-          <div>
-            <p className="drawer-kicker">Sources</p>
-            <h2>{title}</h2>
-            {subtitle ? <p className="drawer-sub">{subtitle}</p> : null}
+        <div className="drawer-filter-bar">
+          <div
+            className={`drawer-filters${edges.left ? " can-left" : ""}${edges.right ? " can-right" : ""}`}
+            ref={filtersRef}
+            onPointerDown={startDrag}
+            onPointerMove={moveDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onScroll={measure}
+            title="Drag sideways for more addons"
+          >
+            <button
+              type="button"
+              className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
+              onClick={() => targets.forEach(load)}
+              aria-label="Refresh sources"
+              title="Refresh sources"
+            >
+              <Icon name="refresh" size={14} />
+            </button>
+            {groups
+              .filter((group) => group.streams.length > 0 || group.state === "loading")
+              .map((group) => (
+                <button
+                  key={group.addon}
+                  type="button"
+                  className={`chip${filter === group.addon ? " is-active" : ""}`}
+                  aria-pressed={filter === group.addon}
+                  onClick={() => chooseFilter(group.addon)}
+                  title={
+                    filter === group.addon ? "Show every addon" : `Only ${group.addon}`
+                  }
+                >
+                  {group.addon}
+                </button>
+              ))}
           </div>
           <button
             type="button"
-            className="icon-btn"
+            className="filter-step is-left"
+            onClick={() => step(-1)}
+            aria-label="Earlier addons"
+            tabIndex={edges.left ? 0 : -1}
+          >
+            <Icon name="chevron" size={14} />
+          </button>
+          <button
+            type="button"
+            className="filter-step is-right"
+            onClick={() => step(1)}
+            aria-label="More addons"
+            tabIndex={edges.right ? 0 : -1}
+          >
+            <Icon name="chevron" size={14} />
+          </button>
+          <button
+            type="button"
+            className="drawer-close"
             onClick={onClose}
             aria-label="Close"
             ref={closeRef}
           >
             <Icon name="x" size={18} />
           </button>
-        </header>
-
-        <div className="drawer-filters" ref={filtersRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
-          <button
-            type="button"
-            className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
-            onClick={() => targets.forEach(load)}
-            aria-label="Refresh sources"
-            title="Refresh sources"
-          >
-            <Icon name="refresh" size={14} />
-          </button>
-          <button
-            type="button"
-            className={`chip${filter === "all" ? " is-active" : ""}`}
-            aria-pressed={filter === "all"}
-            onClick={() => chooseFilter("all")}
-          >
-            All
-          </button>
-          {groups
-            .filter((group) => group.streams.length > 0 || group.state === "loading")
-            .map((group) => (
-              <button
-                key={group.addon}
-                type="button"
-                className={`chip${filter === group.addon ? " is-active" : ""}`}
-                aria-pressed={filter === group.addon}
-                onClick={() => chooseFilter(group.addon)}
-              >
-                {group.addon}
-              </button>
-            ))}
         </div>
 
         <div className="drawer-body">
           {visible.map((group) => (
             <section className="stream-group" key={group.addon}>
-              {/* A filtered list is already one addon; repeating its name above
-                  every group costs a line the viewer does not need. */}
-              {filter === "all" || group.state !== "done" || group.streams.length === 0 ? (
-                <div className="stream-group-head">
-                  <span className="stream-group-title">{group.addon}</span>
-                  <span className="stream-group-state">
-                    {group.state === "loading" ? (
-                      "Searching…"
-                    ) : group.state === "error" ? (
-                      <>
-                        Failed{" "}
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => load(group.addon)}
-                        >
-                          Retry
-                        </button>
-                      </>
-                    ) : (
-                      `${group.streams.length} ${group.streams.length === 1 ? "source" : "sources"}`
-                    )}
-                  </span>
-                </div>
+              {group.error ? (
+                <p className="stream-group-error">
+                  {group.addon}: {group.error}
+                </p>
               ) : null}
 
-              {group.error ? <p className="stream-group-error">{group.error}</p> : null}
-
               {group.state === "done" && !group.streams.length && !group.error ? (
-                <p className="stream-group-error">No sources for this title.</p>
+                <p className="stream-group-error">No sources from {group.addon}.</p>
               ) : null}
 
               {group.streams.length ? (

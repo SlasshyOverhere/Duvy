@@ -2164,55 +2164,123 @@ button.pill:hover {
   }
 }
 
-.drawer-head {
+/* The panel has no title bar: the filter row is the bar, and the close button
+   rides at its end. */
+.drawer-filter-bar {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 20px 14px;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
   border-bottom: 1px solid var(--line);
 }
 
-.drawer-head h2 {
-  margin-top: 4px;
-  font-size: 1.35rem;
+.drawer-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-.drawer-kicker {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--faint);
-}
-
-.drawer-sub {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--faint);
+.drawer-close:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
 }
 
 /* One scrolling row of addon filters, the way Nuvio lays it out: a refresh
-   chip, All, then each addon that actually answered. The row is draggable
-   because a mouse has no sideways wheel. */
+   chip, then each addon that actually answered. The row is draggable because a
+   mouse has no sideways wheel, and an arrow shows up on any edge that still
+   hides chips so the drag is discoverable. */
 .drawer-filters {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;
-  padding: 12px 20px;
+  padding: 10px 20px;
   overflow-x: auto;
   scrollbar-width: none;
   user-select: none;
   cursor: grab;
-  border-bottom: 1px solid var(--line);
-  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
 }
 
 .drawer-filters:active {
   cursor: grabbing;
 }
 
+.drawer-filters.can-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+}
+
+.drawer-filters.can-left {
+  mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
+}
+
+.drawer-filters.can-left.can-right {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 44px,
+    #000 calc(100% - 44px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 44px,
+    #000 calc(100% - 44px),
+    transparent 100%
+  );
+}
+
 .drawer-filters::-webkit-scrollbar {
   display: none;
+}
+
+/* A step arrow, not a decoration: it pages the row the same way a drag does. */
+.filter-step {
+  position: absolute;
+  top: 50%;
+  display: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: -14px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(22, 22, 22, 0.92);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+
+.drawer-filters.can-left ~ .filter-step.is-left,
+.drawer-filters.can-right ~ .filter-step.is-right {
+  display: grid;
+}
+
+.filter-step:hover {
+  background: #262626;
+}
+
+.filter-step.is-left {
+  left: 6px;
+}
+
+.filter-step.is-left svg {
+  transform: rotate(180deg);
+}
+
+.filter-step.is-right {
+  right: 50px;
 }
 
 .drawer-filters .chip {
@@ -2268,31 +2336,11 @@ button.pill:hover {
 /* One addon, one section: an addon that answers first is readable while the
    others are still working, and a failing one only costs its own block. */
 .stream-group + .stream-group {
-  margin-top: 4px;
-}
-
-.stream-group-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 0 8px;
-}
-
-.stream-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.stream-group-state {
-  font-size: 11px;
-  color: var(--faint);
-  white-space: nowrap;
+  margin-top: 8px;
 }
 
 .stream-group-error {
-  padding: 8px 0 2px;
+  padding: 6px 0 2px;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--faint);
