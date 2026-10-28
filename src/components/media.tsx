@@ -32,11 +32,22 @@ export const PosterCard = memo(function PosterCard({
 }) {
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const { playItem, progress: history, refreshProgress, notify } = useApp();
+  const { playItem, progress: history, refreshProgress, notify, isWatched } = useApp();
   const entry = history.find((row) => row.metaId === item.id);
+  const watched = isWatched(item.id);
   const gradient = placeholderGradient(item.name);
   const shape = item.posterShape?.toLowerCase();
   const shapeClass = shape === "square" || shape === "landscape" ? `is-${shape}` : "is-poster";
+
+  const markWatched = (next: boolean) => {
+    void api.progress
+      .setWatched(entry?.key ?? item.id, item.id, next)
+      .then(() => {
+        notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`);
+        return refreshProgress();
+      })
+      .catch(() => notify("Could not update that", "error"));
+  };
 
   const actions: ContextAction[] = [
     {
@@ -44,24 +55,23 @@ export const PosterCard = memo(function PosterCard({
       icon: "play",
       onSelect: () => (onPlay ? onPlay() : void playItem(item)),
     },
-    { label: "Start from beginning", icon: "replay10", onSelect: () => void playItem(item, true) },
-    {
-      label: "Mark as watched",
-      icon: "check",
-      onSelect: () => {
-        void api.progress
-          .setWatched(entry?.key ?? item.id, item.id, true)
-          .then(() => {
-            notify(`${item.name} marked as watched`);
-            return refreshProgress();
-          })
-          .catch(() => notify("Could not mark that as watched", "error"));
-      },
-    },
-    {
+  ];
+  if (entry) {
+    actions.push({
+      label: "Start from beginning",
+      icon: "replay10",
+      onSelect: () => void playItem(item, true),
+    });
+  }
+  actions.push({
+    label: watched ? "Mark as unwatched" : "Mark as watched",
+    icon: watched ? "x" : "check",
+    onSelect: () => markWatched(!watched),
+  });
+  if (entry) {
+    actions.push({
       label: "Remove from continue watching",
       icon: "trash",
-      disabled: !entry,
       onSelect: () => {
         const rows = history.filter((row) => row.metaId === item.id);
         void Promise.all(rows.map((row) => api.progress.clear(row.key)))
@@ -71,8 +81,8 @@ export const PosterCard = memo(function PosterCard({
           })
           .catch(() => notify("Could not clear that progress", "error"));
       },
-    },
-  ];
+    });
+  }
 
   return (
     <article className={`poster-card${wide ? " is-wide" : ""}`}>

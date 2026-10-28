@@ -27,6 +27,7 @@ import type {
   StartingArt,
   UpdateInfo,
   Video,
+  WatchedItem,
 } from "./types";
 
 export type Route =
@@ -76,6 +77,7 @@ interface Store {
   notify: (text: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
+  isWatched: (metaId: string) => boolean;
   playRequest: (request: PlayRequest) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
@@ -236,6 +238,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [addons, setAddons] = useState<AddonInfo[]>([]);
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
+  const [watched, setWatched] = useState<WatchedItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
@@ -352,7 +355,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refreshProgress = useCallback(async () => {
     try {
-      setProgress(await api.progress.list());
+      const [rows, marks] = await Promise.all([api.progress.list(), api.watched.list()]);
+      setProgress(rows);
+      setWatched(marks);
       progressFails.current = 0;
     } catch {
       // Progress is cosmetic; a failed refresh must never break a screen. Two in
@@ -368,13 +373,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         // One failing slice (a broken addon store, a locked progress file) must
         // not cost the whole app: apply what loaded, then say what did not.
-        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress] =
+        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress, loadedWatched] =
           await Promise.allSettled([
             api.appInfo(),
             api.settings.get(),
             api.addons.list(),
             api.library.list(),
             api.progress.list(),
+            api.watched.list(),
           ]);
         if (!alive) return;
         if (info.status === "rejected") throw info.reason;
@@ -383,6 +389,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (loadedAddons.status === "fulfilled") setAddons(loadedAddons.value);
         if (loadedLibrary.status === "fulfilled") setLibrary(loadedLibrary.value);
         if (loadedProgress.status === "fulfilled") setProgress(loadedProgress.value);
+        if (loadedWatched.status === "fulfilled") setWatched(loadedWatched.value);
         const failed = (
           [
             ["settings", loadedSettings.status],
@@ -588,6 +595,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const progressFor = useCallback(
     (key: string) => progress.find((item) => item.key === key),
     [progress],
+  );
+
+  const isWatched = useCallback(
+    (metaId: string) => watched.some((item) => item.metaId === metaId),
+    [watched],
   );
 
   // The player is a screen, not a spinner on the previous one: show it at once
@@ -985,6 +997,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
+      isWatched,
       playRequest,
       playItem,
       resumeEntry,
@@ -1019,6 +1032,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       dismissToast,
       progressFor,
+      isWatched,
       playRequest,
       playItem,
       resumeEntry,
