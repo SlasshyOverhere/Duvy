@@ -1,32 +1,30 @@
-# Remaining parity gaps
+# Roadmap
 
-Snapshot of what BetterNuvio still lacks against Nuvio Desktop (`NuvioMedia/NuvioDesktop`,
-KMP + Compose, GPL-3.0), taken at commit `a531db9`, upstream `5f99fb4`.
-
-Per-area status lives in [`FEATURE-PARITY.md`](./FEATURE-PARITY.md); this file is the work
-queue for what is *not* built yet.
+Planned work for BetterNuvio, audited October 2026. Shipped features live in
+[`FEATURES.md`](./FEATURES.md); this file is only the work queue.
 
 Effort is a rough single-developer estimate, not a promise:
 **S** under a day, **M** 1-3 days, **L** 1-2 weeks, **XL** multi-week or needs a backend.
 
-Upstream code is GPL-3.0. Use it for behaviour only. No code, comments or strings are copied
-into this repo.
+## Recently shipped
 
----
-
-## Shipped in the first pass
-
-| Commit | Change |
-| --- | --- |
-| `67ee4a2` | Subtitle delay range widened to ±60 s and no longer resets per episode; volume to 200 % and remembered; `J` / `L` seek |
-| `51e775f` | `posterShape` honoured on poster cards (portrait, square, landscape) |
-| `952aa83` | Recent searches: last 8, deduped, clickable, removable, clearable |
-| `8d3cfe5` | Stream drawer remembers the addon filter; per-row copy-link and open-in-browser |
-| `a531db9` | Addon reorder, manifest refresh, and a Configure button from `behaviorHints` |
-
-Everything below is still open.
-
----
+| Change |
+| --- |
+| Startup, playback and network latency pass: parallel fan-out with budgets, cached settings, merged progress writes, lighter Home |
+| Player fetched on first run in the background and sha256-verified; installers no longer bundle mpv |
+| Subtitle choice remembered per episode; ASS tracks keep their styling until edited |
+| Configurable forward and backward cache buffers |
+| Separate dev app data directory |
+| First-run onboarding with optional account sign-in |
+| Community intro/outro lookup with manual overrides |
+| Settings rebuilt with grouped navigation and search |
+| Account sync with addon dedupe |
+| Debrid torrent packs play the requested file |
+| Subtitle delay widened to ±60 s; volume to 200 % and remembered; `J` / `L` seek |
+| `posterShape` honoured on poster cards |
+| Recent searches: last 8, deduped, clickable, removable, clearable |
+| Stream drawer remembers the addon filter; per-row copy-link and open-in-browser |
+| Addon reorder, manifest refresh and a Configure button from `behaviorHints` |
 
 ## Start here
 
@@ -34,25 +32,22 @@ The five highest value-per-effort items, in order:
 
 1. **DL-01 downloads + offline** - the biggest real capability hole, and it makes the torrent cache worth keeping.
 2. **PF-01 profiles + PIN** - every per-profile feature is blocked behind it.
-3. **PL-01 `/` PL-02 deep links + window restore** - small, and they unblock party and trailer links.
-4. **SP-01..03 subtitle auto-sync and skip providers** - the player polish users actually feel.
+3. **PL-01 subtitle auto-sync + PL-05 visible skip button** - the player polish users actually feel.
+4. **RG-07 deep links + RG-08 window restore** - small, and they unblock party and trailer links.
 5. **RG-04 crash reporting** - the app cannot ship without it.
-
----
 
 ## Playback
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| PL-01 | Subtitle auto-sync | Retiming cues against embedded audio (timeline retime, aggressive/passive mode, "synced" state) | XL | Needs audio fingerprinting or a timing service; upstream has a whole `features/autosync` module |
+| PL-01 | Subtitle auto-sync | Retiming cues against embedded audio (timeline retime, aggressive/passive mode, "synced" state) | XL | Needs audio fingerprinting or a timing service |
 | PL-02 | Subtitle language policy | Preferred + secondary language, forced-only, strip SDH, preferred-only filter | M | One `subtitleLanguage` string today |
-| PL-03 | Subtitle style depth | Outline width, colour swatches, render scale, position editor | S | mpv properties only, no backend work |
-| PL-04 | Skip providers | IntroDB / AniSkip / AnimeSkip lookup, id resolution (MAL, Kitsu, IMDb), provider priority | L | Local hand-authored markers only today |
+| PL-03 | Subtitle style depth | Outline width, render scale, font choice | S | Size, bold, colour, outline colour, background, position and delay shipped; ASS tracks keep their own styling until edited |
+| PL-04 | Skip providers (rest) | AniSkip / AnimeSkip lookup, id resolution (MAL, Kitsu), provider priority | M | Community lookup shipped for IMDb movies and episodes; manual markers still win |
 | PL-05 | Visible skip button | Labelled, dismissible "Skip Intro" / "Skip Recap" / "Skip Credits" with a progress ring | M | We seek silently; also needs PL-06 |
 | PL-06 | Segment taxonomy | recap, credits, post-credits, per-type auto-skip toggles | M | intro + outro only |
 | PL-07 | Next-episode rules | Threshold modes (percent or minutes), auto-select timeout, preload next source, binge-group match | L | Hard-coded 45 s lead; resolves only after the current episode ends |
 | PL-08 | Next-episode card states | finding / failed / unaired, blurred thumb, manual dismiss | M | Plain label today |
-| PL-09 | Opening overlay | Artwork, logo, title, progress while loading | S | Bare spinner on black |
 | PL-10 | Pause metadata overlay | Title + synopsis on pause, with a toggle | S | |
 | PL-11 | Parental guide overlay | Severity categories, with a setting | M | No data source wired |
 | PL-12 | Stream info stats | Video codec, resolution, fps, bitrate, HDR, bit depth, server | M | `player.rs` parses no video stats |
@@ -62,10 +57,9 @@ The five highest value-per-effort items, in order:
 | PL-16 | Zoom resize mode | `keepaspect` + panscan, alongside fit/fill/stretch | S | |
 | PL-17 | Hold-to-boost speed | Momentary multiplier on hold, plus its setting | S | |
 | PL-18 | Fullscreen persistence | Remember window/fullscreen mode across sessions | S | Every playback opens windowed |
-| PL-19 | mpv decoder tuning | Engine, video output, decoder priority, software-fallback threads, DV7 to HEVC, buffer sizes, VOD cache | M | Hardware toggle only |
+| PL-19 | mpv decoder tuning | Engine, video output, decoder priority, software-fallback threads, DV7 to HEVC, VOD cache | M | Forward and backward buffer sizes shipped; the rest is a hardware toggle only |
 | PL-20 | HDR passthrough | `target-colorspace-hint`, `vo` fallback chain | S | HDR is currently never signalled to the panel |
 | PL-21 | Keyboard depth | Source/episode hotkeys, wheel seek, wheel volume | S | |
-| PL-22 | Seek-bar preview | Already ours, upstream lacks it | - | Keep |
 | PL-23 | Mobile gestures | Touch, double-tap seek, mobile PiP, iOS presets | - | Out of scope, desktop only |
 
 ## Sources, streams, debrid, servers
@@ -76,13 +70,13 @@ The five highest value-per-effort items, in order:
 | SP-02 | "Finding source" screen | Full-screen per-addon progress with cancel | S | Drawer opens empty |
 | SP-03 | Reuse-last-link cache | TTL setting, per title | M | Every play re-scrapes |
 | SP-04 | Binge-group continuity | `bingeGroup` + filename matching across episodes | M | In-memory same-hash preference only, lost on restart |
-| SP-05 | Stream behaviour hints | `bingeGroup`, `filename`, `videoSize` shown and used | S | `behavior_hints` parsed and discarded |
+| SP-05 | Stream behaviour hints | `bingeGroup` and `filename` shown and used | S | `videoSize` badge shipped; the other hints are parsed and discarded |
 | SP-06 | Proxy headers | Honour `proxyHeaders` request/response headers | M | Header-gated streams fail today |
 | SP-07 | External-only streams | `externalUrl` rows open in the browser | S | Dropped by a filter in `commands.rs` |
 | SP-08 | YouTube streams | `ytId` resolution | M | Parsed then discarded |
 | SP-09 | Imported badge rules | URL list import, preview, multiple active sources, badge position and size, addon logo | M | Hard-coded regex today |
 | SP-10 | Refresh all sources | One action with a spinner | S | Per-addon retry only |
-| SP-11 | Debrid device-code auth | Torbox / Premiumize OAuth flows | M | Key paste only |
+| SP-11 | Debrid device-code auth | TorBox / Premiumize OAuth flows | M | Key paste only |
 | SP-12 | Debrid "resolve with" | Explicit provider choice | S | Fixed array order today |
 | SP-13 | Real cached status | Call the existing `check_cache` from the UI | S | `cached` is a string heuristic; the command exists and nothing calls it |
 | SP-14 | Instant pre-resolution | Pre-resolve the top N candidates | M | First click can wait out a 30 s poll |
@@ -93,7 +87,6 @@ The five highest value-per-effort items, in order:
 | SP-19 | P2P consent at click | Consent dialog on first torrent play | S | Settings-only today; clicking a row throws an error string |
 | SP-20 | In-player P2P stats | Buffer, peers, speed overlay with a hide toggle | S | Stats live on a separate settings page; `seeds: 0` is hard-coded |
 | SP-21 | Seeder count | Real peer count | S | Hard-coded 0 |
-| SP-22 | Episode-accurate file pick | Filename matching inside packs | M | Only `fileIdx`; falls back to "largest video" and can play the wrong episode |
 | SP-23 | Random episode shuffle | Shuffle entry points on details, home, playback | M | Whole feature missing |
 | SP-24 | Server as catalog source | Media server rows in Home and Library with TMDB matching | L | Settings-page browser only |
 | SP-25 | Server progress writeback | START / PROGRESS / PAUSE / RESUME / STOP sessions | M | Static URLs only |
@@ -120,7 +113,7 @@ The five highest value-per-effort items, in order:
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| PF-01 | Local profiles | Picker, create/rename/delete (max 6), remember-last | L | Only Nuvio Cloud profile chips today |
+| PF-01 | Local profiles | Picker, create/rename/delete (max 6), remember-last | L | Only cloud-account profile chips today |
 | PF-02 | Profile avatars | Catalog + custom URL + colour | M | `avatarUrl` parsed, never rendered |
 | PF-03 | Profile backgrounds | Per-profile art | S | |
 | PF-04 | Profile PIN | Set, change, clear, verify, lockout, offline hash cache | M | `pinEnabled` is parsed and never enforced |
@@ -134,7 +127,7 @@ The five highest value-per-effort items, in order:
 | PF-12 | Trakt watchlist + lists | Library tabs, add/remove | L | |
 | PF-13 | Trakt library source | Trakt vs local switch | M | |
 | PF-14 | Trakt progress source | Provider choice with fallback | M | |
-| PF-15 | Trakt related source | Trakt / TMDB / Simkl for more-like-this | S | |
+| PF-15 | Trakt related source | Provider rails for more-like-this | S | |
 | PF-16 | Trakt comments | With an enable toggle | M | |
 | PF-17 | Trakt public lists | Import a list as a catalog source | M | |
 | PF-18 | Trakt episode mapping | Absolute / special numbering | M | |
@@ -155,9 +148,9 @@ The five highest value-per-effort items, in order:
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| AD-01 | JS plugin runtime | QuickJS host, fetch, DOM/cheerio bridge, crypto, timers, per-plugin settings forms | XL | Whole subsystem; addon protocol only today |
+| AD-01 | Plugin runtime | Sandboxed script host, fetch, DOM/cheerio bridge, crypto, timers, per-plugin settings forms | XL | Whole subsystem; addon protocol only today |
 | AD-02 | Plugin repositories | Add repo, 6 h refresh, delete, per-scraper enable, global toggle | L | |
-| AD-03 | Local addon install | File or zip on disk | M | Neither app has it; new work, not parity |
+| AD-03 | Local addon install | File or zip on disk | M | New work, not part of the protocol |
 | AD-04 | Addon overview card | Counts of addons, active, catalogs | S | |
 | CT-01 | Discover screen | Addon catalogs by type, catalog and genre, with pagination and a persisted selection | L | Backend `catalog` exists and is dead code |
 | CT-02 | Catalog genre arg | Pass the `genre` extra through | S | Unreachable today |
@@ -192,7 +185,6 @@ The five highest value-per-effort items, in order:
 | UI-03 | App icon packs | 6 packs, window + shortcut icon swap, restart flow | M | One static icon set |
 | UI-04 | i18n | 26 languages, resource files, locale switching | XL | All strings hardcoded English |
 | UI-05 | RTL | `dir` handling for Arabic, Hebrew, Urdu | M | Blocked by UI-04 |
-| UI-06 | Settings search | Indexed across every settings page | M | |
 | UI-07 | Navigation layout | Sidebar option alongside the top dock | S | |
 | UI-08 | Navigation bar styles | adaptive / expanded / compact / classic, glow toggle, preview | M | |
 | UI-09 | Per-profile settings | Theme, language, playback prefs scoped per profile | M | Blocked by PF-01 |
@@ -208,8 +200,8 @@ The five highest value-per-effort items, in order:
 
 ## Watch party (backend epic)
 
-Upstream is a Supabase RPC surface plus a private realtime channel. This is a backend project
-before it is a client port.
+A shared-session backend plus a realtime channel. This is a backend project before it is a client
+feature.
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
@@ -225,13 +217,11 @@ before it is a client port.
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| RG-01 | Auto-updater | Check on launch and manual, ignore-version | L | Done. No stable/beta channels |
-| RG-02 | Update download + install | Progress, installer handoff, relaunch | M | Done |
+| RG-01 | Update channels | Stable/beta selection | S | Signed updater, skip-version and six-hourly checks shipped; single channel only |
 | RG-03 | Delta updates | zsync metadata | M | |
 | RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | No crash path at all |
-| RG-05 | Release CI | Build matrix, signing, notarization, checksums, auto-published notes | L | 21-line CI today |
-| RG-06 | Signing config | Certificates and notarization in `tauri.conf.json` | M | |
-| RG-07 | Deep links | `nuvio://` and `stremio://` registration, launch args, routing to meta / downloads / party | M | Nothing registered |
+| RG-06 | Installer signing | Authenticode certificate | M | Updater bundles are signed in CI; the installer itself is unsigned |
+| RG-07 | Deep links | `betternuvio://` registration, launch args, routing to meta / downloads / party | M | Nothing registered |
 | RG-08 | Window state restore | Geometry, maximized, fullscreen on relaunch | S | Recreates 1440x920 every launch |
 | RG-09 | Discord rich presence | IPC integration | M | |
 | RG-10 | Windows renderer choice | OpenGL vs default WebView2 | S | |
@@ -240,34 +230,26 @@ before it is a client port.
 
 ---
 
-## Not gaps
+## Not planned
 
-Verified absent upstream too. Do not "fix" these for parity:
+Deliberately out of scope. Do not reopen these without a specific reason:
 
-- Addon store browsing, local zip install, addon permissions screen. `store.json` is an AltStore iOS manifest, referenced by no Kotlin source.
-- Light theme, light/dark/system switch. Upstream is dark-only with 13 dark palettes.
-- Notifications, account deletion. Both are disabled on desktop upstream.
-- Tray, minimize-to-tray, single instance, always-on-top, SMTC media keys, gamepad/TV navigation, onboarding wizard, backup/restore, export, rebindable shortcuts.
-- Screenshot, sleep timer, playback stats graph.
-- Manual torrent file selection, minimum-seeder filter, cached-only toggle, in-picker sort, download storage picker. (Storage location is still worth adding on its own merits, DL-08.)
-
-## Where our docs are wrong
-
-- `README.md` and `FEATURE-PARITY.md` claim Discover with filters. There is no addon-catalog
-  Discover screen; `commands.rs::catalog` exists and is unused. See CT-01.
-- `FEATURE-PARITY.md` implies watched-state parity. Only single-item toggle is wired.
-- `FEATURE-PARITY.md` marks hover previews, icon packs, Simkl, MDBList and downloads as
-  Planned. All still accurate.
-
----
+- Addon store browsing, local zip install and an addon permissions screen.
+- Light theme and a light/dark/system switch. The app is dark-only.
+- Notifications and account deletion beyond the update notification.
+- Tray, minimize-to-tray, single instance, always-on-top, media keys, gamepad/TV navigation,
+  backup/restore, export and rebindable shortcuts.
+- Screenshot, sleep timer and a playback stats graph.
+- Manual torrent file selection, minimum-seeder filter, cached-only toggle, in-picker sort and a
+  download storage picker. (Storage location is still worth adding on its own merits, DL-08.)
 
 ## Suggested milestones
 
-1. **Playback polish** - PL-03, PL-05, PL-06, PL-08, PL-09, PL-12, PL-16, PL-17, PL-18, PL-20, PL-21.
-2. **Sources** - SP-01..03, SP-06..13, SP-19..22.
+1. **Playback polish** - PL-01, PL-03, PL-05, PL-06, PL-08, PL-10, PL-12, PL-16, PL-17, PL-18, PL-20, PL-21.
+2. **Sources** - SP-01..03, SP-06..13, SP-19..21, SP-23.
 3. **Downloads** - DL-01..09.
 4. **Profiles** - PF-01..07, then UI-09.
-5. **Platform basics** - RG-07, RG-08, RG-01..04.
+5. **Platform basics** - RG-03, RG-04, RG-06, RG-07, RG-08.
 6. **Tracking** - PF-09..20, then PF-21, PF-22.
 7. **Catalog surface** - CT-01..08, DT-01..07.
 8. **Localization** - UI-04, UI-05.

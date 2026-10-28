@@ -24,26 +24,27 @@ The name "BetterNuvio" is used descriptively to identify this independent projec
 imply affiliation, endorsement, or sponsorship. If a rights holder objects to the name, it will
 be changed.
 
-Bundled third-party software
-----------------------------
-Windows bundles produced from this repository include two files from `src-tauri/resources/mpv/`,
-mapped into the installer by `src-tauri/tauri.conf.json`:
+Player download
+---------------
+BetterNuvio does not bundle mpv in its installers. On first launch the app downloads a Windows
+build of mpv into its app data directory, verifying every file against the release's
+`sha256.txt` before use. The `player-1` release of this repository serves two files:
 
 - `mpv.exe`, a Windows build of mpv reporting version `v0.41.0-1227-ge471496c5`. mpv is free
   software distributed under GPL-2.0-or-later. The corresponding source is published by the mpv
   project at https://github.com/mpv-player/mpv; the commit named in the version string is in that
   repository. The build also uses FFmpeg (https://ffmpeg.org), libplacebo
   (https://github.com/haasn/libplacebo) and other libraries, each under its own license and with
-  its own published source. This repository does not currently ship a copy of mpv's license text;
-  the upstream terms are in the mpv repository's `Copyright` and `LICENSE.GPL` files.
+  its own published source. This repository does not ship a copy of mpv's license text; the
+  upstream terms are in the mpv repository's `Copyright` and `LICENSE.GPL` files.
 - `d3dcompiler_43.dll`, Microsoft's Direct3D 43 shader compiler redistributable, included
   alongside the mpv Windows build. It is Microsoft software governed by Microsoft's
   redistributable terms, not by the GPL.
 
-The `src-tauri/resources/mpv/` directory is git-ignored, so a source checkout does not contain
-these files. Installers built from a checkout that includes them redistribute them under the
-terms above. Anyone redistributing an installer should keep this NOTICE with it and keep the
-corresponding source locations available.
+A user-supplied mpv set in Settings is used instead when present and is governed by that copy's
+own license. Because the player is fetched at runtime, an installer built from this repository
+does not redistribute mpv. Anyone redistributing the player files themselves should keep this
+NOTICE and keep the corresponding source locations available.
 
 Content and services
 --------------------
@@ -66,10 +67,15 @@ Third-party services
   Trakt.
 - Nuvio Cloud sync: an unofficial client for the backend used by the official Nuvio apps. It may
   change or stop working without notice. BetterNuvio is not affiliated with Nuvio Media.
+- Stremio account sync: an unofficial client for the same `api.strem.io` endpoints the official
+  Stremio apps use. It may change or stop working without notice. BetterNuvio is not affiliated
+  with Stremio.
+- IntroDB: community intro and outro timestamps, queried by IMDb id. BetterNuvio is not
+  affiliated with IntroDB.
 - Jellyfin and Emby: the user connects their own server. BetterNuvio is not affiliated with either
   project.
 - Debrid: the user connects their own account. BetterNuvio is not affiliated with any provider.
-- mpv: playback is performed by the bundled or user-installed mpv, under the terms described
+- mpv: playback is performed by the downloaded or user-installed mpv, under the terms described
   above.
 
 Third-party crates and npm packages are used under their own licenses; see `Cargo.lock` and
