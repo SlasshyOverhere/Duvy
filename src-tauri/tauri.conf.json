@@ -43,10 +43,6 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
-    "resources": {
-      "resources/mpv/mpv.exe": "mpv/mpv.exe",
-      "resources/mpv/d3dcompiler_43.dll": "mpv/d3dcompiler_43.dll"
-    },
     "category": "Entertainment",
     "shortDescription": "Fast native media hub",
     "longDescription": "BetterNuvio is an unofficial, performance-first desktop media hub that brings your own addons, libraries and player together.",

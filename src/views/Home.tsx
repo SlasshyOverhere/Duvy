@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/bridge";
-import { cachedFeed, saveFeed } from "../lib/feed";
+import { cachedFeed, feedAge, loadFeed } from "../lib/feed";
 import { useApp } from "../lib/store";
 import type { HomeFeed, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
 import { progressPercent, seasonLabel } from "../lib/format";
+
+const FEED_TTL = 60_000;
+// The signature of the addon set the cached feed was built from.
+let feedSig = "";
 
 // First paint: the shape of the screen, so the wait reads as loading, not empty.
 function HomeSkeleton() {
@@ -46,25 +50,29 @@ export function HomeView() {
     progress,
     watched,
   } = useApp();
+  const addonSignature = addons.map((addon) => `${addon.url}:${addon.enabled}`).join("|");
+  // A feed this session already fetched is reused instead of refetched.
+  const age = feedAge();
+  const fresh = feedSig === addonSignature && age !== null && age <= FEED_TTL;
   const [feed, setFeed] = useState<HomeFeed | null>(cachedFeed);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!fresh);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [slide, setSlide] = useState(0);
 
-  const addonSignature = addons.map((addon) => `${addon.url}:${addon.enabled}`).join("|");
-
   useEffect(() => {
+    if (attempt === 0 && fresh) {
+      setLoading(false);
+      return;
+    }
     let alive = true;
     setLoading(true);
     setError(null);
-    api
-      .home()
+    loadFeed(() => api.home())
       .then((result) => {
         if (!alive) return;
+        feedSig = addonSignature;
         setFeed(result);
-        // Keep the next launch instant, like Stremio does.
-        saveFeed(result);
       })
       .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : String(e));
@@ -112,11 +120,21 @@ export function HomeView() {
     return rows.slice(0, 30);
   }, [progress, watched]);
 
-  const resumeProgress = (metaId: string): number | undefined => {
-    if (watched.some((mark) => mark.metaId === metaId)) return undefined;
-    const entry = progress.find((item) => item.metaId === metaId);
-    return entry ? progressPercent(entry.position, entry.duration) : undefined;
-  };
+  // One map for the card progress bars, so a row of cards costs no scans.
+  const resumeProgress = useMemo(() => {
+    const marked = new Set(watched.map((mark) => mark.metaId));
+    const map = new Map<string, ProgressItem>();
+    for (const entry of progress) {
+      if (marked.has(entry.metaId)) continue;
+      if (!map.has(entry.metaId)) map.set(entry.metaId, entry);
+    }
+    return map;
+  }, [progress, watched]);
+
+  const nextSlide = useCallback(
+    () => setSlide((current) => (current + 1) % featured.length),
+    [featured.length],
+  );
 
   return (
     <div className="home">
@@ -132,11 +150,7 @@ export function HomeView() {
           index={slide}
           count={featured.length}
           onSelect={featured.length > 1 ? setSlide : undefined}
-          onNext={
-            featured.length > 1
-              ? () => setSlide((current) => (current + 1) % featured.length)
-              : undefined
-          }
+          onNext={featured.length > 1 ? nextSlide : undefined}
         />
       ) : null}
 
@@ -219,7 +233,7 @@ export function HomeView() {
               <PosterCard
                 key={`${row.id}-${item.id}`}
                 item={item}
-                progress={resumeProgress(item.id)}
+                entry={resumeProgress.get(item.id)}
                 onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
                 onPlay={() => void playItem(item)}
               />

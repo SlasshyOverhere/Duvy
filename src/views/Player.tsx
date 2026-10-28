@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+﻿import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
-import { noSourceError, pickSource, rememberSource, rememberedSource, useApp, usePlayer } from "../lib/store";
+import {
+  noSourceError,
+  pickSource,
+  rememberSource,
+  rememberSubtitle,
+  rememberedSource,
+  rememberedSubtitle,
+  useApp,
+  usePlayer,
+} from "../lib/store";
 import { rememberedLogo } from "../lib/art";
 import type {
   Details,
   PlayerSnapshot,
+  ProgressItem,
   StreamOption,
   SubtitleTrack,
   Track,
@@ -94,6 +104,21 @@ const DEFAULT_SUB_STYLE: SubtitleStyle = {
 };
 const MAX_DELAY = 60;
 
+/** True once a control is off its default, which is when ASS styling steps aside. */
+function customStyle(style: SubtitleStyle): boolean {
+  return (
+    style.size !== DEFAULT_SUB_STYLE.size ||
+    style.color !== DEFAULT_SUB_STYLE.color ||
+    style.opacity !== DEFAULT_SUB_STYLE.opacity ||
+    style.background !== DEFAULT_SUB_STYLE.background ||
+    style.outline !== DEFAULT_SUB_STYLE.outline ||
+    style.outlineColor !== DEFAULT_SUB_STYLE.outlineColor ||
+    style.bold !== DEFAULT_SUB_STYLE.bold ||
+    style.position !== DEFAULT_SUB_STYLE.position
+  );
+}
+const NO_VARIANTS: SubVariant[] = [];
+
 /** ISO codes and full names both arrive from mpv and from addons. */
 const LANG_NAMES: Record<string, string> = {
   en: "English", eng: "English", english: "English",
@@ -162,11 +187,12 @@ interface SubGroup {
 /** Embedded tracks and addon results, folded into one language-first list. */
 function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null): SubGroup[] {
   const groups = new Map<string, SubGroup>();
+  const seen = new Set<string>();
   const add = (variant: SubVariant) => {
+    if (seen.has(variant.key)) return;
+    seen.add(variant.key);
     const group = groups.get(variant.lang) ?? { lang: variant.lang, variants: [] };
-    if (!group.variants.some((known) => known.key === variant.key)) {
-      group.variants.push(variant);
-    }
+    group.variants.push(variant);
     groups.set(variant.lang, group);
   };
   for (const track of tracks) {
@@ -238,8 +264,7 @@ function readSubtitleStyle(): SubtitleStyle {
         ? String(stored.outlineColor)
         : DEFAULT_SUB_STYLE.outlineColor,
       bold: stored.bold === true,
-      // Delay is session-only, never carried over from a previous run.
-      delay: DEFAULT_SUB_STYLE.delay,
+      delay: tenths(stored.delay, DEFAULT_SUB_STYLE.delay),
       position: whole(stored.position, 25, 100, DEFAULT_SUB_STYLE.position),
     };
   } catch {
@@ -375,6 +400,641 @@ function StyleSection({ title, children }: { title: string; children: ReactNode 
 }
 
 /**
+ * Seek bar. Owns the hover tip and its still, so pointer moves repaint this row
+ * instead of the whole screen.
+ */
+const SeekTrack = memo(function SeekTrack({
+  duration,
+  shownPosition,
+  percent,
+  bufferedPercent,
+  step,
+  resetKey,
+  dragging,
+  frameCache,
+  frameBucket,
+  onSeek,
+  onSeekRel,
+  onScrub,
+  onBump,
+}: {
+  duration: number;
+  shownPosition: number;
+  percent: number;
+  bufferedPercent: number;
+  step: number;
+  resetKey: string | undefined;
+  dragging: RefObject<boolean>;
+  frameCache: RefObject<Map<number, string>>;
+  frameBucket: RefObject<number>;
+  onSeek: (target: number) => void;
+  onSeekRel: (delta: number) => void;
+  onScrub: (value: number | null) => void;
+  onBump: () => void;
+}) {
+  const [hover, setHover] = useState<{ time: number; ratio: number } | null>(null);
+  const [frame, setFrame] = useState<{ time: number; src: string } | null>(null);
+  // Measured once per gesture: a rect read on every move forces a sync layout.
+  const rect = useRef<DOMRect | null>(null);
+  const frameSeq = useRef(0);
+  const raf = useRef(0);
+  const queued = useRef<{ ratio: number; drag: boolean } | null>(null);
+
+  // A new episode or source invalidates both the tip and its still.
+  useEffect(() => {
+    frameSeq.current += 1;
+    setHover(null);
+    setFrame(null);
+  }, [resetKey]);
+
+  useEffect(() => () => window.cancelAnimationFrame(raf.current), []);
+
+  const ratioAt = (clientX: number, element: HTMLDivElement) => {
+    const box = rect.current ?? element.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - box.left) / box.width));
+  };
+
+  // One state write per frame, however fast the pointer reports.
+  const queue = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const ratio = ratioAt(event.clientX, event.currentTarget);
+    queued.current = { ratio, drag: dragging.current };
+    if (raf.current) return;
+    raf.current = window.requestAnimationFrame(() => {
+      raf.current = 0;
+      const next = queued.current;
+      if (!next) return;
+      setHover({ time: next.ratio * duration, ratio: next.ratio });
+      if (next.drag) onScrub(next.ratio * duration);
+    });
+  };
+
+  // One still per five seconds of the bar, and only once the pointer rests.
+  useEffect(() => {
+    if (dragging.current || !hover) return;
+    const bucket = Math.round(hover.time / 5) * 5;
+    if (bucket < 5 || bucket === frameBucket.current) return;
+    const cached = frameCache.current.get(bucket);
+    if (cached) {
+      frameBucket.current = bucket;
+      setFrame({ time: bucket, src: cached });
+      return;
+    }
+    const seq = ++frameSeq.current;
+    const timer = window.setTimeout(() => {
+      void api.player
+        .frame(bucket)
+        .then((src) => {
+          if (!src || frameSeq.current !== seq) return;
+          // Marked only once it lands: a cancelled hover must retry this bucket.
+          frameBucket.current = bucket;
+          frameCache.current.set(bucket, src);
+          if (frameCache.current.size > 8) {
+            const oldest = frameCache.current.keys().next().value;
+            if (oldest != null) frameCache.current.delete(oldest);
+          }
+          setFrame({ time: bucket, src });
+        })
+        .catch(() => undefined);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [frameBucket, frameCache, hover]);
+
+  const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
+  const shot = frame && frame.time === hoverBucket ? frame.src : null;
+
+  return (
+    <div
+      className={`pv-track${dragging.current ? " is-dragging" : ""}`}
+      role="slider"
+      tabIndex={0}
+      aria-label="Seek"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow={Math.round(shownPosition)}
+      aria-valuetext={formatTime(shownPosition)}
+      onPointerEnter={(event) => {
+        rect.current = event.currentTarget.getBoundingClientRect();
+      }}
+      onPointerDown={(event) => {
+        if (!duration) return;
+        rect.current = event.currentTarget.getBoundingClientRect();
+        dragging.current = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const ratio = ratioAt(event.clientX, event.currentTarget);
+        setHover({ time: ratio * duration, ratio });
+        onScrub(ratio * duration);
+      }}
+      onPointerMove={(event) => {
+        if (!duration) return;
+        queue(event);
+      }}
+      onPointerLeave={() => {
+        if (!dragging.current) setHover(null);
+      }}
+      onPointerUp={(event) => {
+        if (!dragging.current) return;
+        dragging.current = false;
+        const target = ratioAt(event.clientX, event.currentTarget) * duration;
+        // Held at the target until the seek echo catches up.
+        onScrub(target);
+        setHover(null);
+        onSeek(target);
+        onBump();
+      }}
+      onPointerCancel={() => {
+        dragging.current = false;
+        onScrub(null);
+        setHover(null);
+      }}
+      onLostPointerCapture={() => {
+        // Capture is also lost on a normal release; only an early loss aborts.
+        if (!dragging.current) return;
+        dragging.current = false;
+        onScrub(null);
+        setHover(null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        onSeekRel((event.key === "ArrowLeft" ? -1 : 1) * step);
+      }}
+    >
+      <span className="pv-trackrail" />
+      <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
+      <span className="pv-played" style={{ width: `${percent}%` }} />
+      <span className="pv-knob" style={{ left: `${percent}%` }} aria-hidden="true" />
+
+      {hover ? (
+        <span
+          className="pv-tip"
+          style={{ left: `clamp(92px, ${hover.ratio * 100}%, calc(100% - 92px))` }}
+        >
+          {shot ? (
+            <span className="pv-tip-shot">
+              <img src={shot} alt="" draggable={false} />
+            </span>
+          ) : null}
+          <b>{formatTime(hover.time)}</b>
+        </span>
+      ) : null}
+    </div>
+  );
+});
+
+const SourcesPanel = memo(function SourcesPanel({
+  heading,
+  sources,
+  visibleSources,
+  addonNames,
+  sourceBusy,
+  sourceFilter,
+  playingSource,
+  onFilter,
+  onRefresh,
+  onPick,
+  onClose,
+}: {
+  heading: string;
+  sources: StreamOption[] | null;
+  visibleSources: StreamOption[];
+  addonNames: string[];
+  sourceBusy: boolean;
+  sourceFilter: string | null;
+  playingSource: StreamOption | null;
+  onFilter: (addon: string | null) => void;
+  onRefresh: () => void;
+  onPick: (stream: StreamOption) => void;
+  onClose: () => void;
+}) {
+  return (
+    <SidePanel label="Sources" title="Sources" onClose={onClose}>
+      <p className="pv-side-sub">{heading}</p>
+      <div className="pv-filters">
+        <button
+          type="button"
+          className={`pv-filter${sourceFilter === null ? " is-on" : ""}`}
+          onClick={() => onFilter(null)}
+        >
+          All
+        </button>
+        {addonNames.map((addon) => (
+          <button
+            key={addon}
+            type="button"
+            className={`pv-filter${sourceFilter === addon ? " is-on" : ""}`}
+            onClick={() => onFilter(addon)}
+          >
+            {addon}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="pv-filter pv-filter--action"
+          disabled={sourceBusy}
+          onClick={onRefresh}
+        >
+          <Icon name="refresh" size={15} />
+          {sourceBusy ? "Loading" : "Refresh"}
+        </button>
+      </div>
+      <div className="pv-side-list">
+        {sourceBusy && !sources ? (
+          <Spinner label="Finding sources" />
+        ) : visibleSources.length === 0 ? (
+          <p className="pv-side-empty">No sources returned for this episode.</p>
+        ) : (
+          visibleSources.map((stream, at) => {
+            const current = sameSource(playingSource, stream);
+            return (
+              <button
+                key={`${stream.addon}-${stream.infoHash ?? stream.url ?? at}-${at}`}
+                type="button"
+                className={`pv-source-row${current ? " is-on" : ""}`}
+                disabled={!stream.playable || sourceBusy}
+                onClick={() => onPick(stream)}
+              >
+                <span className="pv-source-text">
+                  <span className="pv-source-name">
+                    {stream.name ?? stream.addon ?? "Source"}
+                    {current ? <em>Playing</em> : null}
+                  </span>
+                  <span className="pv-source-meta">
+                    {[
+                      stream.quality,
+                      stream.addon,
+                      stream.size,
+                      stream.seeders != null ? `${stream.seeders} seeds` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  {stream.description ? (
+                    <span className="pv-source-note">
+                      {stream.description.replace(/\n/g, " · ")}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </SidePanel>
+  );
+});
+
+const EpisodesPanel = memo(function EpisodesPanel({
+  queue,
+  season,
+  currentSeason,
+  currentEpisode,
+  metaId,
+  progress,
+  busy,
+  onSeason,
+  onPick,
+  onClose,
+}: {
+  queue: Video[];
+  season: number | null;
+  currentSeason: number | null;
+  currentEpisode: number | null;
+  metaId: string;
+  progress: Map<string, ProgressItem>;
+  busy: boolean;
+  onSeason: (value: number) => void;
+  onPick: (video: Video) => void;
+  onClose: () => void;
+}) {
+  const seasonOptions = useMemo(
+    () =>
+      [...new Set(queue.map((video) => video.season ?? 0))].sort(
+        (a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b),
+      ),
+    [queue],
+  );
+  const seasonEpisodes = useMemo(
+    () => queue.filter((video) => (video.season ?? 0) === (season ?? 0)),
+    [queue, season],
+  );
+
+  return (
+    <SidePanel label="Episodes" title="Episodes" onClose={onClose}>
+      {seasonOptions.length > 0 ? (
+        <div className="pv-filters">
+          {seasonOptions.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={`pv-filter${(season ?? 0) === value ? " is-on" : ""}`}
+              onClick={() => onSeason(value)}
+            >
+              {value === 0 ? "Specials" : `Season ${value}`}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="pv-side-list">
+        {seasonEpisodes.length === 0 ? (
+          <p className="pv-side-empty">No episodes available.</p>
+        ) : (
+          seasonEpisodes.map((video) => {
+            const episode = video.episode ?? video.number ?? 0;
+            const on = currentSeason === (video.season ?? 0) && currentEpisode === episode;
+            const key =
+              video.season != null ? `${metaId}:${video.season}:${episode}` : metaId;
+            const saved = key ? progress.get(key) : undefined;
+            const watched = Boolean(saved && saved.duration > 0 && saved.position / saved.duration >= 0.92);
+            const pct =
+              saved && saved.duration > 0
+                ? Math.min(100, (saved.position / saved.duration) * 100)
+                : 0;
+            return (
+              <button
+                key={video.id}
+                type="button"
+                className={`pv-episode-row${on ? " is-on" : ""}`}
+                disabled={busy}
+                onClick={() => onPick(video)}
+              >
+                {video.thumbnail ? (
+                  <img src={video.thumbnail} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="pv-episode-blank" aria-hidden="true" />
+                )}
+                <span className="pv-episode-text">
+                  <span className="pv-episode-code">
+                    {episodeCode({ season: video.season, episode })}
+                    {on ? <em>Playing</em> : watched ? <em>Watched</em> : null}
+                  </span>
+                  <span className="pv-episode-name">
+                    {video.title || `Episode ${episode}`}
+                  </span>
+                  {video.overview ? (
+                    <span className="pv-episode-note">{video.overview}</span>
+                  ) : null}
+                  {pct > 0 && !watched ? (
+                    <span className="pv-episode-progress" aria-hidden="true">
+                      <span style={{ width: `${pct}%` }} />
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </SidePanel>
+  );
+});
+
+const SubtitlesPanel = memo(function SubtitlesPanel({
+  subs,
+  groups,
+  offSelected,
+  currentLang,
+  currentVariants,
+  styleOn,
+  activeSub,
+  loadedSub,
+  subStyle,
+  onLang,
+  onChoose,
+  onOff,
+  onReload,
+  onLoadFile,
+  onPatch,
+  onNudge,
+  onReset,
+  onClose,
+}: {
+  subs: SubtitleTrack[] | null;
+  groups: SubGroup[];
+  offSelected: boolean;
+  currentLang: string | null;
+  currentVariants: SubVariant[];
+  styleOn: boolean;
+  activeSub: number | null;
+  loadedSub: { lang: string; url: string } | null;
+  subStyle: SubtitleStyle;
+  onLang: (lang: string | null) => void;
+  onChoose: (variant: SubVariant) => void;
+  onOff: () => void;
+  onReload: () => void;
+  onLoadFile: () => void;
+  onPatch: (patch: Partial<SubtitleStyle>) => void;
+  onNudge: (delta: number) => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Overlay label="Subtitles" onClose={onClose}>
+      <div className="pv-rails">
+        <section className="pv-rail pv-rail--lang">
+          <h3>Languages</h3>
+          <div className="pv-rail-list" role="listbox" aria-label="Subtitle language">
+            <button
+              type="button"
+              role="option"
+              aria-selected={offSelected}
+              className={`pv-rail-row${offSelected ? " is-on" : ""}`}
+              onClick={onOff}
+            >
+              <span className="pv-rail-row-text">
+                <span className="pv-rail-row-title">None</span>
+              </span>
+              {offSelected ? <Icon name="check" size={20} /> : null}
+            </button>
+            {groups.map((group) => {
+              const on = !offSelected && currentLang === group.lang;
+              return (
+                <button
+                  key={group.lang}
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  className={`pv-rail-row${on ? " is-on" : ""}`}
+                  onClick={() => onLang(group.lang)}
+                >
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">{group.lang}</span>
+                  </span>
+                  <span className="pv-count">{group.variants.length}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="pv-rail pv-rail--variants">
+          <h3>Subtitles</h3>
+          {subs === null ? (
+            <Spinner label="Finding subtitles" />
+          ) : currentVariants.length === 0 ? (
+            <div className="pv-rail-empty">
+              <p>No subtitles in this language.</p>
+              <button type="button" className="pv-text-action" onClick={onReload}>
+                Find subtitles
+              </button>
+            </div>
+          ) : (
+            <div className="pv-rail-list" role="listbox" aria-label="Subtitle variant">
+              {currentVariants.map((variant) => {
+                const on =
+                  variant.trackId != null
+                    ? activeSub === variant.trackId
+                    : loadedSub?.url === variant.url;
+                return (
+                  <button
+                    key={variant.key}
+                    type="button"
+                    role="option"
+                    aria-selected={on}
+                    className={`pv-rail-row pv-rail-row--stack${on ? " is-on" : ""}`}
+                    onClick={() => onChoose(variant)}
+                  >
+                    <span className="pv-rail-row-text">
+                      <span className="pv-source-tag">{variant.source}</span>
+                      <span className="pv-rail-row-title">{variant.label}</span>
+                    </span>
+                    {on ? <Icon name="check" size={20} /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <button type="button" className="pv-text-action" onClick={onLoadFile}>
+            <Icon name="plus" size={14} /> Load a file
+          </button>
+        </section>
+
+        {styleOn ? (
+          <section className="pv-rail pv-rail--style">
+            <h3>Style</h3>
+            <div className="pv-style">
+              <StyleSection title="Delay">
+                <Stepper
+                  value={delayLabel(subStyle.delay)}
+                  onDown={() => onNudge(-0.1)}
+                  onUp={() => onNudge(0.1)}
+                  downLabel="Subtitles 0.1 seconds earlier"
+                  upLabel="Subtitles 0.1 seconds later"
+                />
+                <button
+                  type="button"
+                  className="pv-text-action"
+                  onClick={() => onPatch({ delay: 0 })}
+                >
+                  Reset
+                </button>
+              </StyleSection>
+
+              <StyleSection title="Font size">
+                <Stepper
+                  value={`${subStyle.size}`}
+                  onDown={() => onPatch({ size: whole(subStyle.size - 2, 30, 90, 46) })}
+                  onUp={() => onPatch({ size: whole(subStyle.size + 2, 30, 90, 46) })}
+                  downLabel="Smaller subtitles"
+                  upLabel="Larger subtitles"
+                />
+              </StyleSection>
+
+              <StyleSection title="Bold">
+                <button
+                  type="button"
+                  className={`pv-toggle${subStyle.bold ? " is-on" : ""}`}
+                  aria-label="Bold subtitles"
+                  aria-pressed={subStyle.bold}
+                  onClick={() => onPatch({ bold: !subStyle.bold })}
+                >
+                  {subStyle.bold ? "On" : "Off"}
+                </button>
+              </StyleSection>
+
+              <StyleSection title="Colour">
+                <div className="pv-swatches">
+                  {SUB_COLORS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`pv-swatch${subStyle.color === option.value ? " is-on" : ""}`}
+                      style={{ background: option.value }}
+                      aria-label={option.label}
+                      aria-pressed={subStyle.color === option.value}
+                      onClick={() => onPatch({ color: option.value })}
+                    />
+                  ))}
+                </div>
+              </StyleSection>
+
+              <StyleSection title="Text opacity">
+                <Stepper
+                  value={`${subStyle.opacity}%`}
+                  onDown={() => onPatch({ opacity: whole(subStyle.opacity - 10, 0, 100, 100) })}
+                  onUp={() => onPatch({ opacity: whole(subStyle.opacity + 10, 0, 100, 100) })}
+                  downLabel="Subtitles more transparent"
+                  upLabel="Subtitles more opaque"
+                />
+              </StyleSection>
+
+              <StyleSection title="Background">
+                <Stepper
+                  value={`${subStyle.background}%`}
+                  onDown={() => onPatch({ background: whole(subStyle.background - 10, 0, 100, 55) })}
+                  onUp={() => onPatch({ background: whole(subStyle.background + 10, 0, 100, 55) })}
+                  downLabel="Lighter subtitle background"
+                  upLabel="Darker subtitle background"
+                />
+              </StyleSection>
+
+              <StyleSection title="Outline">
+                <button
+                  type="button"
+                  className={`pv-toggle${subStyle.outline ? " is-on" : ""}`}
+                  aria-label="Subtitle outline"
+                  aria-pressed={subStyle.outline}
+                  onClick={() => onPatch({ outline: !subStyle.outline })}
+                >
+                  {subStyle.outline ? "On" : "Off"}
+                </button>
+                <div className="pv-swatches">
+                  {OUTLINE_COLORS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`pv-swatch${subStyle.outlineColor === option.value ? " is-on" : ""}`}
+                      style={{ background: option.value }}
+                      aria-label={`${option.label} outline`}
+                      aria-pressed={subStyle.outlineColor === option.value}
+                      onClick={() => onPatch({ outlineColor: option.value, outline: true })}
+                    />
+                  ))}
+                </div>
+              </StyleSection>
+
+              <StyleSection title="Position">
+                <Stepper
+                  value={`${subStyle.position}%`}
+                  onDown={() => onPatch({ position: whole(subStyle.position - 5, 25, 100, 96) })}
+                  onUp={() => onPatch({ position: whole(subStyle.position + 5, 25, 100, 96) })}
+                  downLabel="Move subtitles up"
+                  upLabel="Move subtitles down"
+                />
+              </StyleSection>
+
+              <button type="button" className="pv-text-action" onClick={onReset}>
+                Reset defaults
+              </button>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </Overlay>
+  );
+});
+
+
+/**
  * Playback screen.
  *
  * The picture is painted into the window behind this layer, so the page itself
@@ -393,12 +1053,21 @@ export function PlayerView() {
     resolveStream,
     playingSource,
     progressFor,
+    progressByKey,
     leavePlayer,
     starting,
     cancelStart,
   } = useApp();
   const player = usePlayer();
-  const [local, setLocal] = useState<PlayerSnapshot | null>(player);
+  // The browser preview has no Tauri events, so its poll is its own source.
+  const [preview, setPreview] = useState<PlayerSnapshot | null>(null);
+  const snapshot = player ?? preview;
+  // Held so the closing render keeps its session instead of flashing empty.
+  const lastSnap = useRef<PlayerSnapshot | null>(snapshot);
+  if (snapshot) lastSnap.current = snapshot;
+  const local = snapshot ?? lastSnap.current;
+  // Optimistic pause and mute: the icons must not wait up to a tick for the echo.
+  const [pending, setPending] = useState<{ paused?: boolean; muted?: boolean }>({});
   const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [locked, setLocked] = useState(false);
@@ -425,11 +1094,8 @@ export function PlayerView() {
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [season, setSeason] = useState<number | null>(null);
-  // Pointer position over the seek bar, and the still fetched for it.
-  const [hover, setHover] = useState<{ time: number; ratio: number } | null>(null);
-  const [frame, setFrame] = useState<{ time: number; src: string } | null>(null);
+  // Stills for the seek tip live in SeekTrack; only the cache is shared.
   const frameCache = useRef(new Map<number, string>());
-  const frameSeq = useRef(0);
   const frameBucket = useRef(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [thumbBroken, setThumbBroken] = useState(false);
@@ -439,6 +1105,10 @@ export function PlayerView() {
   const advanced = useRef(false);
   const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
+  const bumpAt = useRef(0);
+  // When the seek bar was last moved, so a lost echo cannot hold the thumb.
+  const scrubAt = useRef(0);
+  const scrubTimer = useRef<number | null>(null);
   const wasPlaying = useRef(false);
   const fsNow = useRef(false);
   const volRef = useRef(readVolume());
@@ -485,6 +1155,9 @@ export function PlayerView() {
   );
 
   const pushSubStyle = useCallback(() => {
+    // ASS tracks carry their own fonts and colours; they only listen to these
+    // once the user has actually moved a control.
+    send("sub-ass-override", customStyle(subStyle));
     send("sub-font-size", subStyle.size);
     send("sub-color", mpvColor(subStyle.color, subStyle.opacity));
     send("sub-back-color", mpvBackground(subStyle.background));
@@ -503,10 +1176,6 @@ export function PlayerView() {
     send("video-mode", videoMode);
     pushSubStyle();
   }, [local?.muted, pushSubStyle, send, videoMode]);
-
-  useEffect(() => {
-    setLocal(player);
-  }, [player]);
 
   // Playback can end behind the overlay. When the store clears the player we
   // return to the title instead of leaving a dead screen behind.
@@ -527,19 +1196,47 @@ export function PlayerView() {
     );
   }, [player, local?.session, navigate, route.name]);
 
+  // A tick that agrees settles the override; the timer covers a refused one.
+  useEffect(() => {
+    if (!local) return;
+    setPending((current) => {
+      let changed = false;
+      const next = { ...current };
+      if (next.paused !== undefined && local.paused === next.paused) {
+        delete next.paused;
+        changed = true;
+      }
+      if (next.muted !== undefined && local.muted === next.muted) {
+        delete next.muted;
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [local]);
+
+  // No tick arrives while the state is unchanged, so a refusal expires here.
+  useEffect(() => {
+    if (pending.paused === undefined && pending.muted === undefined) return;
+    const timer = window.setTimeout(() => setPending({}), 1200);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
+
   // The browser preview has no Tauri events, so poll the mock backend.
   useEffect(() => {
     if (!isBrowserPreview()) return;
     const timer = window.setInterval(() => {
       void api.player
         .state()
-        .then(setLocal)
+        .then(setPreview)
         .catch(() => undefined);
     }, 800);
     return () => window.clearInterval(timer);
   }, []);
 
   const session = local?.session ?? null;
+  // The session object is rebuilt every tick; callbacks read the latest here.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const [details, setDetails] = useState<Details | null>(null);
 
   useEffect(() => {
@@ -578,6 +1275,9 @@ export function PlayerView() {
 
   const duration = local?.duration ?? 0;
   const position = local?.position ?? 0;
+  // The override wins until a tick settles it.
+  const paused = pending.paused ?? local?.paused ?? false;
+  const muted = pending.muted ?? local?.muted ?? false;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
   const failed = local?.error ?? null;
@@ -587,11 +1287,28 @@ export function PlayerView() {
   // frame counts as loading.
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
   // A zero level is silent too, so the icon and label must agree with it.
-  const silent = Boolean(local?.muted) || volLevel === 0;
+  const silent = muted || volLevel === 0;
   const audioTracks = local?.audioTracks ?? [];
   const subTracks = local?.subTracks ?? [];
   const chapters = local?.chapters ?? [];
+
+  // Track ids are the cheap signature: the array identity changes every tick.
+  const subKey = subTracks.map((track) => track.id).join();
+  const subGroups = useMemo(() => groupSubtitles(subTracks, subs), [subKey, subs]);
+
+  const addonNames = useMemo(
+    () => [...new Set((sources ?? []).map((entry) => entry.addon))],
+    [sources],
+  );
+  const visibleSources = useMemo(
+    () =>
+      sources ? (sourceFilter ? sources.filter((entry) => entry.addon === sourceFilter) : sources) : [],
+    [sources, sourceFilter],
+  );
+
   const activeSub = subTracks.find((track) => track.id === local?.activeSub) ?? null;
+  const activeAudio = audioTracks.find((track) => track.id === local?.activeAudio) ?? null;
+  const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
   const step = settings?.seekStep ?? 10;
   const nextCountdown = Math.max(0, Math.ceil((duration || 0) - position));
   const nextAutoPlay = settings?.autoPlayNext ?? false;
@@ -695,8 +1412,9 @@ export function PlayerView() {
 
   // mpv gets the target state, not a toggle: two senders can never cancel out.
   const togglePause = useCallback(() => {
-    send("pause", !(local?.paused ?? false));
-  }, [local?.paused, send]);
+    setPending((current) => ({ ...current, paused: !paused }));
+    send("pause", !paused);
+  }, [paused, send]);
 
   const seekTo = useCallback(
     (target: number, user = true) => {
@@ -722,26 +1440,37 @@ export function PlayerView() {
     [markers, send],
   );
 
+  // Every seek-bar move stamps the hold, so a release gets a fresh window.
+  const holdScrub = useCallback((value: number | null) => {
+    scrubAt.current = Date.now();
+    setScrub(value);
+    if (scrubTimer.current) window.clearTimeout(scrubTimer.current);
+    // A refused seek never echoes, so the hold must expire on its own.
+    scrubTimer.current =
+      value == null ? null : window.setTimeout(() => setScrub(null), 1500);
+  }, []);
+
   const setVolume = useCallback(
     (value: number) => {
-      const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(value)));
-      volRef.current = next;
+      // The ref moves now so a burst of events lands on the last value; the
+      // state, storage and engine writes happen once per frame.
+      volRef.current = Math.min(MAX_VOLUME, Math.max(0, Math.round(value)));
       volTouched.current = Date.now();
-      setVolLevel(next);
-      setVolOsd(true);
-      if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
-      volOsdTimer.current = window.setTimeout(() => setVolOsd(false), 1200);
-      try {
-        window.localStorage.setItem(VOLUME_KEY, String(next));
-      } catch {
-        // Storage can be blocked; the level still applies to this session.
-      }
-      if (!volFrame.current) {
-        volFrame.current = window.requestAnimationFrame(() => {
-          volFrame.current = 0;
-          send("volume", volRef.current);
-        });
-      }
+      if (volFrame.current) return;
+      volFrame.current = window.requestAnimationFrame(() => {
+        volFrame.current = 0;
+        const next = volRef.current;
+        setVolLevel(next);
+        setVolOsd(true);
+        if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
+        volOsdTimer.current = window.setTimeout(() => setVolOsd(false), 1200);
+        try {
+          window.localStorage.setItem(VOLUME_KEY, String(next));
+        } catch {
+          // Storage can be blocked; the level still applies to this session.
+        }
+        send("volume", next);
+      });
     },
     [send],
   );
@@ -782,6 +1511,8 @@ export function PlayerView() {
       if (hudTimer.current) window.clearTimeout(hudTimer.current);
       if (hudOutTimer.current) window.clearTimeout(hudOutTimer.current);
       if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
+      if (scrubTimer.current) window.clearTimeout(scrubTimer.current);
+      if (volFrame.current) window.cancelAnimationFrame(volFrame.current);
     },
     [],
   );
@@ -810,11 +1541,14 @@ export function PlayerView() {
       const restored = Math.round(MAX_VOLUME / 4);
       volRef.current = restored;
       setVolume(restored);
+      setPending((current) => ({ ...current, muted: false }));
       send("mute", false);
       return;
     }
     // Send the target, not a toggle: mpv cycles and two senders would cancel.
-    send("mute", !silent);
+    const next = !silent;
+    setPending((current) => ({ ...current, muted: next }));
+    send("mute", next);
   }, [local?.volume, send, setVolume, silent]);
 
   const changeSpeed = useCallback(
@@ -922,9 +1656,8 @@ export function PlayerView() {
     }
     setSurface("subs");
     void loadSubtitles();
-    const active = subTracks.find((track) => track.id === local?.activeSub);
-    setSelectedLang(active ? langLabel(active.lang, active.label) : loadedSub?.lang ?? null);
-  }, [loadSubtitles, loadedSub?.lang, local?.activeSub, subTracks, surface]);
+    setSelectedLang(activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null);
+  }, [activeSub?.lang, activeSub?.label, loadSubtitles, loadedSub?.lang, surface]);
 
   const chooseSub = useCallback(
     (variant: SubVariant) => {
@@ -934,10 +1667,16 @@ export function PlayerView() {
       if (variant.trackId != null) {
         setLoadedSub(null);
         send("sub", variant.trackId);
+        rememberSubtitle(sessionRef.current?.key, { lang: variant.lang, trackId: variant.trackId });
         return;
       }
       if (!variant.url) return;
       setLoadedSub({ lang: variant.lang, url: variant.url });
+      rememberSubtitle(sessionRef.current?.key, {
+        lang: variant.lang,
+        url: variant.url,
+        label: variant.label,
+      });
       void api.player
         .subtitle(variant.url, variant.lang)
         .then(() => notify(`${variant.lang} subtitles`))
@@ -950,6 +1689,7 @@ export function PlayerView() {
     setLoadedSub(null);
     setSelectedLang(OFF);
     send("sub", null);
+    rememberSubtitle(sessionRef.current?.key, { lang: "", off: true });
   }, [send]);
 
   const openEpisodes = useCallback(() => {
@@ -959,6 +1699,7 @@ export function PlayerView() {
 
   const switchSource = useCallback(
     async (stream: StreamOption) => {
+      const session = sessionRef.current;
       if (!session) return;
       setSourceBusy(true);
       try {
@@ -986,7 +1727,7 @@ export function PlayerView() {
         setSourceBusy(false);
       }
     },
-    [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream, session],
+    [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream],
   );
 
   // While a control holds keyboard focus the chrome stays, so the focus ring
@@ -1003,17 +1744,21 @@ export function PlayerView() {
   }, []);
 
   const bump = useCallback(() => {
+    // Pointer moves arrive far faster than the chrome needs to react.
+    const now = Date.now();
+    if (now - bumpAt.current < 150) return;
+    bumpAt.current = now;
     if (locked) return;
     setChrome(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     // Keep the close controls on screen while a source is opening or has failed.
-    if (loading || failed || local?.paused || local?.ended || surface || showNext) return;
+    if (loading || failed || paused || local?.ended || surface || showNext) return;
     if (dragging.current || controlFocused()) return;
     hideTimer.current = window.setTimeout(() => {
       if (dragging.current || controlFocused()) return;
       setChrome(false);
     }, 2600);
-  }, [controlFocused, loading, failed, local?.paused, local?.ended, surface, showNext, locked]);
+  }, [controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
 
   useEffect(() => {
     bump();
@@ -1070,8 +1815,6 @@ export function PlayerView() {
     setThumbBroken(false);
     setSurface(null);
     setLoadedSub(null);
-    setHover(null);
-    setFrame(null);
     frameCache.current.clear();
     frameBucket.current = 0;
   }, [session?.key]);
@@ -1191,6 +1934,13 @@ export function PlayerView() {
     seekTo(segment.at, false);
   }, [markers, position, duration, loading, scrub, seekTo]);
 
+  // The thumb stays where it was dropped until the seek echo catches up; a
+  // refused seek expires on the next tick after the hold window.
+  useEffect(() => {
+    if (scrub == null || dragging.current) return;
+    if (Math.abs(position - scrub) < 1.5 || Date.now() - scrubAt.current > 1500) setScrub(null);
+  }, [position, scrub]);
+
   // The preview above is only a preview: mpv draws the real subtitles, so the
   // same values are pushed to it, debounced so dragging a slider stays cheap.
   useEffect(() => {
@@ -1198,60 +1948,54 @@ export function PlayerView() {
     return () => window.clearTimeout(timer);
   }, [session?.key, pushSubStyle]);
 
+  // A session comes back with the subtitle it was left on, once per open.
+  const subRestored = useRef<string | null>(null);
+  const playerReady = Boolean(local);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || !playerReady || subRestored.current === key) return;
+    subRestored.current = key;
+    const saved = rememberedSubtitle(key);
+    if (!saved) return;
+    if (saved.off) {
+      setLoadedSub(null);
+      setSelectedLang(OFF);
+      send("sub", null);
+      return;
+    }
+    setSelectedLang(saved.lang);
+    if (saved.trackId != null) {
+      setLoadedSub(null);
+      send("sub", saved.trackId);
+      return;
+    }
+    if (!saved.url) return;
+    setLoadedSub({ lang: saved.lang, url: saved.url });
+    void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
+  }, [session?.key, playerReady, send]);
+
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
     send("video-mode", videoMode);
     // Only on a new session: the cycle button already pushes its own change.
   }, [send, session?.key]);
 
-  // One still per five seconds of the bar, and only once the pointer rests, so
-  // sweeping the timeline does not spawn an mpv for every frame.
-  useEffect(() => {
-    // Dragging asks mpv for a still every few pixels otherwise.
-    if (dragging.current) return;
-    if (!hover) return;
-    const bucket = Math.round(hover.time / 5) * 5;
-    if (bucket < 5 || bucket === frameBucket.current) return;
-    frameBucket.current = bucket;
-    const cached = frameCache.current.get(bucket);
-    if (cached) {
-      setFrame({ time: bucket, src: cached });
-      return;
-    }
-    const seq = ++frameSeq.current;
-    const timer = window.setTimeout(() => {
-      void api.player
-        .frame(bucket)
-        .then((src) => {
-          if (!src || frameSeq.current !== seq) return;
-          frameCache.current.set(bucket, src);
-          if (frameCache.current.size > 48) {
-            const oldest = frameCache.current.keys().next().value;
-            if (oldest != null) frameCache.current.delete(oldest);
-          }
-          setFrame({ time: bucket, src });
-        })
-        .catch(() => undefined);
-    }, 170);
-    return () => window.clearTimeout(timer);
-  }, [hover]);
-
   // Local storage is the persistence layer, except delay which is session-only.
   useEffect(() => {
     try {
-      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify({ ...subStyle, delay: 0 }));
+      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
     } catch {
       // Storage can be full or blocked; the panel still works for this session.
     }
   }, [subStyle]);
 
-  const patchSubStyle = (patch: Partial<SubtitleStyle>) => {
+  const patchSubStyle = useCallback((patch: Partial<SubtitleStyle>) => {
     setSubStyle((current) => ({ ...current, ...patch }));
-  };
+  }, []);
 
-  const nudgeDelay = (delta: number) => {
+  const nudgeDelay = useCallback((delta: number) => {
     setSubStyle((current) => ({ ...current, delay: tenths(current.delay + delta, current.delay) }));
-  };
+  }, []);
 
   const saveMarker = useCallback(
     async (patch: SkipEntry, label: string) => {
@@ -1441,7 +2185,7 @@ export function PlayerView() {
     return () => window.removeEventListener("wheel", onWheel);
   }, [changeVolume, locked, playing, surface]);
 
-  const loadSubtitleFile = async () => {
+  const loadSubtitleFile = useCallback(async () => {
     if (!isTauri()) {
       notify("Picking a subtitle file needs the desktop app", "error");
       return;
@@ -1458,7 +2202,182 @@ export function PlayerView() {
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
-  };
+  }, [notify]);
+
+  // Stable handlers keep the memoized panels out of the tick re-render.
+  const closeSurface = useCallback(() => setSurface(null), []);
+  const refreshSources = useCallback(() => void loadSources(true), [loadSources]);
+  const reloadSubs = useCallback(() => void loadSubtitles(true), [loadSubtitles]);
+  const resetSubStyle = useCallback(() => setSubStyle(DEFAULT_SUB_STYLE), []);
+  const pickEpisode = useCallback(
+    (video: Video) => {
+      setSurface(null);
+      void playVideo(video);
+    },
+    [playVideo],
+  );
+
+  // Panel rows and transport actions, rebuilt only when their inputs move.
+  const shortcutRows = useMemo<Array<[string, string]>>(
+    () => [
+      ["Space / K", "Play and pause"],
+      ["← / →", `Seek ${step}s`],
+      ["Shift + ← / →", "Seek 60s"],
+      ["J / L", "Seek 10s back and ahead"],
+      ["↑ / ↓", "Volume up and down"],
+      ["M", "Mute"],
+      ["S", "Cycle subtitles"],
+      ["A", "Cycle audio"],
+      ["+ / −", "Speed up and down"],
+      ["N", "Next episode"],
+      ["I", "Stream info"],
+      ["F", "Fullscreen"],
+      ["?", "This sheet"],
+      ["Esc", "Close a panel, or leave"],
+    ],
+    [step],
+  );
+
+  const playbackRows = useMemo<Array<[string, string]>>(
+    () => [
+      ["State", local?.ended ? "Ended" : local?.paused ? "Paused" : "Playing"],
+      ["Position", `${formatTime(position)} / ${formatTime(duration)}`],
+      ["Cached to", formatTime(local?.buffered ?? 0)],
+      ["Speed", `${local?.speed ?? 1}×`],
+      ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " (muted)" : ""}`],
+      ["Engine", appInfo?.mpv?.version ?? "mpv"],
+    ],
+    [
+      appInfo?.mpv?.version,
+      duration,
+      local?.buffered,
+      local?.ended,
+      local?.muted,
+      local?.paused,
+      local?.speed,
+      local?.volume,
+      position,
+    ],
+  );
+
+  const sourceRows = useMemo<Array<[string, string | null]>>(
+    () => [
+      ["Stream", playingSource?.title ?? playingSource?.name ?? null],
+      ["Quality", playingSource?.quality ?? null],
+      ["Size", playingSource?.size ?? null],
+    ],
+    [playingSource?.title, playingSource?.name, playingSource?.quality, playingSource?.size],
+  );
+
+  const audioRows = useMemo<Array<[string, string | null]>>(
+    () => [
+      ["Track", activeAudio?.label ?? "Default"],
+      ["Language", activeAudio?.lang ? langLabel(activeAudio.lang) : null],
+      ["Channels and codec", activeAudio?.details ?? null],
+      ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : "Built in") : null],
+    ],
+    [
+      activeAudio?.label,
+      activeAudio?.lang,
+      activeAudio?.details,
+      activeAudio?.external,
+      Boolean(activeAudio),
+    ],
+  );
+
+  const subtitleRows = useMemo<Array<[string, string | null]>>(
+    () => [
+      ["Track", loadedSub ? `${loadedSub.lang} (addon)` : activeSub?.label ?? null],
+      ["Language", activeSub?.lang ? langLabel(activeSub.lang) : loadedSub?.lang ?? null],
+      [
+        "Source",
+        loadedSub ? "Addon" : activeSub ? (activeSub.external ? "Loaded file" : "Built in") : null,
+      ],
+    ],
+    [activeSub?.label, activeSub?.lang, activeSub?.external, Boolean(activeSub), loadedSub],
+  );
+
+  const actions = useMemo(() => {
+    const rows: Array<{
+      key: string;
+      icon: IconName;
+      label: string;
+      on: () => void;
+    }> = [];
+    rows.push({
+      key: "info",
+      icon: "info",
+      label: "Stream info",
+      on: () => toggleSurface("info"),
+    });
+    rows.push({
+      key: "speed",
+      icon: "speed",
+      label: `Speed ${local?.speed ?? 1}×`,
+      on: cycleSpeed,
+    });
+    rows.push({
+      key: "subs",
+      icon: "subtitle",
+      label: "Subtitles",
+      on: openSubs,
+    });
+    rows.push({
+      key: "audio",
+      icon: "audio",
+      label: "Audio",
+      on: () => toggleSurface("audio"),
+    });
+    if (details?.type === "series") {
+      rows.push({
+        key: "episodes",
+        icon: "episodes",
+        label: "Episodes",
+        on: openEpisodes,
+      });
+    }
+    if (chapters.length > 0) {
+      rows.push({
+        key: "chapters",
+        icon: "chapters",
+        label: "Chapters",
+        on: () => toggleSurface("chapters"),
+      });
+    }
+    rows.push({
+      key: "sources",
+      icon: "sources",
+      label: "Sources",
+      on: () => {
+        toggleSurface("sources");
+        void loadSources();
+      },
+    });
+    rows.push({
+      key: "mode",
+      icon: "aspect",
+      label: mode.label,
+      on: cycleVideoMode,
+    });
+    rows.push({
+      key: "more",
+      icon: "more",
+      label: "More actions",
+      on: () => toggleSurface("more"),
+    });
+    return rows;
+  }, [
+    chapters.length,
+    cycleSpeed,
+    cycleVideoMode,
+    details?.type,
+    loadSources,
+    local?.speed,
+    mode.label,
+    openEpisodes,
+    openSubs,
+    toggleSurface,
+  ]);
 
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
@@ -1504,34 +2423,16 @@ export function PlayerView() {
   const artLogo = details?.logo ?? rememberedLogo(session?.metaId) ?? null;
   const artBackground =
     details?.background ?? session?.background ?? session?.poster ?? null;
-  const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
   const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
-  const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
-  // Embedded tracks and addon results share one language-first list.
-  const subGroups = groupSubtitles(subTracks, subs);
   const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
-  const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? [];
-  const activeVariant = currentVariants.find((variant) =>
-    variant.trackId != null ? local.activeSub === variant.trackId : loadedSub?.url === variant.url,
-  );
+  const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
   const offSelected =
     selectedLang === OFF || (selectedLang === null && !activeSub && !loadedSub);
-  const styleOn = Boolean(activeSub || loadedSub) && currentLang != null && Boolean(activeVariant);
-  const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
-  const shot = frame && frame.time === hoverBucket ? frame.src : null;
+  // Styling is a player-wide preference: it must not wait for a track to be
+  // matched to a variant, or the panel vanishes on the first tick after a load.
+  const styleOn = Boolean(activeSub || loadedSub);
   const volumeFill = Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
-
-  const seasonOptions = [...new Set(queue.map((video) => video.season ?? 0))].sort(
-    (a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b),
-  );
-  const seasonEpisodes = queue.filter((video) => (video.season ?? 0) === (season ?? 0));
-  const addonNames = [...new Set((sources ?? []).map((entry) => entry.addon))];
-  const visibleSources = sources
-    ? sourceFilter
-      ? sources.filter((entry) => entry.addon === sourceFilter)
-      : sources
-    : [];
 
   const chapterIndex = chapters.reduce(
     (found, chapter, at) => (chapter.start <= shownPosition + 0.25 ? at : found),
@@ -1541,62 +2442,6 @@ export function PlayerView() {
   const sourceTitle = playingSource
     ? playingSource.name ?? playingSource.addon ?? "Source"
     : null;
-
-  const ratioFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-  };
-
-  const shortcutRows: Array<[string, string]> = [
-    ["Space / K", "Play and pause"],
-    ["← / →", `Seek ${step}s`],
-    ["Shift + ← / →", "Seek 60s"],
-    ["J / L", "Seek 10s back and ahead"],
-    ["↑ / ↓", "Volume up and down"],
-    ["M", "Mute"],
-    ["S", "Cycle subtitles"],
-    ["A", "Cycle audio"],
-    ["+ / −", "Speed up and down"],
-    ["N", "Next episode"],
-    ["I", "Stream info"],
-    ["F", "Fullscreen"],
-    ["?", "This sheet"],
-    ["Esc", "Close a panel, or leave"],
-  ];
-
-  const playbackRows: Array<[string, string]> = [
-    ["State", local.ended ? "Ended" : local.paused ? "Paused" : "Playing"],
-    ["Position", `${formatTime(local.position)} / ${formatTime(duration)}`],
-    ["Cached to", formatTime(local.buffered ?? 0)],
-    ["Speed", `${local.speed}×`],
-    ["Volume", `${Math.round(local.volume)}%${local.muted ? " (muted)" : ""}`],
-    ["Engine", appInfo?.mpv?.version ?? "mpv"],
-  ];
-
-  const sourceRows: Array<[string, string | null]> = [
-    ["Stream", playingSource?.title ?? playingSource?.name ?? null],
-    ["Quality", playingSource?.quality ?? null],
-    ["Size", playingSource?.size ?? null],
-  ];
-
-  const audioRows: Array<[string, string | null]> = [
-    ["Track", activeAudio?.label ?? "Default"],
-    ["Language", activeAudio?.lang ? langLabel(activeAudio.lang) : null],
-    ["Channels and codec", activeAudio?.details ?? null],
-    ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : "Built in") : null],
-  ];
-
-  const subtitleRows: Array<[string, string | null]> = [
-    [
-      "Track",
-      loadedSub ? `${loadedSub.lang} (addon)` : activeSub?.label ?? null,
-    ],
-    ["Language", activeSub?.lang ? langLabel(activeSub.lang) : loadedSub?.lang ?? null],
-    [
-      "Source",
-      loadedSub ? "Addon" : activeSub ? (activeSub.external ? "Loaded file" : "Built in") : null,
-    ],
-  ];
 
   const cycleLock = () => {
     setLocked((current) => !current);
@@ -1625,6 +2470,9 @@ export function PlayerView() {
       }}
     >
       <div className="pv-shade" aria-hidden="true" />
+
+      {/* The player covers the titlebar; this is the window's handle while windowed. */}
+      {!fullscreen ? <div className="pv-drag" data-tauri-drag-region aria-hidden="true" /> : null}
 
       {!locked ? (
         <header className="pv-top">
@@ -1744,7 +2592,7 @@ export function PlayerView() {
       {surface !== null && !locked ? (
         <>
           {surface === "audio" ? (
-            <Overlay label="Audio tracks" onClose={() => setSurface(null)}>
+            <Overlay label="Audio tracks" onClose={closeSurface}>
               {audioTracks.length === 0 ? (
                 <p className="pv-overlay-empty">No audio tracks available.</p>
               ) : (
@@ -1776,228 +2624,30 @@ export function PlayerView() {
           ) : null}
 
           {surface === "subs" ? (
-            <Overlay label="Subtitles" onClose={() => setSurface(null)}>
-              <div className="pv-rails">
-                <section className="pv-rail pv-rail--lang">
-                  <h3>Languages</h3>
-                  <div className="pv-rail-list" role="listbox" aria-label="Subtitle language">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={offSelected}
-                      className={`pv-rail-row${offSelected ? " is-on" : ""}`}
-                      onClick={turnSubsOff}
-                    >
-                      <span className="pv-rail-row-text">
-                        <span className="pv-rail-row-title">None</span>
-                      </span>
-                      {offSelected ? <Icon name="check" size={20} /> : null}
-                    </button>
-                    {subGroups.map((group) => {
-                      const on = !offSelected && currentLang === group.lang;
-                      return (
-                        <button
-                          key={group.lang}
-                          type="button"
-                          role="option"
-                          aria-selected={on}
-                          className={`pv-rail-row${on ? " is-on" : ""}`}
-                          onClick={() => setSelectedLang(group.lang)}
-                        >
-                          <span className="pv-rail-row-text">
-                            <span className="pv-rail-row-title">{group.lang}</span>
-                          </span>
-                          <span className="pv-count">{group.variants.length}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className="pv-rail pv-rail--variants">
-                  <h3>Subtitles</h3>
-                  {subs === null ? (
-                    <Spinner label="Finding subtitles" />
-                  ) : currentVariants.length === 0 ? (
-                    <div className="pv-rail-empty">
-                      <p>No subtitles in this language.</p>
-                      <button
-                        type="button"
-                        className="pv-text-action"
-                        onClick={() => void loadSubtitles(true)}
-                      >
-                        Find subtitles
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="pv-rail-list" role="listbox" aria-label="Subtitle variant">
-                      {currentVariants.map((variant) => {
-                        const on =
-                          variant.trackId != null
-                            ? local.activeSub === variant.trackId
-                            : loadedSub?.url === variant.url;
-                        return (
-                          <button
-                            key={variant.key}
-                            type="button"
-                            role="option"
-                            aria-selected={on}
-                            className={`pv-rail-row pv-rail-row--stack${on ? " is-on" : ""}`}
-                            onClick={() => chooseSub(variant)}
-                          >
-                            <span className="pv-rail-row-text">
-                              <span className="pv-source-tag">{variant.source}</span>
-                              <span className="pv-rail-row-title">{variant.label}</span>
-                            </span>
-                            {on ? <Icon name="check" size={20} /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <button type="button" className="pv-text-action" onClick={() => void loadSubtitleFile()}>
-                    <Icon name="plus" size={14} /> Load a file
-                  </button>
-                </section>
-
-                {styleOn ? (
-                  <section className="pv-rail pv-rail--style">
-                    <h3>Style</h3>
-                    <div className="pv-style">
-                      <StyleSection title="Delay">
-                        <Stepper
-                          value={delayLabel(subStyle.delay)}
-                          onDown={() => nudgeDelay(-0.1)}
-                          onUp={() => nudgeDelay(0.1)}
-                          downLabel="Subtitles 0.1 seconds earlier"
-                          upLabel="Subtitles 0.1 seconds later"
-                        />
-                        <button
-                          type="button"
-                          className="pv-text-action"
-                          onClick={() => patchSubStyle({ delay: 0 })}
-                        >
-                          Reset
-                        </button>
-                      </StyleSection>
-
-                      <StyleSection title="Font size">
-                        <Stepper
-                          value={`${subStyle.size}`}
-                          onDown={() => patchSubStyle({ size: whole(subStyle.size - 2, 30, 90, 46) })}
-                          onUp={() => patchSubStyle({ size: whole(subStyle.size + 2, 30, 90, 46) })}
-                          downLabel="Smaller subtitles"
-                          upLabel="Larger subtitles"
-                        />
-                      </StyleSection>
-
-                      <StyleSection title="Bold">
-                        <button
-                          type="button"
-                          className={`pv-toggle${subStyle.bold ? " is-on" : ""}`}
-                          aria-label="Bold subtitles"
-                          aria-pressed={subStyle.bold}
-                          onClick={() => patchSubStyle({ bold: !subStyle.bold })}
-                        >
-                          {subStyle.bold ? "On" : "Off"}
-                        </button>
-                      </StyleSection>
-
-                      <StyleSection title="Colour">
-                        <div className="pv-swatches">
-                          {SUB_COLORS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={`pv-swatch${subStyle.color === option.value ? " is-on" : ""}`}
-                              style={{ background: option.value }}
-                              aria-label={option.label}
-                              aria-pressed={subStyle.color === option.value}
-                              onClick={() => patchSubStyle({ color: option.value })}
-                            />
-                          ))}
-                        </div>
-                      </StyleSection>
-
-                      <StyleSection title="Text opacity">
-                        <Stepper
-                          value={`${subStyle.opacity}%`}
-                          onDown={() => patchSubStyle({ opacity: whole(subStyle.opacity - 10, 0, 100, 100) })}
-                          onUp={() => patchSubStyle({ opacity: whole(subStyle.opacity + 10, 0, 100, 100) })}
-                          downLabel="Subtitles more transparent"
-                          upLabel="Subtitles more opaque"
-                        />
-                      </StyleSection>
-
-                      <StyleSection title="Background">
-                        <Stepper
-                          value={`${subStyle.background}%`}
-                          onDown={() =>
-                            patchSubStyle({ background: whole(subStyle.background - 10, 0, 100, 55) })
-                          }
-                          onUp={() =>
-                            patchSubStyle({ background: whole(subStyle.background + 10, 0, 100, 55) })
-                          }
-                          downLabel="Lighter subtitle background"
-                          upLabel="Darker subtitle background"
-                        />
-                      </StyleSection>
-
-                      <StyleSection title="Outline">
-                        <button
-                          type="button"
-                          className={`pv-toggle${subStyle.outline ? " is-on" : ""}`}
-                          aria-label="Subtitle outline"
-                          aria-pressed={subStyle.outline}
-                          onClick={() => patchSubStyle({ outline: !subStyle.outline })}
-                        >
-                          {subStyle.outline ? "On" : "Off"}
-                        </button>
-                        <div className="pv-swatches">
-                          {OUTLINE_COLORS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              className={`pv-swatch${subStyle.outlineColor === option.value ? " is-on" : ""}`}
-                              style={{ background: option.value }}
-                              aria-label={`${option.label} outline`}
-                              aria-pressed={subStyle.outlineColor === option.value}
-                              onClick={() => patchSubStyle({ outlineColor: option.value, outline: true })}
-                            />
-                          ))}
-                        </div>
-                      </StyleSection>
-
-                      <StyleSection title="Position">
-                        <Stepper
-                          value={`${subStyle.position}%`}
-                          onDown={() =>
-                            patchSubStyle({ position: whole(subStyle.position - 5, 25, 100, 96) })
-                          }
-                          onUp={() =>
-                            patchSubStyle({ position: whole(subStyle.position + 5, 25, 100, 96) })
-                          }
-                          downLabel="Move subtitles up"
-                          upLabel="Move subtitles down"
-                        />
-                      </StyleSection>
-
-                      <button
-                        type="button"
-                        className="pv-text-action"
-                        onClick={() => setSubStyle(DEFAULT_SUB_STYLE)}
-                      >
-                        Reset defaults
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
-              </div>
-            </Overlay>
+            <SubtitlesPanel
+              subs={subs}
+              groups={subGroups}
+              offSelected={offSelected}
+              currentLang={currentLang}
+              currentVariants={currentVariants}
+              styleOn={styleOn}
+              activeSub={local.activeSub ?? null}
+              loadedSub={loadedSub}
+              subStyle={subStyle}
+              onLang={setSelectedLang}
+              onChoose={chooseSub}
+              onOff={turnSubsOff}
+              onReload={reloadSubs}
+              onLoadFile={loadSubtitleFile}
+              onPatch={patchSubStyle}
+              onNudge={nudgeDelay}
+              onReset={resetSubStyle}
+              onClose={closeSurface}
+            />
           ) : null}
 
           {surface === "info" ? (
-            <Overlay label="Stream info" onClose={() => setSurface(null)}>
+            <Overlay label="Stream info" onClose={closeSurface}>
               <div className="pv-info">
                 <section>
                   <h3>Source</h3>
@@ -2067,7 +2717,7 @@ export function PlayerView() {
             <SidePanel
               label="Chapters"
               title={`Chapters (${chapters.length})`}
-              onClose={() => setSurface(null)}
+              onClose={closeSurface}
             >
               <div className="pv-side-list">
                 {chapters.map((chapter, at) => {
@@ -2114,168 +2764,44 @@ export function PlayerView() {
           ) : null}
 
           {surface === "sources" ? (
-            <SidePanel label="Sources" title="Sources" onClose={() => setSurface(null)}>
-              <p className="pv-side-sub">
-                {session?.season != null
+            <SourcesPanel
+              heading={
+                session?.season != null
                   ? `${episodeCode({ season: session.season, episode: session.episode })}${
                       session.episodeTitle ? ` · ${session.episodeTitle}` : ""
                     }`
-                  : title}
-              </p>
-              <div className="pv-filters">
-                <button
-                  type="button"
-                  className={`pv-filter${sourceFilter === null ? " is-on" : ""}`}
-                  onClick={() => setSourceFilter(null)}
-                >
-                  All
-                </button>
-                {addonNames.map((addon) => (
-                  <button
-                    key={addon}
-                    type="button"
-                    className={`pv-filter${sourceFilter === addon ? " is-on" : ""}`}
-                    onClick={() => setSourceFilter(addon)}
-                  >
-                    {addon}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="pv-filter pv-filter--action"
-                  disabled={sourceBusy}
-                  onClick={() => void loadSources(true)}
-                >
-                  <Icon name="refresh" size={15} />
-                  {sourceBusy ? "Loading" : "Refresh"}
-                </button>
-              </div>
-              <div className="pv-side-list">
-                {sourceBusy && !sources ? (
-                  <Spinner label="Finding sources" />
-                ) : visibleSources.length === 0 ? (
-                  <p className="pv-side-empty">No sources returned for this episode.</p>
-                ) : (
-                  visibleSources.map((stream, at) => {
-                    const current = sameSource(playingSource, stream);
-                    return (
-                      <button
-                        key={`${stream.addon}-${stream.infoHash ?? stream.url ?? at}-${at}`}
-                        type="button"
-                        className={`pv-source-row${current ? " is-on" : ""}`}
-                        disabled={!stream.playable || sourceBusy}
-                        onClick={() => void switchSource(stream)}
-                      >
-                        <span className="pv-source-text">
-                          <span className="pv-source-name">
-                            {stream.name ?? stream.addon ?? "Source"}
-                            {current ? <em>Playing</em> : null}
-                          </span>
-                          <span className="pv-source-meta">
-                            {[
-                              stream.quality,
-                              stream.addon,
-                              stream.size,
-                              stream.seeders != null ? `${stream.seeders} seeds` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                          {stream.description ? (
-                            <span className="pv-source-note">
-                              {stream.description.replace(/\n/g, " · ")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </SidePanel>
+                  : title
+              }
+              sources={sources}
+              visibleSources={visibleSources}
+              addonNames={addonNames}
+              sourceBusy={sourceBusy}
+              sourceFilter={sourceFilter}
+              playingSource={playingSource}
+              onFilter={setSourceFilter}
+              onRefresh={refreshSources}
+              onPick={switchSource}
+              onClose={closeSurface}
+            />
           ) : null}
 
           {surface === "episodes" ? (
-            <SidePanel
-              label="Episodes"
-              title={details?.type === "series" ? "Episodes" : "Episodes"}
-              onClose={() => setSurface(null)}
-            >
-              {seasonOptions.length > 0 ? (
-                <div className="pv-filters">
-                  {seasonOptions.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`pv-filter${(season ?? 0) === value ? " is-on" : ""}`}
-                      onClick={() => setSeason(value)}
-                    >
-                      {value === 0 ? "Specials" : `Season ${value}`}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div className="pv-side-list">
-                {seasonEpisodes.length === 0 ? (
-                  <p className="pv-side-empty">No episodes available.</p>
-                ) : (
-                  seasonEpisodes.map((video) => {
-                    const episode = video.episode ?? video.number ?? 0;
-                    const on =
-                      session?.season === (video.season ?? 0) && session?.episode === episode;
-                    const key =
-                      video.season != null
-                        ? `${session?.metaId}:${video.season}:${episode}`
-                        : session?.metaId ?? "";
-                    const saved = key ? progressFor(key) : undefined;
-                    const watched = Boolean(saved && saved.duration > 0 && saved.position / saved.duration >= 0.92);
-                    const pct =
-                      saved && saved.duration > 0
-                        ? Math.min(100, (saved.position / saved.duration) * 100)
-                        : 0;
-                    return (
-                      <button
-                        key={video.id}
-                        type="button"
-                        className={`pv-episode-row${on ? " is-on" : ""}`}
-                        disabled={busy}
-                        onClick={() => {
-                          setSurface(null);
-                          void playVideo(video);
-                        }}
-                      >
-                        {video.thumbnail ? (
-                          <img src={video.thumbnail} alt="" loading="lazy" decoding="async" />
-                        ) : (
-                          <span className="pv-episode-blank" aria-hidden="true" />
-                        )}
-                        <span className="pv-episode-text">
-                          <span className="pv-episode-code">
-                            {episodeCode({ season: video.season, episode })}
-                            {on ? <em>Playing</em> : watched ? <em>Watched</em> : null}
-                          </span>
-                          <span className="pv-episode-name">
-                            {video.title || `Episode ${episode}`}
-                          </span>
-                          {video.overview ? (
-                            <span className="pv-episode-note">{video.overview}</span>
-                          ) : null}
-                          {pct > 0 && !watched ? (
-                            <span className="pv-episode-progress" aria-hidden="true">
-                              <span style={{ width: `${pct}%` }} />
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </SidePanel>
+            <EpisodesPanel
+              queue={queue}
+              season={season}
+              currentSeason={session?.season ?? null}
+              currentEpisode={session?.episode ?? null}
+              metaId={session?.metaId ?? ""}
+              progress={progressByKey}
+              busy={busy}
+              onSeason={setSeason}
+              onPick={pickEpisode}
+              onClose={closeSurface}
+            />
           ) : null}
 
           {surface === "keys" ? (
-            <Overlay label="Keyboard shortcuts" onClose={() => setSurface(null)}>
+            <Overlay label="Keyboard shortcuts" onClose={closeSurface}>
               <div className="pv-keys">
                 {shortcutRows.map(([keys, what]) => (
                   <p key={keys}>
@@ -2288,7 +2814,7 @@ export function PlayerView() {
           ) : null}
 
           {surface === "more" ? (
-            <Overlay label="Playback options" onClose={() => setSurface(null)}>
+            <Overlay label="Playback options" onClose={closeSurface}>
               <div className="pv-rail-list pv-rail-list--menu">
                 <button
                   type="button"
@@ -2416,79 +2942,24 @@ export function PlayerView() {
 
       {!locked ? (
         <footer className="pv-timeline">
-          <div className={`pv-seek${dragging.current ? " is-active" : ""}`}>
+          <div className="pv-seek">
             <span className="pv-seek-time">{formatTime(shownPosition)}</span>
 
-            <div
-              className={`pv-track${dragging.current ? " is-dragging" : ""}`}
-              role="slider"
-              tabIndex={0}
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(duration)}
-              aria-valuenow={Math.round(shownPosition)}
-              aria-valuetext={formatTime(shownPosition)}
-              onPointerDown={(event) => {
-                if (!duration) return;
-                dragging.current = true;
-                event.currentTarget.setPointerCapture(event.pointerId);
-                const ratio = ratioFromEvent(event);
-                setScrub(ratio * duration);
-                setHover({ time: ratio * duration, ratio });
-              }}
-              onPointerMove={(event) => {
-                if (!duration) return;
-                const ratio = ratioFromEvent(event);
-                setHover({ time: ratio * duration, ratio });
-                if (dragging.current) setScrub(ratio * duration);
-              }}
-              onPointerLeave={() => {
-                if (!dragging.current) setHover(null);
-              }}
-              onPointerUp={(event) => {
-                if (!dragging.current) return;
-                dragging.current = false;
-                const target = ratioFromEvent(event) * duration;
-                setScrub(null);
-                setHover(null);
-                seekTo(target);
-                bump();
-              }}
-              onPointerCancel={() => {
-                dragging.current = false;
-                setScrub(null);
-                setHover(null);
-              }}
-              onLostPointerCapture={() => {
-                dragging.current = false;
-                setScrub(null);
-                setHover(null);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                event.preventDefault();
-                seekRel((event.key === "ArrowLeft" ? -1 : 1) * step);
-              }}
-            >
-              <span className="pv-trackrail" />
-              <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
-              <span className="pv-played" style={{ width: `${percent}%` }} />
-              <span className="pv-knob" style={{ left: `${percent}%` }} aria-hidden="true" />
-
-              {hover ? (
-                <span
-                  className="pv-tip"
-                  style={{ left: `clamp(92px, ${hover.ratio * 100}%, calc(100% - 92px))` }}
-                >
-                  {shot ? (
-                    <span className="pv-tip-shot">
-                      <img src={shot} alt="" draggable={false} />
-                    </span>
-                  ) : null}
-                  <b>{formatTime(hover.time)}</b>
-                </span>
-              ) : null}
-            </div>
+            <SeekTrack
+              duration={duration}
+              shownPosition={shownPosition}
+              percent={percent}
+              bufferedPercent={bufferedPercent}
+              step={step}
+              resetKey={session?.key}
+              dragging={dragging}
+              frameCache={frameCache}
+              frameBucket={frameBucket}
+              onSeek={seekTo}
+              onSeekRel={seekRel}
+              onScrub={holdScrub}
+              onBump={bump}
+            />
 
             <button
               type="button"
@@ -2505,11 +2976,11 @@ export function PlayerView() {
             <button
               type="button"
               className="pv-cbtn"
-              aria-label={local.paused ? "Play" : "Pause"}
-              title={local.paused ? "Play" : "Pause"}
+              aria-label={paused ? "Play" : "Pause"}
+              title={paused ? "Play" : "Pause"}
               onClick={togglePause}
             >
-              <Icon name={local.paused ? "play" : "pause"} size={26} />
+              <Icon name={paused ? "play" : "pause"} size={26} />
             </button>
             {nextEpisode ? (
               <button
@@ -2552,88 +3023,19 @@ export function PlayerView() {
               className={`pv-cluster${btnMenu ? " is-open" : ""}`}
               onClick={() => setBtnMenu(false)}
             >
-              {(() => {
-                const actions: Array<{
-                  key: string;
-                  icon: IconName;
-                  label: string;
-                  on: () => void;
-                }> = [];
-                actions.push({
-                  key: "info",
-                  icon: "info",
-                  label: "Stream info",
-                  on: () => toggleSurface("info"),
-                });
-                actions.push({
-                  key: "speed",
-                  icon: "speed",
-                  label: `Speed ${local.speed}×`,
-                  on: cycleSpeed,
-                });
-                actions.push({
-                  key: "subs",
-                  icon: "subtitle",
-                  label: "Subtitles",
-                  on: openSubs,
-                });
-                actions.push({
-                  key: "audio",
-                  icon: "audio",
-                  label: "Audio",
-                  on: () => toggleSurface("audio"),
-                });
-                if (details?.type === "series") {
-                  actions.push({
-                    key: "episodes",
-                    icon: "episodes",
-                    label: "Episodes",
-                    on: openEpisodes,
-                  });
-                }
-                if (chapters.length > 0) {
-                  actions.push({
-                    key: "chapters",
-                    icon: "chapters",
-                    label: "Chapters",
-                    on: () => toggleSurface("chapters"),
-                  });
-                }
-                actions.push({
-                  key: "sources",
-                  icon: "sources",
-                  label: "Sources",
-                  on: () => {
-                    toggleSurface("sources");
-                    void loadSources();
-                  },
-                });
-                actions.push({
-                  key: "mode",
-                  icon: "aspect",
-                  label: mode.label,
-                  on: cycleVideoMode,
-                });
-                actions.push({
-                  key: "more",
-                  icon: "more",
-                  label: "More actions",
-                  on: () => toggleSurface("more"),
-                });
-                return actions.map((action) => (
-                  <button
-                    key={action.key}
-                    type="button"
-                    className={`pv-cbtn${surface === action.key ? " is-on" : ""}`}
-                    aria-label={action.label}
-                    title={action.label}
-                    aria-expanded={surface === action.key ? true : undefined}
-                    onClick={action.on}
-                  >
-                    <Icon name={action.icon} size={24} />
-                  </button>
-                ));
-              })()}
+              {actions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  className={`pv-cbtn${surface === action.key ? " is-on" : ""}`}
+                  aria-label={action.label}
+                  title={action.label}
+                  aria-expanded={surface === action.key ? true : undefined}
+                  onClick={action.on}
+                >
+                  <Icon name={action.icon} size={24} />
+                </button>
+              ))}
             </div>
 
             <button

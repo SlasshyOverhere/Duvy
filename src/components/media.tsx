@@ -15,33 +15,32 @@ function initials(name: string) {
     .join(" · ");
 }
 
-export const PosterCard = memo(function PosterCard({
+// Mounted only while the menu is open, so the card itself stays unsubscribed.
+function PosterMenu({
+  x,
+  y,
   item,
-  onOpen,
+  entry,
   onPlay,
-  progress,
-  caption = false,
-  wide = false,
+  onClose,
 }: {
+  x: number;
+  y: number;
   item: MetaPreview;
-  onOpen: () => void;
+  entry?: ProgressItem;
   onPlay?: () => void;
-  progress?: number;
-  caption?: boolean;
-  wide?: boolean;
+  onClose: () => void;
 }) {
-  const [failed, setFailed] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, refreshProgress, notify, watched } = useApp();
   const marked = watched.some((row) => row.metaId === item.id);
-  const entry = marked ? undefined : history.find((row) => row.metaId === item.id);
-  const gradient = placeholderGradient(item.name);
-  const shape = item.posterShape?.toLowerCase();
-  const shapeClass = shape === "square" || shape === "landscape" ? `is-${shape}` : "is-poster";
+  // Cards may not carry an entry; the lookup only costs anything while open.
+  const hit = entry ?? history.find((row) => row.metaId === item.id);
+  // A finished title is not a resume target.
+  const current = marked ? undefined : hit;
 
   const markWatched = (next: boolean) => {
     void api.progress
-      .setWatched(entry?.key ?? item.id, item.id, next)
+      .setWatched(current?.key ?? item.id, item.id, next)
       .then(() => {
         notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`);
         return refreshProgress();
@@ -51,12 +50,12 @@ export const PosterCard = memo(function PosterCard({
 
   const actions: ContextAction[] = [
     {
-      label: entry ? "Resume" : "Play",
+      label: current ? "Resume" : "Play",
       icon: "play",
       onSelect: () => (onPlay ? onPlay() : void playItem(item)),
     },
   ];
-  if (entry) {
+  if (current) {
     actions.push({
       label: "Start from beginning",
       icon: "replay10",
@@ -68,7 +67,7 @@ export const PosterCard = memo(function PosterCard({
     icon: marked ? "x" : "check",
     onSelect: () => markWatched(!marked),
   });
-  if (entry) {
+  if (current) {
     actions.push({
       label: "Remove from continue watching",
       icon: "trash",
@@ -83,6 +82,31 @@ export const PosterCard = memo(function PosterCard({
       },
     });
   }
+
+  return <ContextMenu x={x} y={y} title={item.name} actions={actions} onClose={onClose} />;
+}
+
+export const PosterCard = memo(function PosterCard({
+  item,
+  onOpen,
+  onPlay,
+  entry,
+  caption = false,
+  wide = false,
+}: {
+  item: MetaPreview;
+  onOpen: () => void;
+  onPlay?: () => void;
+  entry?: ProgressItem;
+  caption?: boolean;
+  wide?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const gradient = placeholderGradient(item.name);
+  const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
+  const shape = item.posterShape?.toLowerCase();
+  const shapeClass = shape === "square" || shape === "landscape" ? `is-${shape}` : "is-poster";
 
   return (
     <article className={`poster-card${wide ? " is-wide" : ""}`}>
@@ -130,9 +154,9 @@ export const PosterCard = memo(function PosterCard({
             <Icon name="play" size={17} />
           </button>
         ) : null}
-        {progress && progress > 0 ? (
+        {percent > 0 ? (
           <div className="poster-progress">
-            <span style={{ width: `${Math.min(100, progress)}%` }} />
+            <span style={{ width: `${Math.min(100, percent)}%` }} />
           </div>
         ) : null}
       </div>
@@ -147,11 +171,12 @@ export const PosterCard = memo(function PosterCard({
         </div>
       ) : null}
       {menu ? (
-        <ContextMenu
+        <PosterMenu
           x={menu.x}
           y={menu.y}
-          title={item.name}
-          actions={actions}
+          item={item}
+          entry={entry}
+          onPlay={onPlay}
           onClose={() => setMenu(null)}
         />
       ) : null}

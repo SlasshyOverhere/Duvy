@@ -581,66 +581,83 @@ async fn pull(
     token: &str,
     pid: i64,
 ) -> Result<Pulled, String> {
-    let progress = as_rows(
-        rpc(
+    let progress = async {
+        let value = rpc(
             http,
             settings,
             token,
             "sync_pull_watch_progress",
             json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": 1000 }),
         )
-        .await?,
-    );
+        .await?;
+        Ok::<_, String>(as_rows(value))
+    };
 
-    let mut watched = Vec::new();
-    for page in 1..=10 {
-        let batch = as_rows(
-            rpc(
-                http,
-                settings,
-                token,
-                "sync_pull_watched_items",
-                json!({ "p_profile_id": pid, "p_page": page, "p_page_size": 500 }),
-            )
-            .await?,
-        );
-        let done = batch.len() < 500;
-        watched.extend(batch);
-        if done {
-            break;
+    let watched = async {
+        let mut watched = Vec::new();
+        for page in 1..=10 {
+            let batch = as_rows(
+                rpc(
+                    http,
+                    settings,
+                    token,
+                    "sync_pull_watched_items",
+                    json!({ "p_profile_id": pid, "p_page": page, "p_page_size": 500 }),
+                )
+                .await?,
+            );
+            let done = batch.len() < 500;
+            watched.extend(batch);
+            if done {
+                break;
+            }
         }
-    }
+        Ok::<_, String>(watched)
+    };
 
-    let mut library = Vec::new();
-    for page in 0..20 {
-        let batch = as_rows(
-            rpc(
-                http,
-                settings,
-                token,
-                "sync_pull_library",
-                json!({ "p_profile_id": pid, "p_limit": 500, "p_offset": page * 500 }),
-            )
-            .await?,
-        );
-        let done = batch.len() < 500;
-        library.extend(batch);
-        if done {
-            break;
+    let library = async {
+        let mut library = Vec::new();
+        for page in 0..20 {
+            let batch = as_rows(
+                rpc(
+                    http,
+                    settings,
+                    token,
+                    "sync_pull_library",
+                    json!({ "p_profile_id": pid, "p_limit": 500, "p_offset": page * 500 }),
+                )
+                .await?,
+            );
+            let done = batch.len() < 500;
+            library.extend(batch);
+            if done {
+                break;
+            }
         }
-    }
+        Ok::<_, String>(library)
+    };
 
     // Addons live in a plain table rather than a `sync_*` RPC. A backend that
     // refuses the read must not cost the user their history sync.
-    let addons = match get(http, settings, &addons_path(pid), token).await {
-        Ok(value) => as_rows(value),
-        Err(error) => {
-            eprintln!("nuvio: addon list unavailable: {error}");
-            Vec::new()
+    let addons = async {
+        match get(http, settings, &addons_path(pid), token).await {
+            Ok(value) => as_rows(value),
+            Err(error) => {
+                eprintln!("nuvio: addon list unavailable: {error}");
+                Vec::new()
+            }
         }
     };
 
-    Ok(Pulled { progress, watched, library, addons })
+    // Independent pulls, so run them together; the merge order is unchanged.
+    let (progress, watched, library, addons) = tokio::join!(progress, watched, library, addons);
+
+    Ok(Pulled {
+        progress: progress?,
+        watched: watched?,
+        library: library?,
+        addons,
+    })
 }
 
 /// PostgREST query for one profile's addons, newest ordering preserved.

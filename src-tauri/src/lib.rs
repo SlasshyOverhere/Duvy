@@ -25,7 +25,7 @@ mod torrent;
 mod trakt;
 mod updates;
 
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -34,6 +34,8 @@ pub struct AppState {
     pub db: db::Db,
     pub http: reqwest::Client,
     pub player: Mutex<Option<player::Player>>,
+    /// Decoded settings; `None` means "read it again from the database".
+    pub settings: RwLock<Option<settings::Settings>>,
 }
 
 #[cfg(test)]
@@ -469,9 +471,12 @@ pub fn run() {
                 db: db::Db(Mutex::new(connection)),
                 http,
                 player: Mutex::new(None),
+                settings: RwLock::new(None),
             });
 
             updates::watch(app.handle().clone());
+            // A machine with no player fetches one quietly, in the background.
+            player_setup::ensure(app.handle());
             // Cinemeta ships by default, the way Stremio and Nuvio do it.
             tauri::async_runtime::spawn(commands::seed_default_addons(app.handle().clone()));
 

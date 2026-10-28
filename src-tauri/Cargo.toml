@@ -58,6 +58,9 @@ windows-sys = { version = "0.60", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 codegen-units = 1
 lto = true

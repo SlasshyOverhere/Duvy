@@ -3,6 +3,7 @@
 //! The running player is never touched. Each preview is a short-lived mpv with
 //! `--vo=image` that writes a single jpg into its own temp folder and exits.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -87,9 +88,50 @@ pub async fn preview(mpv: &str, source: &str, seconds: f64) -> Result<String, St
     if let Some(hit) = cached(key) {
         return Ok(hit);
     }
-    let data = capture(mpv, source, key).await?;
-    remember(key, data.clone());
-    Ok(data)
+    let id = key.to_bits();
+    // One decode per bucket: a second hover waits for the first instead of
+    // spawning another mpv.
+    let waiter = {
+        let mut map = inflight().lock().await;
+        match map.get(&id) {
+            Some(tx) => Some(tx.subscribe()),
+            None => {
+                // The first decode may have finished between the two locks.
+                if let Some(hit) = cached(key) {
+                    return Ok(hit);
+                }
+                let (tx, _) = tokio::sync::broadcast::channel(1);
+                map.insert(id, tx);
+                None
+            }
+        }
+    };
+    if let Some(mut waiter) = waiter {
+        return match tokio::time::timeout(Duration::from_secs(30), waiter.recv()).await {
+            Ok(Ok(result)) => result,
+            _ => {
+                // The leader vanished; drop the slot so the next hover retries.
+                inflight().lock().await.remove(&id);
+                Err("The preview is busy".into())
+            }
+        };
+    }
+    let result = capture(mpv, source, key).await;
+    if let Ok(data) = &result {
+        remember(key, data.clone());
+    }
+    if let Some(tx) = inflight().lock().await.remove(&id) {
+        let _ = tx.send(result.clone());
+    }
+    result
+}
+
+type Job = tokio::sync::broadcast::Sender<Result<String, String>>;
+
+static INFLIGHT: OnceLock<tokio::sync::Mutex<HashMap<u64, Job>>> = OnceLock::new();
+
+fn inflight() -> &'static tokio::sync::Mutex<HashMap<u64, Job>> {
+    INFLIGHT.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
 }
 
 async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {

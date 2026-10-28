@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { rememberLogo } from "./art";
+import { rememberLogos } from "./art";
 import type {
   AddonInfo,
   AppInfo,
@@ -89,9 +89,9 @@ export const api = {
   home: async () => {
     const feed = await call<HomeFeed>("home_feed");
     // Every card on the page knows its logo, so a later start has it at once.
-    for (const row of feed.rows) {
-      for (const meta of row.items) rememberLogo(meta.id, meta.logo);
-    }
+    rememberLogos(
+      feed.rows.flatMap((row) => row.items.map((meta) => ({ id: meta.id, logo: meta.logo }))),
+    );
     return feed;
   },
   recommendations: () => call<HomeRow[]>("recommendations"),
@@ -107,9 +107,11 @@ export const api = {
   details: async (id: string, type: string) => {
     const details = await call<Details>("meta_details", { id, mediaType: type });
     // The same title answers to its addon id, its source id and its imdb id.
-    rememberLogo(id, details.logo);
-    rememberLogo(details.id, details.logo);
-    rememberLogo(details.imdbId, details.logo);
+    rememberLogos([
+      { id, logo: details.logo },
+      { id: details.id, logo: details.logo },
+      { id: details.imdbId, logo: details.logo },
+    ]);
     return details;
   },
   castPhotos: (names: string[], title: string) =>

@@ -197,13 +197,28 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
     // Cached torrents start streaming immediately, so try those providers first.
     let mut ordered = accounts;
     if ordered.len() > 1 {
-        let mut ranked = Vec::with_capacity(ordered.len());
-        for account in ordered {
-            let cached = is_cached(&http, &account.0, &account.1, &magnet).await;
-            ranked.push((cached, account));
+        // Read-only probes, so they run together; index keeps the original
+        // order among accounts with the same cache answer.
+        let mut set = tokio::task::JoinSet::new();
+        for (index, account) in ordered.drain(..).enumerate() {
+            let http = http.clone();
+            let magnet = magnet.clone();
+            set.spawn(async move {
+                let cached = is_cached(&http, &account.0, &account.1, &magnet).await;
+                (index, cached, account)
+            });
         }
-        ranked.sort_by_key(|(cached, _)| !*cached);
-        ordered = ranked.into_iter().map(|(_, account)| account).collect();
+        let mut ranked = Vec::new();
+        while let Some(joined) = set.join_next().await {
+            if let Ok(entry) = joined {
+                ranked.push(entry);
+            }
+        }
+        ranked.sort_by_key(|(index, cached, _)| (!*cached, *index));
+        ordered = ranked
+            .into_iter()
+            .map(|(_, _, account)| account)
+            .collect();
     }
 
     let mut last = String::new();

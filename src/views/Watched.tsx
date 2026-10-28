@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import type { WatchedItem } from "../lib/types";
+import type { MetaPreview, WatchedItem } from "../lib/types";
 import { PosterCard } from "../components/media";
 import { Button, EmptyState, IconButton, Loading } from "../components/ui";
 import { seasonLabel, placeholderGradient } from "../lib/format";
@@ -30,6 +30,9 @@ const DATE_LABEL = new Intl.DateTimeFormat(undefined, {
 });
 
 const ID_LIKE = /^[a-z]{2}\d{5,}$/i;
+
+// History is a full list, so one cached copy serves every revisit.
+let watchedCache: WatchedItem[] | null = null;
 
 function titleOf(item: WatchedItem): string {
   const name = item.name?.trim() ?? "";
@@ -70,7 +73,7 @@ function Thumb({ src, seed }: { src?: string | null; seed: string }) {
 // "when did I watch this" is the question a watched list usually answers.
 export function WatchedView() {
   const { navigate } = useApp();
-  const [items, setItems] = useState<WatchedItem[] | null>(null);
+  const [items, setItems] = useState<WatchedItem[] | null>(watchedCache);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<"calendar" | "posters">("calendar");
@@ -82,15 +85,17 @@ export function WatchedView() {
 
   useEffect(() => {
     let alive = true;
-    setItems(null);
+    const hit = watchedCache;
     setError(null);
     api.watched
       .list()
       .then((rows) => {
-        if (alive) setItems(rows);
+        if (!alive) return;
+        watchedCache = rows;
+        setItems(rows);
       })
       .catch((failure) => {
-        if (alive) setError(errorText(failure));
+        if (alive && !hit) setError(errorText(failure));
       });
     return () => {
       alive = false;
@@ -137,6 +142,27 @@ export function WatchedView() {
         ? "1 title finished"
         : `${items.length} titles finished`
       : "Loading history";
+
+  // Stable card props so PosterCard's memo survives unrelated re-renders.
+  const cards = useMemo(
+    () =>
+      (items ?? []).map((item) => {
+        const title = titleOf(item);
+        return {
+          key: `${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`,
+          preview: {
+            id: item.metaId,
+            type: item.type,
+            name: title,
+            poster: item.poster,
+            background: item.background,
+          } as MetaPreview,
+          meta: [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · "),
+          onOpen: () => navigate({ name: "details", id: item.metaId, type: item.type }),
+        };
+      }),
+    [items, navigate],
+  );
 
   return (
     <div className="page">
@@ -278,29 +304,12 @@ export function WatchedView() {
         </>
       ) : (
         <div className="grid">
-          {items.map((item) => {
-            const title = titleOf(item);
-            const meta = [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · ");
-            return (
-              <div
-                className="watched-cell"
-                key={`${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`}
-              >
-                <PosterCard
-                  item={{
-                    id: item.metaId,
-                    type: item.type,
-                    name: title,
-                    poster: item.poster,
-                    background: item.background,
-                  }}
-                  caption
-                  onOpen={() => open(item)}
-                />
-                {meta ? <p className="watched-meta">{meta}</p> : null}
-              </div>
-            );
-          })}
+          {cards.map((card) => (
+            <div className="watched-cell" key={card.key}>
+              <PosterCard item={card.preview} caption onOpen={card.onOpen} />
+              {card.meta ? <p className="watched-meta">{card.meta}</p> : null}
+            </div>
+          ))}
         </div>
       )}
     </div>

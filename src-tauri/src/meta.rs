@@ -195,12 +195,12 @@ pub async fn details(
     imdb: &str,
     media_type: &str,
 ) -> Option<MetaDetails> {
-    if let Some(found) = cinemeta(client, imdb, media_type).await {
-        return Some(found);
-    }
+    let cap = std::time::Duration::from_secs(3);
     // Synced rows sometimes carry the wrong kind; the id is what counts.
-    if let Some(found) = cinemeta(client, imdb, other(media_type)).await {
-        return Some(found);
+    for kind in [media_type, other(media_type)] {
+        if let Ok(Some(found)) = tokio::time::timeout(cap, cinemeta(client, imdb, kind)).await {
+            return Some(found);
+        }
     }
     None
 }
@@ -269,42 +269,43 @@ pub async fn fill_missing(
     client: &reqwest::Client,
     rows: Vec<(String, String)>,
 ) -> Vec<(String, String, Option<String>, Option<String>)> {
-    const IN_FLIGHT: usize = 8;
-    let mut filled = Vec::new();
+    // Six in flight keeps the burst polite; slots restore the input order.
+    const IN_FLIGHT: usize = 6;
+    let mut pending = rows
+        .into_iter()
+        .filter(|(meta_id, _)| meta_id.starts_with("tt"))
+        .enumerate();
+    let mut set = tokio::task::JoinSet::new();
+    let mut filled: Vec<(usize, String, String, Option<String>, Option<String>)> = Vec::new();
     let mut failures = 0;
-    let mut queue = rows.into_iter().filter(|(meta_id, _)| meta_id.starts_with("tt"));
-    let mut tasks = tokio::task::JoinSet::new();
     loop {
-        while tasks.len() < IN_FLIGHT {
-            let Some((meta_id, media_type)) = queue.next() else {
+        while set.len() < IN_FLIGHT && failures < 3 {
+            let Some((index, (meta_id, media_type))) = pending.next() else {
                 break;
             };
             let client = client.clone();
-            tasks.spawn(async move {
+            set.spawn(async move {
                 let found = details(&client, &meta_id, &media_type).await;
-                (meta_id, found)
+                (index, meta_id, found)
             });
         }
-        let Some(done) = tasks.join_next().await else {
+        let Some(joined) = set.join_next().await else {
             break;
         };
-        match done {
-            Ok((meta_id, Some(found))) => {
+        match joined {
+            Ok((index, meta_id, Some(found))) => {
                 failures = 0;
-                filled.push((meta_id, found.name, found.poster, found.background));
+                filled.push((index, meta_id, found.name, found.poster, found.background));
             }
-            Ok((_, None)) => {
-                // Both sources down: stop hammering them and try again later.
-                failures += 1;
-                if failures >= 3 {
-                    tasks.abort_all();
-                    break;
-                }
-            }
-            Err(_) => {}
+            // Both sources down: stop hammering them and try again later.
+            _ => failures += 1,
         }
     }
+    filled.sort_by_key(|(index, ..)| *index);
     filled
+        .into_iter()
+        .map(|(_, meta_id, name, poster, background)| (meta_id, name, poster, background))
+        .collect()
 }
 
 #[cfg(test)]

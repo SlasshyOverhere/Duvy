@@ -18,9 +18,21 @@ function isActive(route: Route, target: Route) {
   return route.name === target.name;
 }
 
+// Isolated so player ticks do not re-render the whole header.
+function NowPlaying() {
+  const { navigate } = useApp();
+  const player = usePlayer();
+  if (!player) return null;
+  return (
+    <button type="button" className="now-playing" onClick={() => navigate({ name: "player" })}>
+      <span className="now-playing-dot" />
+      <span className="now-playing-title">{player.session?.name ?? player.title ?? "Playing"}</span>
+    </button>
+  );
+}
+
 export function TopBar() {
   const { appInfo, navigate, back, route, addons } = useApp();
-  const player = usePlayer();
   const [fullscreen, setFullscreen] = useState(
     () => document.documentElement.dataset.fullscreen === "on",
   );
@@ -121,12 +133,7 @@ export function TopBar() {
           </button>
         ) : null}
 
-        {player ? (
-          <button type="button" className="now-playing" onClick={() => navigate({ name: "player" })}>
-            <span className="now-playing-dot" />
-            <span className="now-playing-title">{player.session?.name ?? player.title ?? "Playing"}</span>
-          </button>
-        ) : null}
+        <NowPlaying />
 
         {isTauri() ? (
           <button

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../lib/store";
-import type { LibraryItem } from "../lib/types";
+import type { LibraryItem, MetaPreview } from "../lib/types";
 import { PosterCard } from "../components/media";
 import { Button, EmptyState } from "../components/ui";
 
@@ -71,6 +71,24 @@ export function LibraryView() {
     });
   };
 
+  // Stable card props so PosterCard's memo survives unrelated re-renders.
+  const cards = useMemo(
+    () =>
+      items.map((item) => ({
+        item,
+        preview: {
+          id: item.id,
+          type: item.type,
+          name: item.name,
+          poster: item.poster,
+          background: item.background,
+        } as MetaPreview,
+        onOpen: () => navigate({ name: "details", id: item.id, type: item.type }),
+        onPlay: () => void playItem({ id: item.id, type: item.type, name: item.name }),
+      })),
+    [items, navigate, playItem],
+  );
+
   return (
     <div className="page">
       <header className="page-head">
@@ -139,21 +157,12 @@ export function LibraryView() {
         />
       ) : (
         <div className="grid">
-          {items.map((item) => {
+          {cards.map((card) => {
+            const item = card.item;
             const isConfirming = confirming === item.id;
             return (
               <div className="library-cell" key={item.id}>
-                <PosterCard
-                  item={{
-                    id: item.id,
-                    type: item.type,
-                    name: item.name,
-                    poster: item.poster,
-                    background: item.background,
-                  }}
-                  onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-                  onPlay={() => void playItem({ id: item.id, type: item.type, name: item.name })}
-                />
+                <PosterCard item={card.preview} onOpen={card.onOpen} onPlay={card.onPlay} />
                 {isConfirming ? (
                   <div
                     ref={confirmRef}

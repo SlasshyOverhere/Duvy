@@ -17,7 +17,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub trait Duplex: Read + Write + Send {}
@@ -127,7 +127,9 @@ pub struct Player {
 pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
     // Probing spawns `mpv --version`; a seek-hover preview asks constantly, so
     // one answer per (explicit path, resource dir) is cached.
-    static CACHE: Mutex<Option<(String, Option<MpvInfo>)>> = Mutex::new(None);
+    static CACHE: Mutex<Option<(String, Option<MpvInfo>, Instant)>> = Mutex::new(None);
+    // A miss is cached briefly: mpv may be installed while the app is running.
+    const MISS_TTL: Duration = Duration::from_secs(5);
     let explicit = explicit.trim();
     let key = format!(
         "{explicit}\u{1}{}",
@@ -136,20 +138,28 @@ pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Optio
             .unwrap_or_default()
     );
     if let Ok(cache) = CACHE.lock() {
-        if let Some((seen, found)) = cache.as_ref() {
-            if *seen == key {
+        if let Some((seen, found, at)) = cache.as_ref() {
+            if *seen == key && (found.is_some() || at.elapsed() < MISS_TTL) {
                 return found.clone();
             }
         }
     }
     let found = locate_mpv(explicit, resource_dir);
-    // Only a hit is cached: mpv can be installed after the first probe.
-    if found.is_some() {
-        if let Ok(mut cache) = CACHE.lock() {
-            *cache = Some((key, found.clone()));
-        }
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((key, found.clone(), Instant::now()));
     }
     found
+}
+
+/// Async call sites: the probe spawns processes, so keep it off a worker.
+pub async fn find_mpv_async(
+    explicit: String,
+    resource_dir: Option<std::path::PathBuf>,
+) -> Option<MpvInfo> {
+    tokio::task::spawn_blocking(move || find_mpv(&explicit, resource_dir.as_deref()))
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Detection ignores the cache: mpv may have been installed since the last try.
@@ -227,7 +237,7 @@ fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<
 }
 
 /// Spawn without flashing a console window on Windows.
-fn hidden_command(program: &str) -> Command {
+pub(crate) fn hidden_command(program: &str) -> Command {
     #[allow(unused_mut)]
     let mut command = Command::new(program);
     #[cfg(windows)]
@@ -1020,6 +1030,15 @@ impl Player {
                     json!({"command": ["set_property", "sid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
                 )
             }
+            "sub-ass-override" => {
+                // ASS tracks keep their own styling until a control is moved.
+                let custom = bool_value(value.as_ref(), "Subtitle style override")?;
+                send(
+                    &mut writer,
+                    json!({"command": ["set_property", "sub-ass-override",
+                        if custom { "force" } else { "no" }]}),
+                )
+            }
             "sub-font-size" => {
                 let size = number_value(value.as_ref(), "Subtitle font size")?;
                 if !(10.0..=200.0).contains(&size) {
@@ -1341,7 +1360,11 @@ fn spawn_ticker(
                     crate::raise_webview(host);
                 }
             }
-            let snap = match snapshot.lock() {
+            // The cheap tick is taken under the lock; the full snapshot is only
+            // cloned on the ticks that will actually be emitted.
+            let mut send: Option<Snapshot> = None;
+            let state;
+            let tick = match snapshot.lock() {
                 Ok(mut snap) => {
                     // The first tick with a real position is the moment the
                     // picture exists; everything before it is the source being slow.
@@ -1350,31 +1373,42 @@ fn spawn_ticker(
                         snap.started = true;
                         crate::playback_log::mark(format!("first frame at {:.2}s", snap.position));
                     }
-                    snap.clone()
+                    state = (snap.position, snap.paused, snap.ended);
+                    let tick = Tick::of(&snap);
+                    if last_emit.as_ref() != Some(&tick) {
+                        send = Some(snap.clone());
+                    }
+                    tick
                 }
                 Err(_) => break,
             };
-            let tick = Tick::of(&snap);
-            if last_emit.as_ref() != Some(&tick) {
+            if let Some(snap) = &send {
                 last_emit = Some(tick);
-                let _ = app.emit("player:tick", &snap);
+                let _ = app.emit("player:tick", snap);
             }
             // Save every 5s, but only when the picture moved: a paused player
             // was rewriting the same row ten times a minute.
             if ticks % 10 == 0 {
                 let due = match last_saved {
                     Some((position, paused, ended)) => {
-                        (snap.position - position).abs() > 0.5
-                            || snap.paused != paused
-                            || snap.ended != ended
+                        (state.0 - position).abs() > 0.5
+                            || state.1 != paused
+                            || state.2 != ended
                     }
                     None => true,
                 };
                 if due {
-                    last_saved = Some((snap.position, snap.paused, snap.ended));
+                    last_saved = Some(state);
                     let session = match session.lock() {
                         Ok(guard) => guard.clone(),
                         Err(_) => None,
+                    };
+                    let snap = match send {
+                        Some(snap) => snap,
+                        None => match snapshot.lock() {
+                            Ok(snap) => snap.clone(),
+                            Err(_) => break,
+                        },
                     };
                     persist(&app, &snap, session.as_ref());
                 }
@@ -1394,14 +1428,11 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
         return;
     }
     let state = app.state::<AppState>();
-    let Ok(conn) = state.db.0.lock() else { return };
-    let settings = Settings::load(&conn);
+    let settings = crate::settings::load_cached(&state);
     if !settings.track_progress {
         return;
     }
-    if snap.position / snap.duration >= 0.92 {
-        let _ = db::set_watched(&conn, &session.key, &session.meta_id, true);
-    }
+    let Ok(conn) = state.db.0.lock() else { return };
     // Keep the row at completion: it carries the name, poster and episode the
     // Watched list shows. Continue watching excludes >=90% rows on its own.
     let item = ProgressItem {
@@ -1418,7 +1449,8 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
         duration: snap.duration,
         updated_at: db::now(),
     };
-    let _ = db::save_progress(&conn, &item);
+    let watched = snap.position / snap.duration >= 0.92;
+    let _ = db::save_playback(&conn, &item, watched);
 }
 
 #[cfg(test)]
