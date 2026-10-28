@@ -3925,12 +3925,12 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .detail-poster {
-    width: 110px;
+    width: clamp(96px, 26vw, 110px);
     margin-top: -52px;
   }
 
   .detail-title {
-    font-size: clamp(1.7rem, 6.4vw, 2.3rem);
+    font-size: clamp(1.55rem, 6vw, 2.3rem);
   }
 
   .detail-logo {
