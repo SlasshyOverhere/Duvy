@@ -13,7 +13,20 @@ import {
   timeAgo,
 } from "../lib/format";
 
+// Title pages are the most revisited screen, so the last payload paints first.
+const DETAILS_CACHE = new Map<string, Details>();
+
+function firstSeason(details: Details): number | null {
+  const seasons = [...new Set(details.videos.map((video) => video.season ?? 1))].sort(
+    (a, b) => a - b,
+  );
+  // Prefer a real season over Specials (season 0).
+  return seasons.find((value) => value > 0) ?? seasons[0] ?? null;
+}
+
 export function DetailsView({ id, type }: { id: string; type: string }) {
+  const cacheKey = `${type}:${id}`;
+  const cached = DETAILS_CACHE.get(cacheKey);
   const {
     navigate,
     playRequest,
@@ -28,10 +41,10 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     settings,
   } = useApp();
 
-  const [details, setDetails] = useState<Details | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [details, setDetails] = useState<Details | null>(() => cached ?? null);
+  const [loading, setLoading] = useState(() => !cached);
   const [error, setError] = useState<string | null>(null);
-  const [season, setSeason] = useState<number | null>(null);
+  const [season, setSeason] = useState<number | null>(() => (cached ? firstSeason(cached) : null));
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
@@ -40,23 +53,20 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
+    const hit = DETAILS_CACHE.get(cacheKey);
+    if (!hit) setLoading(true);
     setError(null);
-    setDetails(null);
     setImageFailed(false);
     api
       .details(id, type)
       .then((result) => {
         if (!alive) return;
+        DETAILS_CACHE.set(cacheKey, result);
         setDetails(result);
-        const seasons = [...new Set(result.videos.map((video) => video.season ?? 1))].sort(
-          (a, b) => a - b,
-        );
-        // Prefer a real season over Specials (season 0).
-        setSeason(seasons.find((value) => value > 0) ?? seasons[0] ?? null);
+        setSeason((current) => current ?? firstSeason(result));
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive && !hit) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -64,7 +74,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     return () => {
       alive = false;
     };
-  }, [id, type]);
+  }, [id, type, cacheKey]);
 
   // Photos and neighbours land after the page paints: the title is readable
   // immediately, and both requests are decoration, never a blocker.

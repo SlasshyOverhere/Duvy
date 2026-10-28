@@ -4,11 +4,11 @@ import { TopBar } from "./components/Shell";
 import { TitleBar } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { Icon } from "./components/ui";
-import { PlayerView } from "./views/Player";
+import { HomeView } from "./views/Home";
 
-// Playback stays in the first chunk because the player must open instantly;
-// every other screen is fetched the first time it is opened.
-const HomeView = lazy(() => import("./views/Home").then((m) => ({ default: m.HomeView })));
+// Home ships in the entry chunk because it is the first screen. Everything
+// else is fetched on open; the player is prewarmed below.
+const PlayerView = lazy(() => import("./views/Player").then((m) => ({ default: m.PlayerView })));
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
 const LibraryView = lazy(() => import("./views/Library").then((m) => ({ default: m.LibraryView })));
@@ -16,6 +16,14 @@ const WatchedView = lazy(() => import("./views/Watched").then((m) => ({ default:
 const SettingsView = lazy(() =>
   import("./views/Settings").then((m) => ({ default: m.SettingsView })),
 );
+
+// Idle-prewarm the player chunk so clicking play never waits on the network.
+const prewarmPlayer = () => void import("./views/Player");
+if (typeof requestIdleCallback === "function") {
+  requestIdleCallback(prewarmPlayer, { timeout: 4000 });
+} else {
+  setTimeout(prewarmPlayer, 1500);
+}
 
 // A render error or a failed lazy chunk would otherwise unmount the whole tree
 // and leave an empty window, so each screen is wrapped on its own: the shell,
@@ -127,7 +135,9 @@ function Screen() {
     return (
       <>
         <ErrorBoundary>
-          <PlayerView />
+          <Suspense fallback={null}>
+            <PlayerView />
+          </Suspense>
         </ErrorBoundary>
         <Toasts />
       </>

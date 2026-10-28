@@ -53,6 +53,10 @@ interface Store {
   addons: AddonInfo[];
   library: LibraryItem[];
   progress: ProgressItem[];
+  /** Progress keyed by session key, for the hot lookups on every row. */
+  progressByKey: Map<string, ProgressItem>;
+  /** Library ids for the hot membership checks on every card. */
+  libraryIds: Set<string>;
   toasts: Toast[];
   route: Route;
   /** Non-null from the click until the source is resolved; the player opens at once. */
@@ -547,10 +551,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [notify],
   );
 
-  const inLibrary = useCallback(
-    (id: string) => library.some((item) => item.id === id),
-    [library],
+  const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);
+  const progressByKey = useMemo(
+    () => new Map(progress.map((item) => [item.key, item])),
+    [progress],
   );
+
+  const inLibrary = useCallback((id: string) => libraryIds.has(id), [libraryIds]);
 
   const checkUpdate = useCallback(async () => {
     const found = await api.updates.check();
@@ -569,8 +576,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const progressFor = useCallback(
-    (key: string) => progress.find((item) => item.key === key),
-    [progress],
+    (key: string) => progressByKey.get(key),
+    [progressByKey],
   );
 
   // The player is a screen, not a spinner on the previous one: show it at once
@@ -588,23 +595,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const token = startToken.current + 1;
       startToken.current = token;
       const metaId = art.metaId ?? art.id ?? null;
-      let logo = art.logo ?? rememberedLogo(metaId);
-      if (!logo && metaId && art.type) {
-        // No cached art: one short round trip beats flashing the raw name.
-        const details = await Promise.race([
-          api.details(metaId, art.type).catch(() => null),
-          new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1200)),
-        ]);
-        if (startToken.current !== token) return token;
-        logo = details?.logo ?? null;
-      }
+      const cached = art.logo ?? rememberedLogo(metaId);
+      // Art is a decoration, so the player opens now and the logo lands behind it.
       setStarting({
         name: art.name,
         sub: sub ?? null,
-        logo: logo ?? null,
+        logo: cached ?? null,
         background: art.background ?? art.poster ?? null,
       });
       navigate({ name: "player" });
+      if (!cached && metaId && art.type) {
+        void api
+          .details(metaId, art.type)
+          .then((details) => {
+            if (startToken.current !== token || !details.logo) return;
+            setStarting((current) => (current ? { ...current, logo: details.logo } : current));
+          })
+          .catch(() => {});
+      }
       return token;
     },
     [navigate],
@@ -949,6 +957,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addons,
       library,
       progress,
+      progressByKey,
+      libraryIds,
       toasts,
       route,
       starting,
@@ -983,6 +993,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addons,
       library,
       progress,
+      progressByKey,
+      libraryIds,
       toasts,
       route,
       starting,

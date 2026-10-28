@@ -11,10 +11,31 @@
       content="BetterNuvio — a fast, native desktop media hub. Bring your own addons."
     />
     <title>betterNuvio</title>
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/src/assets/instrument-sans.woff2"
+      crossorigin
+    />
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot">
+        <div class="boot-mark">
+          <svg viewBox="0 0 100 100" width="72" height="72" aria-hidden="true">
+            <path
+              fill="var(--accent)"
+              fillRule="evenodd"
+              d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
+            />
+          </svg>
+        </div>
+        <p class="boot-title">betterNuvio</p>
+        <p class="boot-sub">Warming up the projector…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

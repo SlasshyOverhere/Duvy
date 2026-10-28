@@ -14,17 +14,35 @@ function readArt(): Record<string, string> {
   }
 }
 
-export function rememberLogo(metaId: string | null | undefined, logo: string | null | undefined) {
-  if (!metaId || !logo) return;
+function writeArt(all: Record<string, string>) {
   try {
-    const all = readArt();
-    all[metaId] = logo;
     const keys = Object.keys(all);
     for (const stale of keys.slice(0, Math.max(0, keys.length - ART_LIMIT))) delete all[stale];
     window.localStorage.setItem(ART_KEY, JSON.stringify(all));
   } catch {
     // Storage can be blocked; the player falls back to the title text.
   }
+}
+
+export function rememberLogo(metaId: string | null | undefined, logo: string | null | undefined) {
+  if (!metaId || !logo) return;
+  const all = readArt();
+  all[metaId] = logo;
+  writeArt(all);
+}
+
+/** One read and one write for a whole feed instead of one per card. */
+export function rememberLogos(
+  entries: Array<{ id: string | null | undefined; logo: string | null | undefined }>,
+): void {
+  const all = readArt();
+  let changed = false;
+  for (const entry of entries) {
+    if (!entry.id || !entry.logo) continue;
+    all[entry.id] = entry.logo;
+    changed = true;
+  }
+  if (changed) writeArt(all);
 }
 
 export function rememberedLogo(metaId: string | null | undefined): string | null {
