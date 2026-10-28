@@ -522,6 +522,7 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
           return true;
         })
         .map((entry) => ({
+          key: entry.key,
           metaId: entry.metaId,
           type: entry.type,
           name: entry.name,

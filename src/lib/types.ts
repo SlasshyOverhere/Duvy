@@ -116,6 +116,7 @@ export interface ProgressItem {
 }
 
 export interface WatchedItem {
+  key: string;
   metaId: string;
   type: string;
   name: string;
@@ -333,6 +334,8 @@ export interface PlayerSnapshot {
   activeSub?: number | null;
   chapters?: Chapter[];
   session?: PlaybackSession | null;
+  /** Identifies the mpv process; events from an older one are ignored. */
+  generation?: number;
 }
 
 export interface PlayRequest {

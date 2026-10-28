@@ -296,6 +296,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toastId = useRef(1);
   const depth = useRef(0);
   const opening = useRef(false);
+  // The newest player's generation; events from a killed one are ignored.
+  const playerGen = useRef(0);
   // A click bumps this, so a cancelled start cannot open a player afterwards.
   const startToken = useRef(0);
   // The item whose source is being found right now, so a different click can
@@ -540,9 +542,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const attach = async () => {
       try {
         const tick = await listen<PlayerSnapshot>("player:tick", (event) => {
+          const generation = event.payload.generation ?? 0;
+          // A dead player's last tick can land after the next one is stored.
+          if (generation !== 0 && generation < playerGen.current) return;
+          playerGen.current = Math.max(playerGen.current, generation);
           setPlayer(event.payload);
         });
-        const closed = await listen("player:closed", () => {
+        const closed = await listen<number>("player:closed", (event) => {
+          const generation = event.payload ?? 0;
+          // Stopping takes a moment to report; a player started in that gap wins.
+          if (generation !== 0 && generation < playerGen.current) return;
           setPlayer(null);
           leavePlayer();
           void refreshProgress();
@@ -715,10 +724,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (request: PlayRequest): Promise<boolean> => {
       // A double click used to start two players; the last one won, but both
       // sessions were spawned and both were pushed onto history.
-      if (opening.current) return true;
+      if (opening.current) return false;
       opening.current = true;
       try {
         const snapshot = await api.player.open(request);
+        playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
@@ -815,7 +825,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (busy.id !== id) notify(`Already starting ${busy.name}`);
         return;
       }
-      pending.current = { id, name: item.name };
+      const chain = { id, name: item.name };
+      pending.current = chain;
       const token = await beginStart(item);
       try {
         // A movie's tt id is what the stream addons key on, so the hunt can run
@@ -898,7 +909,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           leaveStart();
         }
       } finally {
-        pending.current = null;
+        if (pending.current === chain) pending.current = null;
         finishStart(token);
       }
     },
@@ -926,7 +937,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (busy.id !== entry.key) notify(`Already starting ${busy.name}`);
         return;
       }
-      pending.current = { id: entry.key, name: entry.name };
+      const chain = { id: entry.key, name: entry.name };
+      pending.current = chain;
       const token = await beginStart(
         entry,
         entry.type === "series" ? seasonLabel(entry.season, entry.episode) : null,
@@ -1004,7 +1016,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           leaveStart();
         }
       } finally {
-        pending.current = null;
+        if (pending.current === chain) pending.current = null;
         finishStart(token);
       }
     },

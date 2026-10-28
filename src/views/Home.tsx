@@ -109,10 +109,7 @@ export function HomeView() {
       if (row.duration <= 0 || row.position <= 5) continue;
       if (progressPercent(row.position, row.duration) >= 90) continue;
       if (seen.has(row.metaId)) continue;
-      const marked = watched.some(
-        (mark) =>
-          mark.metaId === row.metaId && mark.season === row.season && mark.episode === row.episode,
-      );
+      const marked = watched.some((mark) => mark.key === row.key);
       if (marked) continue;
       seen.add(row.metaId);
       rows.push(row);
@@ -122,10 +119,10 @@ export function HomeView() {
 
   // One map for the card progress bars, so a row of cards costs no scans.
   const resumeProgress = useMemo(() => {
-    const marked = new Set(watched.map((mark) => mark.metaId));
+    const marked = new Set(watched.map((mark) => mark.key));
     const map = new Map<string, ProgressItem>();
     for (const entry of progress) {
-      if (marked.has(entry.metaId)) continue;
+      if (marked.has(entry.key)) continue;
       if (!map.has(entry.metaId)) map.set(entry.metaId, entry);
     }
     return map;
