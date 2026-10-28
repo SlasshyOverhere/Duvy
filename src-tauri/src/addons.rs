@@ -287,6 +287,25 @@ pub struct MetaResponse {
 // URL helpers
 // ---------------------------------------------------------------------------
 
+/// The cloud metadata endpoints, which no addon has any business reaching.
+/// Loopback and LAN hosts stay allowed: addons are user-configured and often
+/// run on the same machine or network.
+pub(crate) fn is_blocked_host(host: &str) -> bool {
+    let lower = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if lower == "metadata.google.internal" {
+        return true;
+    }
+    match lower.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => v4.is_link_local() || v4.is_unspecified(),
+        Ok(std::net::IpAddr::V6(v6)) => {
+            v6.is_unspecified()
+                || v6.to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
+        }
+        Err(_) => false,
+    }
+}
+
 /// Normalise anything a user may paste into an addon base URL.
 pub fn normalize_addon_url(input: &str) -> String {
     let mut raw = input.trim().to_string();
@@ -308,12 +327,22 @@ pub fn normalize_addon_url(input: &str) -> String {
 
 /// Percent-encode a query value the way the addon protocol expects.
 pub fn encode(value: &str) -> String {
+    encode_with(value, false)
+}
+
+/// A path segment may keep `:`, or episode ids (`tt123:1:2`) lose their shape.
+fn encode_segment(value: &str) -> String {
+    encode_with(value, true)
+}
+
+fn encode_with(value: &str, keep_colon: bool) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(*byte as char)
             }
+            b':' if keep_colon => out.push(':'),
             _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -344,11 +373,19 @@ pub fn catalog_url(
 }
 
 pub fn meta_url(base: &str, media_type: &str, id: &str) -> String {
-    format!("{base}/meta/{media_type}/{id}.json")
+    format!(
+        "{base}/meta/{}/{}.json",
+        encode_segment(media_type),
+        encode_segment(id)
+    )
 }
 
 pub fn stream_url(base: &str, media_type: &str, id: &str) -> String {
-    format!("{base}/stream/{media_type}/{id}.json")
+    format!(
+        "{base}/stream/{}/{}.json",
+        encode_segment(media_type),
+        encode_segment(id)
+    )
 }
 
 pub fn subtitle_url(base: &str, media_type: &str, id: &str, extra: &BTreeMap<String, String>) -> String {
@@ -385,6 +422,26 @@ mod tests {
         assert_eq!(
             normalize_addon_url("stremio://example.org/manifest.json"),
             "https://example.org"
+        );
+        assert_eq!(
+            normalize_addon_url("http://example.org/manifest.json"),
+            "http://example.org"
+        );
+        assert_eq!(
+            normalize_addon_url("http://192.168.1.10:8096"),
+            "http://192.168.1.10:8096"
+        );
+    }
+
+    #[test]
+    fn encodes_meta_and_stream_segments() {
+        assert_eq!(
+            meta_url("https://x", "movie", "tt 123"),
+            "https://x/meta/movie/tt%20123.json"
+        );
+        assert_eq!(
+            stream_url("https://x", "series", "tt123:1:2"),
+            "https://x/stream/series/tt123:1:2.json"
         );
     }
 

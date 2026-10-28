@@ -404,7 +404,21 @@ pub fn http_client() -> reqwest::Client {
         .user_agent("BetterNuvio/0.1 (+https://github.com/better-nuvio)")
         .timeout(Duration::from_secs(18))
         .connect_timeout(Duration::from_secs(8))
-        .pool_max_idle_per_host(6)
+        .tcp_keepalive(Duration::from_secs(30))
+        .pool_max_idle_per_host(16)
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            // Five hops is plenty for a CDN or a moved addon host.
+            if attempt.previous().len() >= 5 {
+                return attempt.error("too many redirects");
+            }
+            // Never let a redirect quietly drop TLS.
+            if attempt.url().scheme() == "http"
+                && attempt.previous().last().is_some_and(|url| url.scheme() == "https")
+            {
+                return attempt.error("refusing to redirect from https to http");
+            }
+            attempt.follow()
+        }))
         .build()
         .expect("the HTTP client should build")
 }

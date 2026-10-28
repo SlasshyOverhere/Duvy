@@ -48,8 +48,8 @@ fn image(value: &Value, field: &str, size: &str) -> Option<String> {
 fn year(value: &Value) -> Option<String> {
     text(value.get("release_date"))
         .or_else(|| text(value.get("first_air_date")))
-        .filter(|s| s.len() >= 4)
-        .map(|s| s[..4].to_string())
+        .filter(|s| s.chars().count() >= 4)
+        .map(|s| s.chars().take(4).collect::<String>())
 }
 
 fn rating(value: &Value) -> Option<String> {
@@ -287,8 +287,8 @@ async fn cinemeta(
         description: text(meta.get("description")),
         release_info: text(meta.get("releaseInfo")),
         year: text(meta.get("releaseInfo"))
-            .filter(|s| s.len() >= 4)
-            .map(|s| s[..4].to_string()),
+            .filter(|s| s.chars().count() >= 4)
+            .map(|s| s.chars().take(4).collect::<String>()),
         rating: text(meta.get("imdbRating")),
         genres: meta
             .get("genres")

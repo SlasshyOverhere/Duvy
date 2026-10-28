@@ -39,6 +39,29 @@ async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<Value, String
     fetch_json_within(client, url, None).await
 }
 
+/// Far past any real addon reply, and enough to stop a hostile one from
+/// buffering the machine out of memory.
+const MAX_BODY: usize = 16 * 1024 * 1024;
+
+fn is_http_url(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|parsed| matches!(parsed.scheme(), "http" | "https"))
+}
+
+/// Reject targets the addon layer has no business reaching: non-HTTP schemes
+/// and the cloud metadata endpoints.
+fn validate_target(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("refusing to fetch a {scheme} URL")),
+    }
+    let host = parsed.host_str().ok_or("that URL has no host")?;
+    if crate::addons::is_blocked_host(host) {
+        return Err(format!("refusing to fetch the internal address {host}"));
+    }
+    Ok(())
+}
+
 /// [`fetch_json`] with an optional per-request deadline.
 ///
 /// Some addons scrape their sources the first time they are asked and answer
@@ -50,21 +73,36 @@ async fn fetch_json_within(
     url: &str,
     cap: Option<std::time::Duration>,
 ) -> Result<Value, String> {
+    validate_target(url)?;
     let mut request = client.get(url).header("accept", "application/json");
     if let Some(cap) = cap {
         request = request.timeout(cap);
     }
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|e| format!("request failed: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
-    response
-        .json::<Value>()
+    let too_large = || format!("reply too large (over {} MiB)", MAX_BODY / 1024 / 1024);
+    if response.content_length().is_some_and(|len| len > MAX_BODY as u64) {
+        return Err(too_large());
+    }
+    // The length header can lie or be absent after decompression, so the read
+    // itself is bounded too.
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| format!("invalid JSON: {e}"))
+        .map_err(|e| format!("request failed: {e}"))?
+    {
+        if body.len() + chunk.len() > MAX_BODY {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|e| format!("invalid JSON: {e}"))
 }
 
 fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
@@ -250,7 +288,7 @@ fn mpv_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
 
 #[tauri::command]
 pub async fn mpv_detect(app: AppHandle, path: Option<String>) -> Option<crate::models::MpvInfo> {
-    player::find_mpv(path.as_deref().unwrap_or_default(), mpv_dir(&app).as_deref())
+    player::detect_mpv(path.as_deref().unwrap_or_default(), mpv_dir(&app).as_deref())
 }
 
 #[tauri::command]
@@ -1097,6 +1135,10 @@ pub async fn subtitles(
     while let Some(joined) = set.join_next().await {
         if let Ok((addon, Ok(response))) = joined {
             for subtitle in response.subtitles {
+                // mpv plays these directly, so only hand it http(s) targets.
+                if !is_http_url(&subtitle.url) {
+                    continue;
+                }
                 tracks.push(SubtitleTrack {
                     id: subtitle.id,
                     url: subtitle.url,
@@ -1320,6 +1362,10 @@ pub async fn player_subtitle(
     label: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    // mpv would happily open a file:// or other scheme handed to it here.
+    if !is_http_url(&url) {
+        return Err("That subtitle URL is not http(s)".into());
+    }
     let writer = {
         let guard = state.player.lock().map_err(|_| "player is busy")?;
         let player = guard.as_ref().ok_or("Nothing is playing")?;
