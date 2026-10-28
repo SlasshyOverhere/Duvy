@@ -138,12 +138,14 @@ run("centre transport is centred", () => {
 run("panels fit the viewport", () => {
   const out: string[] = [];
   const body = playerCss.filter((r) => r.parts.includes(".pv .pv-overlay-body"));
-  const bounded = body.some(
-    (r) =>
-      /(100vh|100dvh|100%)/.test(r.decls["max-height"] ?? "") &&
-      ["overflow", "overflow-y"].some((k) => /(auto|scroll|hidden)/.test(r.decls[k] ?? "")),
+  const bounded = body.some((r) => /(100vh|100dvh|100%)/.test(r.decls["max-height"] ?? ""));
+  // Either the body scrolls, or its content wrapper does while Close stays put.
+  const scrolls = [...body, ...playerCss.filter((r) => r.parts.includes(".pv .pv-overlay-scroll"))].some(
+    (r) => ["overflow", "overflow-y"].some((k) => /(auto|scroll|hidden)/.test(r.decls[k] ?? "")),
   );
-  if (!bounded) out.push(".pv .pv-overlay-body: needs max-height of 100vh/100dvh/100% plus overflow");
+  if (!bounded || !scrolls) {
+    out.push(".pv .pv-overlay-body: needs a bounded max-height and a scrolling body or .pv-overlay-scroll");
+  }
 
   for (const selector of [".pv .pv-rails", ".pv .pv-rail"]) {
     const rules = playerCss.filter((r) => r.parts.includes(selector));
@@ -204,10 +206,10 @@ run("pause is deterministic", () => {
     else if (/\bsend\s*\(/.test(branch)) out.push("keyboard Space/K branch calls the sender directly");
   }
 
-  const surface = playerTsx.indexOf("event.target !== event.currentTarget");
+  const surface = playerTsx.indexOf("target.closest(\"button, input, [role='slider'], a\")");
   if (surface < 0) out.push("surface click handler not found");
   else {
-    const handler = playerTsx.slice(surface, surface + 600);
+    const handler = playerTsx.slice(Math.max(0, surface - 400), surface + 600);
     if (!calls(handler)) out.push(`surface click handler does not call ${helper}()`);
     else if (/\bsend\s*\(/.test(handler)) out.push("surface click handler calls the sender directly");
   }

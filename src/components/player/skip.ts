@@ -27,9 +27,14 @@ export function findSkip(
 
   const { introStart, introEnd, outroStart } = entry;
   if (introStart != null && introEnd != null) {
-    const end = Math.min(introEnd, duration);
-    if (end - introStart > 2 && position >= introStart - 0.5 && position <= end - 2) {
-      return { kind: "intro", at: end };
+    // A stale marker past the end would otherwise seek to the end.
+    if (
+      introEnd < duration - 2 &&
+      introEnd > introStart + 2 &&
+      position >= introStart - 0.5 &&
+      position <= introEnd - 2
+    ) {
+      return { kind: "intro", at: introEnd };
     }
   }
 

@@ -270,7 +270,7 @@ function Overlay({
   return (
     <div
       className="pv-overlay"
-      onPointerDown={(event) => {
+      onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -279,11 +279,16 @@ function Overlay({
         role="dialog"
         aria-label={label}
         aria-modal="true"
-        onPointerDown={(event) => {
+        onClick={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        {children}
+        <header className="pv-overlay-head">
+          <button type="button" className="pv-side-close" onClick={onClose}>
+            Close
+          </button>
+        </header>
+        <div className="pv-overlay-scroll">{children}</div>
       </section>
     </div>
   );
@@ -304,7 +309,7 @@ function SidePanel({
   return (
     <div
       className="pv-side-scrim"
-      onPointerDown={(event) => {
+      onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -368,6 +373,7 @@ export function PlayerView() {
     settings,
     notify,
     navigate,
+    route,
     playRequest,
     buildSession,
     appInfo,
@@ -406,7 +412,9 @@ export function PlayerView() {
   const [frame, setFrame] = useState<{ time: number; src: string } | null>(null);
   const frameCache = useRef(new Map<number, string>());
   const frameSeq = useRef(0);
+  const frameBucket = useRef(0);
   const actionsRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   // Stored position offered by the resume prompt, and the seconds left before
   // it settles on Resume by itself.
   const [resumeAt, setResumeAt] = useState<number | null>(null);
@@ -438,6 +446,46 @@ export function PlayerView() {
     pct: -1,
   });
   const livePct = useRef(0);
+  // False once the screen closes, so a slow open cannot navigate back into it.
+  const alive = useRef(true);
+  // The session whose progress was applied directly, so it is not prompted again.
+  const skipResume = useRef<string | null>(null);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // A control sent to a player that already exited must not turn into an
+  // unhandled rejection; the next snapshot is the source of truth anyway.
+  const send = useCallback(
+    (action: string, value?: number | string | boolean | null) => {
+      void api.player.control(action, value).catch(() => undefined);
+    },
+    [],
+  );
+
+  const pushSubStyle = useCallback(() => {
+    send("sub-font-size", subStyle.size);
+    send("sub-color", mpvColor(subStyle.color, subStyle.opacity));
+    send("sub-back-color", mpvBackground(subStyle.background));
+    send("sub-delay", subStyle.delay);
+    send("sub-pos", subStyle.position);
+    send("sub-bold", subStyle.bold);
+    send("sub-border-size", subStyle.outline ? 2 : 0);
+    send("sub-border-color", subStyle.outlineColor);
+  }, [send, subStyle]);
+
+  // A new mpv starts at defaults, so a source switch pushes every preference again.
+  const pushPlaybackPrefs = useCallback(() => {
+    send("volume", volRef.current);
+    send("mute", Boolean(local?.muted));
+    send("speed", speedRef.current);
+    send("video-mode", videoMode);
+    pushSubStyle();
+  }, [local?.muted, pushSubStyle, send, videoMode]);
 
   useEffect(() => {
     setLocal(player);
@@ -452,13 +500,15 @@ export function PlayerView() {
     }
     if (!wasPlaying.current) return;
     wasPlaying.current = false;
+    // The store already leaves the player route; navigating again pushes twice.
+    if (route.name !== "player") return;
     const session = local?.session;
     navigate(
       session
         ? { name: "details", id: session.metaId, type: session.type }
         : { name: "home" },
     );
-  }, [player, local?.session, navigate]);
+  }, [player, local?.session, navigate, route.name]);
 
   // The browser preview has no Tauri events, so poll the mock backend.
   useEffect(() => {
@@ -514,7 +564,13 @@ export function PlayerView() {
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
   const failed = local?.error ?? null;
-  const loading = Boolean(local && !local.ended && !failed && duration <= 0);
+  // The first painted frame; older snapshots omit the field.
+  const firstFrame = (local as (PlayerSnapshot & { started?: boolean }) | null)?.started === true;
+  // A live stream never reports a duration, so only silence before the first
+  // frame counts as loading.
+  const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
+  // A zero level is silent too, so the icon and label must agree with it.
+  const silent = Boolean(local?.muted) || Math.round(local?.volume ?? 0) === 0;
   const audioTracks = local?.audioTracks ?? [];
   const subTracks = local?.subTracks ?? [];
   const chapters = local?.chapters ?? [];
@@ -550,12 +606,22 @@ export function PlayerView() {
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
+        // A pending open that resolves after the screen closed must bail.
+        if (!alive.current) return;
+        const saved = progressFor(nextSession.key);
+        const startAt =
+          saved && saved.duration > 0 && saved.position / saved.duration < 0.9
+            ? saved.position
+            : 0;
+        skipResume.current = nextSession.key;
         await playRequest({
           url,
           title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
-          startAt: 0,
+          startAt,
           session: nextSession,
         });
+        if (!alive.current) return;
+        pushPlaybackPrefs();
       } catch (e) {
         notify(e instanceof Error ? e.message : String(e), "error");
       } finally {
@@ -567,6 +633,8 @@ export function PlayerView() {
       details,
       notify,
       playRequest,
+      progressFor,
+      pushPlaybackPrefs,
       resolveStream,
       settings?.p2pConsent,
       settings?.preferredQuality,
@@ -575,6 +643,8 @@ export function PlayerView() {
   );
 
   const leaveFullscreen = useCallback(() => {
+    // A browser fullscreen left set would outlive this screen.
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     if (!fsNow.current) return;
     fsNow.current = false;
     setFullscreen(false);
@@ -582,7 +652,19 @@ export function PlayerView() {
     void api.window.fullscreen(false);
   }, []);
 
+  // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
+  useEffect(() => {
+    const onChange = () => {
+      const on = Boolean(document.fullscreenElement);
+      fsNow.current = on;
+      setFullscreen(on);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   const stop = useCallback(() => {
+    alive.current = false;
     leaveFullscreen();
     // Leave the screen first: a stuck IPC call must not trap the user.
     leavePlayer();
@@ -592,34 +674,35 @@ export function PlayerView() {
   // Never leave the window frameless after the overlay goes away.
   useEffect(() => () => leaveFullscreen(), [leaveFullscreen]);
 
-  // A control sent to a player that already exited must not turn into an
-  // unhandled rejection; the next snapshot is the source of truth anyway.
-  const send = useCallback(
-    (action: string, value?: number | string | boolean | null) => {
-      void api.player.control(action, value).catch(() => undefined);
-    },
-    [],
-  );
-
   // mpv gets the target state, not a toggle: two senders can never cancel out.
   const togglePause = useCallback(() => {
     send("pause", !(local?.paused ?? false));
   }, [local?.paused, send]);
 
   const seekTo = useCallback(
-    (target: number) => {
+    (target: number, user = true) => {
       setResumeAt(null);
-      send("seek", Math.max(0, target));
+      // A user going back before the intro re-arms the skip for it; the
+      // auto-skip path must not.
+      if (user && markers?.introStart != null && target < markers.introStart) {
+        fired.current = { intro: false, outro: false };
+      }
+      // The last second reads as the end of the file, so it is not a target.
+      const upper = duration > 0 ? Math.max(0, duration - 1) : Number.POSITIVE_INFINITY;
+      send("seek", Math.min(upper, Math.max(0, target)));
     },
-    [send],
+    [duration, markers, send],
   );
 
   const seekRel = useCallback(
     (delta: number) => {
       setResumeAt(null);
+      if (markers?.introStart != null && posRef.current + delta < markers.introStart) {
+        fired.current = { intro: false, outro: false };
+      }
       send("seek-rel", delta);
     },
-    [send],
+    [markers, send],
   );
 
   const setVolume = useCallback(
@@ -639,11 +722,11 @@ export function PlayerView() {
     if (!isTauri()) {
       if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => undefined);
-        setFullscreen(false);
       } else {
         await document.documentElement.requestFullscreen().catch(() => undefined);
-        setFullscreen(true);
       }
+      // The event listener normally syncs this; a refused request must not.
+      setFullscreen(Boolean(document.fullscreenElement));
       return;
     }
     const next = !fsNow.current;
@@ -685,9 +768,19 @@ export function PlayerView() {
   );
 
   const toggleMute = useCallback(() => {
-    send("mute");
-    showHud("Sound", local?.muted ? "On" : "Muted");
-  }, [local?.muted, send, showHud]);
+    // A zero level is already silent, so muting it again would do nothing.
+    if (silent && Math.round(local?.volume ?? 0) === 0) {
+      const restored = Math.round(MAX_VOLUME / 4);
+      volRef.current = restored;
+      setVolume(restored);
+      send("mute", false);
+      showHud("Sound", `${restored}%`);
+      return;
+    }
+    // Send the target, not a toggle: mpv cycles and two senders would cancel.
+    send("mute", !silent);
+    showHud("Sound", silent ? "On" : "Muted");
+  }, [local?.volume, send, setVolume, showHud, silent]);
 
   const changeSpeed = useCallback(
     (direction: 1 | -1) => {
@@ -800,6 +893,8 @@ export function PlayerView() {
 
   const chooseSub = useCallback(
     (variant: SubVariant) => {
+      // Asking for the same addon again would add a second mpv track.
+      if (variant.url && loadedSub?.url === variant.url) return;
       setSelectedLang(variant.lang);
       if (variant.trackId != null) {
         setLoadedSub(null);
@@ -813,7 +908,7 @@ export function PlayerView() {
         .then(() => notify(`${variant.lang} subtitles`))
         .catch((error) => notify(error instanceof Error ? error.message : String(error), "error"));
     },
-    [notify, send],
+    [loadedSub?.url, notify, send],
   );
 
   const turnSubsOff = useCallback(() => {
@@ -833,12 +928,21 @@ export function PlayerView() {
       setSourceBusy(true);
       try {
         const url = await resolveStream(stream);
+        if (!alive.current) return;
         await playRequest({
           url,
           title: local?.title || session.name,
           startAt: posRef.current,
           session,
         });
+        if (!alive.current) return;
+        // The same session object is reused, so nothing else re-applies the
+        // settings to the new mpv.
+        setLoadedSub(null);
+        setSelectedLang(null);
+        frameCache.current.clear();
+        frameBucket.current = 0;
+        pushPlaybackPrefs();
         setSurface(null);
       } catch (e) {
         notify(e instanceof Error ? e.message : String(e), "error");
@@ -846,8 +950,21 @@ export function PlayerView() {
         setSourceBusy(false);
       }
     },
-    [local?.title, notify, playRequest, resolveStream, session],
+    [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream, session],
   );
+
+  // While a control holds keyboard focus the chrome stays, so the focus ring
+  // does not vanish mid-keyboard navigation.
+  const controlFocused = useCallback(() => {
+    const active = document.activeElement;
+    return Boolean(
+      active instanceof HTMLElement &&
+        active !== document.body &&
+        rootRef.current?.contains(active) &&
+        active.matches("button, input, [role='slider'], a") &&
+        active.matches(":focus-visible"),
+    );
+  }, []);
 
   const bump = useCallback(() => {
     if (locked) return;
@@ -855,8 +972,12 @@ export function PlayerView() {
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     // Keep the close controls on screen while a source is opening or has failed.
     if (loading || failed || local?.paused || local?.ended || surface || showNext) return;
-    hideTimer.current = window.setTimeout(() => setChrome(false), 2600);
-  }, [loading, failed, local?.paused, local?.ended, surface, showNext, locked]);
+    if (dragging.current || controlFocused()) return;
+    hideTimer.current = window.setTimeout(() => {
+      if (dragging.current || controlFocused()) return;
+      setChrome(false);
+    }, 2600);
+  }, [controlFocused, loading, failed, local?.paused, local?.ended, surface, showNext, locked]);
 
   useEffect(() => {
     bump();
@@ -934,24 +1055,25 @@ export function PlayerView() {
     setHover(null);
     setFrame(null);
     frameCache.current.clear();
+    frameBucket.current = 0;
   }, [session?.key]);
 
-  // Markers belong to the show, so one read per playback session covers every
-  // episode under that id.
+  // Markers are stored per episode, keyed like the session. The command still
+  // names the argument `metaId`.
   useEffect(() => {
     fired.current = { intro: false, outro: false };
     setMarkers(null);
     setMarkMsg(null);
-    const metaId = session?.metaId;
-    if (!metaId || !isTauri()) return;
-    let alive = true;
-    invoke<SkipEntry | null>("skip_get", { metaId })
+    const key = session?.key;
+    if (!key || !isTauri()) return;
+    let live = true;
+    invoke<SkipEntry | null>("skip_get", { metaId: key })
       .then((entry) => {
-        if (alive) setMarkers(entry);
+        if (live) setMarkers(entry);
       })
       .catch(() => undefined);
     return () => {
-      alive = false;
+      live = false;
     };
   }, [session?.key]);
 
@@ -1031,11 +1153,13 @@ export function PlayerView() {
   useEffect(() => {
     const key = session?.key;
     if (!key || !settings?.autoResume) return;
-    let alive = true;
+    // A position already applied by playVideo must not be offered again.
+    if (skipResume.current === key) return;
+    let live = true;
     void api.progress
       .forKey(key)
       .then((entry) => {
-        if (!alive || !entry || entry.duration <= 0) return;
+        if (!live || !entry || entry.duration <= 0) return;
         // A lookup that took this long is not an "on open" prompt any more.
         if (Date.now() - openedAt.current > 30000) return;
         if (entry.position > 30 && entry.position / entry.duration < 0.92) {
@@ -1044,7 +1168,7 @@ export function PlayerView() {
       })
       .catch(() => undefined);
     return () => {
-      alive = false;
+      live = false;
     };
   }, [session?.key, settings?.autoResume]);
 
@@ -1077,24 +1201,15 @@ export function PlayerView() {
     const segment = findSkip(markers, position, duration);
     if (!segment || fired.current[segment.kind]) return;
     fired.current[segment.kind] = true;
-    seekTo(segment.at);
+    seekTo(segment.at, false);
   }, [markers, position, duration, loading, scrub, seekTo]);
 
   // The preview above is only a preview: mpv draws the real subtitles, so the
   // same values are pushed to it, debounced so dragging a slider stays cheap.
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      send("sub-font-size", subStyle.size);
-      send("sub-color", mpvColor(subStyle.color, subStyle.opacity));
-      send("sub-back-color", mpvBackground(subStyle.background));
-      send("sub-delay", subStyle.delay);
-      send("sub-pos", subStyle.position);
-      send("sub-bold", subStyle.bold);
-      send("sub-border-size", subStyle.outline ? 2 : 0);
-      send("sub-border-color", subStyle.outlineColor);
-    }, 150);
+    const timer = window.setTimeout(pushSubStyle, 150);
     return () => window.clearTimeout(timer);
-  }, [send, session?.key, subStyle]);
+  }, [session?.key, pushSubStyle]);
 
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
@@ -1105,9 +1220,12 @@ export function PlayerView() {
   // One still per five seconds of the bar, and only once the pointer rests, so
   // sweeping the timeline does not spawn an mpv for every frame.
   useEffect(() => {
+    // Dragging asks mpv for a still every few pixels otherwise.
+    if (dragging.current) return;
     if (!hover) return;
     const bucket = Math.round(hover.time / 5) * 5;
-    if (bucket < 5) return;
+    if (bucket < 5 || bucket === frameBucket.current) return;
+    frameBucket.current = bucket;
     const cached = frameCache.current.get(bucket);
     if (cached) {
       setFrame({ time: bucket, src: cached });
@@ -1150,22 +1268,27 @@ export function PlayerView() {
 
   const saveMarker = useCallback(
     async (patch: SkipEntry, label: string) => {
-      const metaId = session?.metaId;
-      if (!metaId) return;
+      const key = session?.key;
+      if (!key) return;
       if (!isTauri()) {
         setMarkMsg("Markers save in the desktop app");
         return;
       }
       const at = posRef.current;
+      // skip_set replaces the entry whole, so the other marker is carried over.
+      const merged: SkipEntry = { ...(markers ?? {}), ...patch };
       try {
-        const entry = await invoke<SkipEntry | null>("skip_set", { metaId, entry: patch });
+        const entry = await invoke<SkipEntry | null>("skip_set", {
+          metaId: key,
+          entry: merged,
+        });
         setMarkers(entry);
         setMarkMsg(`${label} at ${formatTime(at)} saved`);
       } catch (e) {
         setMarkMsg(e instanceof Error ? e.message : String(e));
       }
     },
-    [session?.metaId],
+    [markers, session?.key],
   );
 
   // Ended episodes advance on their own only when the setting allows it and
@@ -1187,16 +1310,21 @@ export function PlayerView() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) || target.isContentEditable)
-      ) {
-        return;
-      }
+      // A slider keeps focus after a drag; it must not swallow the shortcuts.
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) &&
+            !(target instanceof HTMLInputElement && target.type === "range")));
+      if (typing) return;
       const key = event.key;
       if (locked && key !== "Escape") return;
+      // A panel or the resume prompt owns the keyboard; Escape still closes it.
+      if ((surface || resumeAt != null) && key !== "Escape") return;
+      if (event.repeat) return;
       let handled = true;
       switch (key) {
         case " ":
@@ -1215,10 +1343,12 @@ export function PlayerView() {
           break;
         case "j":
         case "J":
+          event.preventDefault();
           seekRel(-10);
           break;
         case "l":
         case "L":
+          event.preventDefault();
           seekRel(10);
           break;
         case "ArrowUp":
@@ -1268,9 +1398,10 @@ export function PlayerView() {
           } else if (surface) setSurface(null);
           else if (resumeAt != null) setResumeAt(null);
           else if (showNext) dismissNext();
-          else if (fsNow.current) void toggleFullscreen();
-          else void stop();
-          break;
+          else if (fsNow.current) leaveFullscreen();
+          // Escape never ends playback; leaving is the explicit Close.
+          else setChrome(false);
+          return;
         default:
           handled = false;
       }
@@ -1286,6 +1417,7 @@ export function PlayerView() {
     cycleAudio,
     cycleSub,
     dismissNext,
+    leaveFullscreen,
     locked,
     nextEpisode,
     playVideo,
@@ -1293,7 +1425,6 @@ export function PlayerView() {
     seekRel,
     showNext,
     step,
-    stop,
     surface,
     toggleFullscreen,
     toggleMute,
@@ -1322,7 +1453,7 @@ export function PlayerView() {
 
   // A source that never opens would otherwise spin forever with no way out.
   useEffect(() => {
-    if (!local || local.ended || local.error || local.duration > 0) {
+    if (!local || local.ended || local.error || firstFrame || local.duration > 0) {
       setWaited(0);
       return;
     }
@@ -1330,7 +1461,7 @@ export function PlayerView() {
     setWaited(0);
     const timer = window.setInterval(() => setWaited((Date.now() - started) / 1000), 250);
     return () => window.clearInterval(timer);
-  }, [local?.duration, local?.ended, local?.error]);
+  }, [firstFrame, local?.duration, local?.ended, local?.error]);
 
   if (!local) {
     return (
@@ -1357,8 +1488,7 @@ export function PlayerView() {
   // Embedded tracks and addon results share one language-first list.
   const subGroups = groupSubtitles(subTracks, subs);
   const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
-  const currentLang =
-    selectedLang === OFF ? null : selectedLang ?? activeLang ?? subGroups[0]?.lang ?? null;
+  const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? [];
   const activeVariant = currentVariants.find((variant) =>
     variant.trackId != null ? local.activeSub === variant.trackId : loadedSub?.url === variant.url,
@@ -1458,20 +1588,21 @@ export function PlayerView() {
 
   return (
     <div
+      ref={rootRef}
       className={`pv${chrome ? " pv--awake" : ""}${failed ? " pv--failed" : ""}${locked ? " pv--locked" : ""}${surface ? " pv--panel" : ""}`}
+      onPointerDown={bump}
       onPointerMove={bump}
       onFocusCapture={() => {
         if (!locked) setChrome(true);
       }}
       onClick={(event) => {
-        if (event.target !== event.currentTarget) return;
         if (locked) return;
+        const target = event.target as Element;
+        // A control owns its own click; the rest of the frame is the video.
+        if (target.closest("button, input, [role='slider'], a")) return;
+        if (surface) return;
         if (!chrome) {
           bump();
-          return;
-        }
-        if (surface) {
-          setSurface(null);
           return;
         }
         togglePause();
@@ -1568,7 +1699,11 @@ export function PlayerView() {
 
       {loading ? (
         <div className="pv-wait">
-          <Spinner label={`Opening stream · ${waited.toFixed(1)}s`} />
+          <Spinner label="Opening stream" />
+          {/* The counter stays out of the live region, or it announces twice a second. */}
+          <p className="pv-hint" aria-hidden="true">
+            {waited.toFixed(1)}s
+          </p>
           {waited >= 14 ? (
             <>
               <p className="pv-hint">Still opening. This source may be slow or gone.</p>
@@ -1581,7 +1716,13 @@ export function PlayerView() {
       ) : null}
 
       {locked && !failed ? (
-        <div className="pv-locked-layer">
+        <div
+          className="pv-locked-layer"
+          onClick={() => {
+            setLocked(false);
+            setChrome(true);
+          }}
+        >
           <button
             type="button"
             className="pv-locked-btn"
@@ -2374,6 +2515,7 @@ export function PlayerView() {
                 setScrub(null);
                 setHover(null);
                 seekTo(target);
+                bump();
               }}
               onPointerCancel={() => {
                 dragging.current = false;
@@ -2394,6 +2536,7 @@ export function PlayerView() {
               <span className="pv-trackrail" />
               <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
               <span className="pv-played" style={{ width: `${percent}%` }} />
+              <span className="pv-knob" style={{ left: `${percent}%` }} aria-hidden="true" />
               {duration > 0
                 ? chapters.map((chapter, at) => {
                     const left = (chapter.start / duration) * 100;
@@ -2433,11 +2576,11 @@ export function PlayerView() {
               <button
                 type="button"
                 className="pv-action"
-                aria-label={local.muted ? "Unmute" : "Mute"}
-                title={local.muted ? "Unmute" : "Mute"}
+                aria-label={silent ? "Unmute" : "Mute"}
+                title={silent ? "Unmute" : "Mute"}
                 onClick={toggleMute}
               >
-                <Icon name={local.muted ? "mute" : "volume"} size={24} />
+                <Icon name={silent ? "mute" : "volume"} size={24} />
               </button>
               <input
                 type="range"
@@ -2446,7 +2589,8 @@ export function PlayerView() {
                 value={Math.round(local.volume)}
                 aria-label="Volume"
                 style={{
-                  background: `linear-gradient(to right, var(--accent) ${volumeFill}%, rgba(255, 255, 255, 0.24) ${volumeFill}%)`,
+                  // Image only: the player CSS owns the 4px track sizing.
+                  backgroundImage: `linear-gradient(to right, var(--accent) ${volumeFill}%, rgba(255, 255, 255, 0.24) ${volumeFill}%)`,
                 }}
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
@@ -2546,6 +2690,7 @@ export function PlayerView() {
                         }`}
                         aria-label={action.label}
                         title={action.label}
+                        aria-expanded={surface === action.key ? true : undefined}
                         disabled={action.disabled}
                         onClick={action.on}
                       >
