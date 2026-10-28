@@ -288,7 +288,7 @@
 }
 
 .pv .pv-buffer {
-  background: color-mix(in srgb, var(--accent) 36%, transparent);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .pv .pv-played {
@@ -309,38 +309,6 @@
   pointer-events: none;
 }
 
-.pv .pv-mark {
-  position: absolute;
-  top: 50%;
-  z-index: 2;
-  width: 2px;
-  height: 6px;
-  margin-top: -3px;
-  border-radius: 1px;
-  background: #000;
-  transform: translateX(-1px);
-  pointer-events: none;
-  transition: height 0.16s ease, margin-top 0.16s ease;
-}
-
-.pv .pv-track:hover .pv-trackrail,
-.pv .pv-track:hover .pv-buffer,
-.pv .pv-track:hover .pv-played,
-.pv .pv-track:focus-visible .pv-trackrail,
-.pv .pv-track:focus-visible .pv-buffer,
-.pv .pv-track:focus-visible .pv-played,
-.pv .pv-track.is-dragging .pv-trackrail,
-.pv .pv-track.is-dragging .pv-buffer,
-.pv .pv-track.is-dragging .pv-played {
-  transform: scaleY(1.6667);
-}
-
-.pv .pv-track:hover .pv-mark,
-.pv .pv-track:focus-visible .pv-mark,
-.pv .pv-track.is-dragging .pv-mark {
-  height: 10px;
-  margin-top: -5px;
-}
 
 .pv .pv-tip {
   position: absolute;
@@ -1941,7 +1909,7 @@
 }
 
 .pv .pv-buffer {
-  background: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .pv .pv-played {
@@ -1965,25 +1933,6 @@
 .pv .pv-track:hover .pv-knob,
 .pv .pv-track.is-dragging .pv-knob {
   transform: scale(1.2);
-}
-
-.pv .pv-mark {
-  position: absolute;
-  top: 50%;
-  z-index: 2;
-  width: 2px;
-  height: 0.4rem;
-  margin-top: -0.2rem;
-  border-radius: 1px;
-  background: rgba(0, 0, 0, 0.6);
-  transform: translateX(-1px);
-  pointer-events: none;
-}
-
-.pv .pv-track:hover .pv-mark,
-.pv .pv-track.is-dragging .pv-mark {
-  height: 0.6rem;
-  margin-top: -0.3rem;
 }
 
 .pv .pv-tip {

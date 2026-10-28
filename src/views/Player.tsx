@@ -408,12 +408,13 @@ export function PlayerView() {
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
-  // Seconds spent waiting for the source so far, so a slow provider is
-  // visible instead of an unchanging spinner.
 
   const [hud, setHud] = useState<Hud | null>(null);
   // Stremio's centre card: the level moved, so show it big for a moment.
   const [volOsd, setVolOsd] = useState(false);
+  // The slider is driven locally; a tick from mpv would yank the thumb back
+  // mid-drag, which is what made the control feel heavy.
+  const [volLevel, setVolLevel] = useState(() => readVolume());
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
   const [showRemaining, setShowRemaining] = useState(false);
@@ -447,6 +448,11 @@ export function PlayerView() {
   const hudOutTimer = useRef<number | null>(null);
   const volOsdTimer = useRef<number | null>(null);
   const volSeen = useRef<number | null>(null);
+  // When the level was last set here, so stale ticks cannot fight the slider.
+  const volTouched = useRef(0);
+  // One engine write per frame, however fast the slider is dragged.
+  const volFrame = useRef(0);
+  const wheelAt = useRef(0);
   // A segment jumps once per playback session, even if the tick lands inside
   // the window again.
   const fired = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
@@ -581,7 +587,7 @@ export function PlayerView() {
   // frame counts as loading.
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
   // A zero level is silent too, so the icon and label must agree with it.
-  const silent = Boolean(local?.muted) || Math.round(local?.volume ?? 0) === 0;
+  const silent = Boolean(local?.muted) || volLevel === 0;
   const audioTracks = local?.audioTracks ?? [];
   const subTracks = local?.subTracks ?? [];
   const chapters = local?.chapters ?? [];
@@ -719,12 +725,23 @@ export function PlayerView() {
   const setVolume = useCallback(
     (value: number) => {
       const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(value)));
+      volRef.current = next;
+      volTouched.current = Date.now();
+      setVolLevel(next);
+      setVolOsd(true);
+      if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
+      volOsdTimer.current = window.setTimeout(() => setVolOsd(false), 1200);
       try {
         window.localStorage.setItem(VOLUME_KEY, String(next));
       } catch {
         // Storage can be blocked; the level still applies to this session.
       }
-      send("volume", next);
+      if (!volFrame.current) {
+        volFrame.current = window.requestAnimationFrame(() => {
+          volFrame.current = 0;
+          send("volume", volRef.current);
+        });
+      }
     },
     [send],
   );
@@ -782,9 +799,7 @@ export function PlayerView() {
 
   const changeVolume = useCallback(
     (delta: number) => {
-      const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(volRef.current + delta)));
-      volRef.current = next;
-      setVolume(next);
+      setVolume(volRef.current + delta);
     },
     [setVolume],
   );
@@ -1089,10 +1104,14 @@ export function PlayerView() {
       volumeSession.current = key;
       const next = readVolume();
       volRef.current = next;
+      setVolLevel(next);
       send("volume", next);
       return;
     }
-    volRef.current = local.volume;
+    // A tick that predates the last set here must not rewind the slider.
+    if (Date.now() - volTouched.current < 800) return;
+    volRef.current = Math.round(local.volume);
+    setVolLevel(Math.round(local.volume));
   }, [local?.volume, send, session?.key]);
 
   useEffect(() => {
@@ -1393,6 +1412,24 @@ export function PlayerView() {
     toggleSurface,
   ]);
 
+  // Wheel over the picture changes the level, the way a media player does.
+  const playing = Boolean(local);
+  useEffect(() => {
+    if (!playing) return;
+    const onWheel = (event: WheelEvent) => {
+      // Panels own their scrolling; only the bare picture takes the wheel.
+      if (surface || locked) return;
+      // One step per gesture beat, or a trackpad floods the engine.
+      const at = Date.now();
+      if (at - wheelAt.current < 60) return;
+      wheelAt.current = at;
+      event.preventDefault();
+      changeVolume(event.deltaY < 0 ? 5 : -5);
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, [changeVolume, locked, playing, surface]);
+
   const loadSubtitleFile = async () => {
     if (!isTauri()) {
       notify("Picking a subtitle file needs the desktop app", "error");
@@ -1472,7 +1509,7 @@ export function PlayerView() {
   const styleOn = Boolean(activeSub || loadedSub) && currentLang != null && Boolean(activeVariant);
   const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
   const shot = frame && frame.time === hoverBucket ? frame.src : null;
-  const volumeFill = Math.min(100, Math.max(0, (local.volume / MAX_VOLUME) * 100));
+  const volumeFill = Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
 
   const seasonOptions = [...new Set(queue.map((video) => video.season ?? 0))].sort(
     (a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b),
@@ -2426,13 +2463,6 @@ export function PlayerView() {
               <span className="pv-buffer" style={{ width: `${bufferedPercent}%` }} />
               <span className="pv-played" style={{ width: `${percent}%` }} />
               <span className="pv-knob" style={{ left: `${percent}%` }} aria-hidden="true" />
-              {duration > 0
-                ? chapters.map((chapter, at) => {
-                    const left = (chapter.start / duration) * 100;
-                    if (left <= 0 || left >= 100) return null;
-                    return <span key={`${chapter.start}-${at}`} className="pv-mark" style={{ left: `${left}%` }} />;
-                  })
-                : null}
 
               {hover ? (
                 <span
@@ -2496,7 +2526,7 @@ export function PlayerView() {
                 type="range"
                 min={0}
                 max={MAX_VOLUME}
-                value={Math.round(local.volume)}
+                value={volLevel}
                 aria-label="Volume"
                 style={{
                   backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
@@ -2618,7 +2648,7 @@ export function PlayerView() {
         </div>
       ) : null}
 
-      {volOsd && !locked && !chrome ? (
+      {volOsd && !locked ? (
         <div className="pv-volosd" aria-hidden="true">
           <Icon name={silent ? "mute" : "volume"} size={72} />
           <span className="pv-volosd-bar">
