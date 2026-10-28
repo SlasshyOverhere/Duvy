@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
@@ -69,8 +69,35 @@ export function StreamDrawer({
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
+
+  // The filter row is wider than the panel and a mouse has no sideways wheel,
+  // so the row itself is draggable.
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (!node) return;
+    drag.current = { down: true, moved: false, x: event.clientX, left: node.scrollLeft };
+  };
+
+  const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (!node || !drag.current.down) return;
+    if (event.buttons === 0) {
+      drag.current.down = false;
+      return;
+    }
+    const dx = event.clientX - drag.current.x;
+    if (Math.abs(dx) > 4) drag.current.moved = true;
+    node.scrollLeft = drag.current.left - dx;
+  };
+
+  const endDrag = () => {
+    drag.current.down = false;
+  };
 
   const chooseFilter = (next: string) => {
+    if (drag.current.moved) return;
     setFilter(next);
     try {
       localStorage.setItem(FILTER_KEY, next);
@@ -244,53 +271,67 @@ export function StreamDrawer({
           </button>
         </header>
 
-        <div className="drawer-filters">
+        <div className="drawer-filters" ref={filtersRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+          <button
+            type="button"
+            className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
+            onClick={() => targets.forEach(load)}
+            aria-label="Refresh sources"
+            title="Refresh sources"
+          >
+            <Icon name="refresh" size={14} />
+          </button>
           <button
             type="button"
             className={`chip${filter === "all" ? " is-active" : ""}`}
             aria-pressed={filter === "all"}
             onClick={() => chooseFilter("all")}
           >
-            All <span>{total}</span>
+            All
           </button>
-          {groups.map((group) => (
-            <button
-              key={group.addon}
-              type="button"
-              className={`chip${filter === group.addon ? " is-active" : ""}`}
-              aria-pressed={filter === group.addon}
-              onClick={() => chooseFilter(group.addon)}
-            >
-              {group.addon}{" "}
-              <span>{group.state === "loading" ? "…" : group.streams.length}</span>
-            </button>
-          ))}
+          {groups
+            .filter((group) => group.streams.length > 0 || group.state === "loading")
+            .map((group) => (
+              <button
+                key={group.addon}
+                type="button"
+                className={`chip${filter === group.addon ? " is-active" : ""}`}
+                aria-pressed={filter === group.addon}
+                onClick={() => chooseFilter(group.addon)}
+              >
+                {group.addon}
+              </button>
+            ))}
         </div>
 
         <div className="drawer-body">
           {visible.map((group) => (
             <section className="stream-group" key={group.addon}>
-              <div className="stream-group-head">
-                <span className="stream-group-title">{group.addon}</span>
-                <span className="stream-group-state">
-                  {group.state === "loading" ? (
-                    "Searching…"
-                  ) : group.state === "error" ? (
-                    <>
-                      Failed{" "}
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => load(group.addon)}
-                      >
-                        Retry
-                      </button>
-                    </>
-                  ) : (
-                    `${group.streams.length} ${group.streams.length === 1 ? "source" : "sources"}`
-                  )}
-                </span>
-              </div>
+              {/* A filtered list is already one addon; repeating its name above
+                  every group costs a line the viewer does not need. */}
+              {filter === "all" || group.state !== "done" || group.streams.length === 0 ? (
+                <div className="stream-group-head">
+                  <span className="stream-group-title">{group.addon}</span>
+                  <span className="stream-group-state">
+                    {group.state === "loading" ? (
+                      "Searching…"
+                    ) : group.state === "error" ? (
+                      <>
+                        Failed{" "}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => load(group.addon)}
+                        >
+                          Retry
+                        </button>
+                      </>
+                    ) : (
+                      `${group.streams.length} ${group.streams.length === 1 ? "source" : "sources"}`
+                    )}
+                  </span>
+                </div>
+              ) : null}
 
               {group.error ? <p className="stream-group-error">{group.error}</p> : null}
 
@@ -302,43 +343,50 @@ export function StreamDrawer({
                 <ul className="stream-list">
                   {group.streams.map((stream, index) => {
                     const url = stream.url?.trim() || null;
-                    const label = stream.title || stream.name || "Source";
+                    const label = stream.name || stream.title || "Source";
+                    const release =
+                      stream.title && stream.title !== stream.name ? stream.title : null;
+                    const showQuality =
+                      stream.quality !== "Auto" &&
+                      !label.toLowerCase().includes(stream.quality.toLowerCase());
                     const audio = stream.languages.length
                       ? stream.languages.includes("Multi")
                         ? "Multi audio"
                         : stream.languages.slice(0, 3).join(", ")
                       : null;
+                    const hasMeta = Boolean(
+                      stream.size ||
+                        stream.seeders != null ||
+                        stream.badges.length ||
+                        stream.cached,
+                    );
                     return (
                       <li key={`${group.addon}-${index}`}>
-                        <div className="stream-row">
+                        <div className="stream-card">
                           <button
                             type="button"
                             className="stream-play"
                             onClick={() => stream.playable && onPlay(stream)}
                             disabled={!stream.playable}
-                            aria-label={`Play ${label}`}
+                            aria-label={`Play ${release || label}`}
                           >
-                            <span
-                              className={`stream-quality${
-                                stream.quality === "4K"
-                                  ? " is-top"
-                                  : stream.quality === "CAM"
-                                    ? " is-warn"
-                                    : ""
-                              }`}
-                            >
-                              {stream.quality}
+                            <span className="stream-head">
+                              <span className="stream-label">{label}</span>
+                              {showQuality ? (
+                                <span className="stream-quality">{stream.quality}</span>
+                              ) : null}
                             </span>
-                            <span className="stream-main">
-                              <span className="stream-title">{label}</span>
+                            {release ? <span className="stream-release">{release}</span> : null}
+                            {hasMeta ? (
                               <span className="stream-meta">
                                 {stream.size ? (
                                   <span className="stream-size">{stream.size}</span>
                                 ) : null}
                                 {stream.seeders != null ? (
-                                  <span>{stream.seeders.toLocaleString()} seeds</span>
+                                  <span className="stream-seeds">
+                                    {stream.seeders.toLocaleString()} seeds
+                                  </span>
                                 ) : null}
-                                {audio ? <span>{audio}</span> : null}
                                 {stream.badges.map((badge) => (
                                   <span key={badge}>{badge}</span>
                                 ))}
@@ -346,10 +394,8 @@ export function StreamDrawer({
                                   <span className="stream-cached">Cached</span>
                                 ) : null}
                               </span>
-                            </span>
-                            <span className="stream-action">
-                              {stream.playable ? <Icon name="play" size={14} /> : null}
-                            </span>
+                            ) : null}
+                            {audio ? <span className="stream-audio">{audio}</span> : null}
                           </button>
                           {url ? (
                             <button
@@ -361,7 +407,7 @@ export function StreamDrawer({
                                 setMenu({
                                   x: event.clientX,
                                   y: event.clientY,
-                                  title: label,
+                                  title: release || label,
                                   url,
                                 })
                               }

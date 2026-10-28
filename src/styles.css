@@ -2082,6 +2082,7 @@ button.pill:hover {
   z-index: 80;
   display: flex;
   justify-content: flex-end;
+  padding: clamp(0px, 1.2vh, 14px) clamp(0px, 0.8vw, 14px);
 }
 
 .drawer-backdrop {
@@ -2096,12 +2097,14 @@ button.pill:hover {
 
 .drawer {
   position: relative;
-  width: min(512px, 96vw);
+  width: min(560px, 96vw);
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
   background: var(--panel);
-  border-left: 1px solid var(--line);
   animation: drawer-in 0.22s var(--ease);
 }
 
@@ -2144,16 +2147,25 @@ button.pill:hover {
   color: var(--faint);
 }
 
-/* One scrolling row of addon filters: ten addons must not become four rows of
-   pills above a list the viewer is trying to read. */
+/* One scrolling row of addon filters, the way Nuvio lays it out: a refresh
+   chip, All, then each addon that actually answered. The row is draggable
+   because a mouse has no sideways wheel. */
 .drawer-filters {
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 8px;
   padding: 12px 20px;
   overflow-x: auto;
   scrollbar-width: none;
+  user-select: none;
+  cursor: grab;
   border-bottom: 1px solid var(--line);
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+}
+
+.drawer-filters:active {
+  cursor: grabbing;
 }
 
 .drawer-filters::-webkit-scrollbar {
@@ -2162,31 +2174,58 @@ button.pill:hover {
 
 .drawer-filters .chip {
   flex: 0 0 auto;
-  padding: 5px 11px;
-  gap: 6px;
-  font-size: 11.5px;
+  height: 34px;
+  padding: 0 14px;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.drawer-filters .chip:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.11);
+  color: var(--text);
+}
+
+.drawer-filters .chip.is-active,
+.drawer-filters .chip.is-active:hover {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.drawer-filters .chip-icon {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.chip-icon.is-loading svg {
+  animation: spin 0.9s linear infinite;
 }
 
 .drawer-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 20px;
+  padding: 6px 20px 0;
 }
 
 .stream-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 2px 0 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 /* One addon, one section: an addon that answers first is readable while the
    others are still working, and a failing one only costs its own block. */
 .stream-group + .stream-group {
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .stream-group-head {
@@ -2194,7 +2233,7 @@ button.pill:hover {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 0 4px;
+  padding: 16px 0 8px;
 }
 
 .stream-group-title {
@@ -2216,26 +2255,27 @@ button.pill:hover {
   color: var(--faint);
 }
 
-/* A row is one clickable line pair: quality rail, release name, and a meta
-   line the viewer can scan for size, seeds and audio at a glance. */
-.stream-row {
+/* A card per source, like Nuvio: bold provider line, the release underneath,
+   then the numbers. The whole card is the play button. */
+.stream-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
-  border-radius: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
   transition: background-color 0.14s var(--ease);
 }
 
-.stream-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+.stream-card:hover {
+  background: rgba(255, 255, 255, 0.085);
 }
 
 .stream-play {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 16px;
-  gap: 12px;
-  align-items: center;
-  padding: 11px 2px 11px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 2px 12px 14px;
   border: 0;
   background: none;
   color: inherit;
@@ -2243,47 +2283,53 @@ button.pill:hover {
 }
 
 .stream-play:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
+}
+
+.stream-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stream-label {
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stream-quality {
-  font-size: 11px;
+  flex: none;
+  margin-left: auto;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.stream-quality.is-top {
-  color: var(--text);
-}
-
-.stream-quality.is-warn {
-  color: var(--warn);
-}
-
-.stream-main {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.stream-title {
+.stream-release {
   font-size: 12.5px;
-  color: var(--text);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .stream-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  margin-top: 2px;
   font-size: 11px;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
@@ -2295,7 +2341,8 @@ button.pill:hover {
   color: rgba(255, 255, 255, 0.24);
 }
 
-.stream-size {
+.stream-size,
+.stream-seeds {
   color: var(--muted);
 }
 
@@ -2303,32 +2350,16 @@ button.pill:hover {
   color: var(--good);
 }
 
-.stream-action {
-  display: grid;
-  place-items: center;
+.stream-audio {
   font-size: 11px;
   color: var(--faint);
-  transition: color 0.14s var(--ease);
-}
-
-.stream-row:hover .stream-action {
-  color: var(--accent);
 }
 
 .stream-more {
-  opacity: 0;
-  transition: opacity 0.14s var(--ease);
-}
-
-.stream-row:hover .stream-more,
-.stream-more:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .stream-more {
-    opacity: 1;
-  }
+  width: 30px;
+  height: 30px;
+  margin-right: 3px;
+  color: var(--faint);
 }
 
 .drawer-foot {
