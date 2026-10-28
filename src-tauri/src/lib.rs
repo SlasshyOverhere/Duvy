@@ -23,7 +23,7 @@ mod torrent;
 mod trakt;
 mod updates;
 
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -32,6 +32,8 @@ pub struct AppState {
     pub db: db::Db,
     pub http: reqwest::Client,
     pub player: Mutex<Option<player::Player>>,
+    /// Decoded settings; `None` means "read it again from the database".
+    pub settings: RwLock<Option<settings::Settings>>,
 }
 
 #[cfg(test)]
@@ -465,6 +467,7 @@ pub fn run() {
                 db: db::Db(Mutex::new(connection)),
                 http,
                 player: Mutex::new(None),
+                settings: RwLock::new(None),
             });
 
             updates::watch(app.handle().clone());

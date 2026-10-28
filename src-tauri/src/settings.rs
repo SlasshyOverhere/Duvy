@@ -1,6 +1,7 @@
 //! Configuration model and persistence helpers.
 
 use crate::db;
+use crate::AppState;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -100,6 +101,30 @@ impl Settings {
         let merged = merge(serde_json::to_value(&self).map_err(|e| e.to_string())?, patch);
         *self = serde_json::from_value(merged).map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+/// Hot callers: one DB read plus a DPAPI decrypt is too much per tick.
+pub fn load_cached(state: &AppState) -> Settings {
+    if let Ok(cache) = state.settings.read() {
+        if let Some(settings) = cache.as_ref() {
+            return settings.clone();
+        }
+    }
+    let loaded = match state.db.0.lock() {
+        Ok(conn) => Settings::load(&conn),
+        Err(poisoned) => Settings::load(&poisoned.into_inner()),
+    };
+    if let Ok(mut cache) = state.settings.write() {
+        *cache = Some(loaded.clone());
+    }
+    loaded
+}
+
+/// Call after any write to the settings row.
+pub fn invalidate(state: &AppState) {
+    if let Ok(mut cache) = state.settings.write() {
+        *cache = None;
     }
 }
 

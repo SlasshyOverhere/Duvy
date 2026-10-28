@@ -21,6 +21,9 @@ const PRAGMAS: &str = r#"
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
+PRAGMA cache_size = -16000;
+PRAGMA mmap_size = 134217728;
+PRAGMA temp_store = MEMORY;
 "#;
 
 // IF NOT EXISTS throughout: databases written before versioning existed already
@@ -96,7 +99,18 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     conn.execute_batch(PRAGMAS)?;
     migrate(&conn)?;
     encrypt_legacy_settings(&conn)?;
+    prune_progress(&conn)?;
     Ok(conn)
+}
+
+/// Playheads older than a year are noise; watched history is the user's, kept.
+fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
+    const YEAR_MS: i64 = 365 * 24 * 60 * 60 * 1000;
+    conn.execute(
+        "DELETE FROM progress WHERE updated_at < ?1",
+        params![now() - YEAR_MS],
+    )?;
+    Ok(())
 }
 
 /// Rows written before DPAPI protection existed are plaintext. Upgrade them on
@@ -264,12 +278,12 @@ pub struct LibraryItem {
 }
 
 pub fn list_library(conn: &Connection) -> rusqlite::Result<Vec<LibraryItem>> {
+    // `meta` is write-only: nothing reads it back, so the blob stays in the row.
     let mut stmt = conn.prepare(
-        "SELECT id, media_type, name, poster, background, added_at, meta
+        "SELECT id, media_type, name, poster, background, added_at
          FROM library ORDER BY added_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
-        let meta: Option<String> = row.get(6)?;
         Ok(LibraryItem {
             id: row.get(0)?,
             media_type: row.get(1)?,
@@ -277,7 +291,7 @@ pub fn list_library(conn: &Connection) -> rusqlite::Result<Vec<LibraryItem>> {
             poster: row.get(3)?,
             background: row.get(4)?,
             added_at: row.get(5)?,
-            meta: meta.and_then(|m| serde_json::from_str(&m).ok()),
+            meta: None,
         })
     })?;
     rows.collect()
@@ -402,14 +416,29 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
 }
 
 pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    write_progress(&tx, p)?;
+    tx.commit()
+}
+
+/// One transaction for the ticker: the watched mark and the playhead together.
+pub fn save_playback(conn: &Connection, p: &ProgressItem, watched: bool) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    if watched {
+        mark_watched(&tx, &p.key, &p.meta_id)?;
+    }
+    write_progress(&tx, p)?;
+    tx.commit()
+}
+
+fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     // Container metadata can report a duration shorter than the playhead.
     let position = if p.duration > 0.0 {
         p.position.clamp(0.0, p.duration)
     } else {
         p.position
     };
-    let tx = conn.unchecked_transaction()?;
-    tx.execute(
+    conn.execute(
         "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
                                episode, episode_title, position, duration, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -436,9 +465,9 @@ pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()
     // finished mark from an earlier run no longer applies. Without this it stays
     // out of Continue watching for good.
     if p.duration > 0.0 && position < p.duration * FINISHED_AT {
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
+        conn.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
     }
-    tx.commit()
+    Ok(())
 }
 
 pub fn clear_progress(conn: &Connection, key: &str) -> rusqlite::Result<()> {
@@ -527,11 +556,7 @@ pub fn set_library_meta(
 
 pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -> rusqlite::Result<()> {
     if watched {
-        conn.execute(
-            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-             ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
-            params![key, meta_id, now()],
-        )?;
+        mark_watched(conn, key, meta_id)?;
     } else {
         // Watched also counts progress finished at FINISHED_AT, so the playhead
         // has to go with the mark or the title stays in Watched.
@@ -540,6 +565,15 @@ pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -
         tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
         tx.commit()?;
     }
+    Ok(())
+}
+
+fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
+         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
+        params![key, meta_id, now()],
+    )?;
     Ok(())
 }
 
