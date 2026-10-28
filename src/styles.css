@@ -2634,29 +2634,28 @@ button.pill:hover {
 }
 
 .skeleton-line {
+  position: relative;
+  overflow: hidden;
   height: 8px;
   border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.06) 0%,
-    rgba(255, 255, 255, 0.13) 50%,
-    rgba(255, 255, 255, 0.06) 100%
+    transparent 0%,
+    rgba(255, 255, 255, 0.14) 50%,
+    transparent 100%
   );
-  background-size: 220% 100%;
-  animation: skeleton-sweep 1.5s linear infinite;
+  animation: sk-shimmer 1.6s ease-in-out infinite;
 }
 
 .skeleton-line.is-label {
   height: 11px;
-}
-
-@keyframes skeleton-sweep {
-  from {
-    background-position: 120% 0;
-  }
-  to {
-    background-position: -120% 0;
-  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -4383,22 +4382,33 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sk-line,
-.sk-poster {
+.sk-poster,
+.sk {
   position: relative;
   display: block;
   overflow: hidden;
-  border-radius: 10px;
   background: #0e0e0e;
 }
 
-/* The sweep is a composited transform, not a repainted background. */
+.sk-line,
+.sk-poster {
+  border-radius: 10px;
+}
+
+.sk {
+  border-radius: 8px;
+  background: #131313;
+}
+
+/* The highlight sits dead centre and breathes; a sweep reads as a glitch. */
 .sk-line::after,
-.sk-poster::after {
+.sk-poster::after,
+.sk::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 26%, #1a1a1a 40%, transparent 54%);
-  animation: sk-shimmer 1.5s linear infinite;
+  background: linear-gradient(90deg, transparent 0%, #1d1d1d 50%, transparent 100%);
+  animation: sk-shimmer 1.6s ease-in-out infinite;
 }
 
 .sk-badge {
@@ -4468,11 +4478,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 @keyframes sk-shimmer {
-  from {
-    transform: translateX(-100%);
+  0%,
+  100% {
+    opacity: 0.25;
   }
-  to {
-    transform: translateX(100%);
+  50% {
+    opacity: 1;
   }
 }
 
@@ -4500,14 +4511,6 @@ input[type="range"]::-webkit-slider-thumb {
   height: 16px;
   flex: none;
   border-width: 2px;
-}
-
-.sk {
-  display: block;
-  border-radius: 8px;
-  background: linear-gradient(100deg, #131313 25%, #222222 42%, #131313 59%);
-  background-size: 220% 100%;
-  animation: sk-shimmer 1.4s linear infinite;
 }
 
 .ld-detail {
