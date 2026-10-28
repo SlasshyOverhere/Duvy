@@ -368,6 +368,9 @@ select {
   padding-right: 24px;
 }
 
+/* A whisper of shade under the header keeps the wordmark and the status pills
+   readable over bright artwork without killing the backdrop the glass dock
+   refracts. */
 .topbar::before {
   content: "";
   position: absolute;
@@ -377,10 +380,9 @@ select {
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    var(--bg) 0%,
-    rgba(14, 12, 10, 0.92) 42%,
-    rgba(14, 12, 10, 0.5) 70%,
-    rgba(14, 12, 10, 0) 100%
+    rgba(0, 0, 0, 0.38) 0%,
+    rgba(0, 0, 0, 0.2) 58%,
+    rgba(0, 0, 0, 0) 100%
   );
 }
 
@@ -412,10 +414,21 @@ select {
   gap: 4px;
   padding: 6px;
   border-radius: var(--pill);
-  background: rgba(20, 20, 20, 0.72);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 18px 34px -26px rgba(0, 0, 0, 0.95);
-  backdrop-filter: blur(16px) saturate(140%);
+  /* Two tones: a faint white gloss raking the top lip over a dark, very
+     translucent body, so the artwork reads through the blur. */
+  background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.04) 46%,
+      rgba(255, 255, 255, 0.02) 100%
+    ),
+    rgba(12, 12, 12, 0.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 1px rgba(0, 0, 0, 0.3),
+    0 14px 28px -18px rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(24px) saturate(180%) brightness(1.06);
 }
 
 .dock-item {
@@ -428,7 +441,7 @@ select {
   border: 0;
   border-radius: var(--pill);
   background: none;
-  color: rgba(253, 250, 245, 0.62);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 14.5px;
   font-weight: 600;
   white-space: nowrap;
@@ -445,7 +458,8 @@ select {
   inset: 0;
   z-index: -1;
   border-radius: var(--pill);
-  background: rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 /* Names appear when the dock is reached, so the bar stays icon-sized. */
