@@ -393,6 +393,8 @@ export function PlayerView() {
     playingSource,
     progressFor,
     leavePlayer,
+    starting,
+    cancelStart,
   } = useApp();
   const player = usePlayer();
   const [local, setLocal] = useState<PlayerSnapshot | null>(player);
@@ -1487,6 +1489,25 @@ export function PlayerView() {
   }, [firstFrame, local?.duration, local?.ended, local?.error]);
 
   if (!local) {
+    // Clicked play: the screen opens at once and the source resolves behind it.
+    if (starting) {
+      return (
+        <div className="pv pv--awake">
+          <div className="pv-wait">
+            {starting.poster ? (
+              <img className="pv-pulse" src={starting.poster} alt="" draggable={false} />
+            ) : (
+              <Spinner label="Opening stream" />
+            )}
+            <p className="pv-wait-label">{starting.name}</p>
+            <p className="pv-hint">Finding a source…</p>
+            <button type="button" className="btn btn-ghost" onClick={cancelStart}>
+              Back
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="pv pv--awake">
         <div className="pv-empty">

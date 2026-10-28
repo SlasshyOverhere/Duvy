@@ -52,6 +52,9 @@ interface Store {
   progress: ProgressItem[];
   toasts: Toast[];
   route: Route;
+  /** Non-null from the click until the source is resolved; the player opens at once. */
+  starting: { name: string; poster: string | null } | null;
+  cancelStart: () => void;
   navigate: (route: Route) => void;
   back: () => void;
   /** Leave the player for the playing title, without stacking a second copy. */
@@ -65,7 +68,7 @@ interface Store {
   notify: (text: string, tone?: ToastTone) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
-  playRequest: (request: PlayRequest) => Promise<void>;
+  playRequest: (request: PlayRequest) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
   buildSession: (details: Details, video: Video | null) => PlaybackSession;
@@ -171,10 +174,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
+  const [starting, setStarting] = useState<{ name: string; poster: string | null } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(1);
   const depth = useRef(0);
   const opening = useRef(false);
+  // A click bumps this, so a cancelled start cannot open a player afterwards.
+  const startToken = useRef(0);
   // The item whose source is being found right now, so a different click can
   // say what it is waiting for instead of dying silently.
   const pending = useRef<{ id: string; name: string } | null>(null);
@@ -263,8 +269,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // A restored player entry (or a close the screen never saw) has no session:
   // leave it instead of showing the empty player.
   useEffect(() => {
-    if (route.name === "player" && !player) leavePlayer();
-  }, [leavePlayer, player, route.name]);
+    if (route.name === "player" && !player && !starting) leavePlayer();
+  }, [leavePlayer, player, route.name, starting]);
 
   // The close event carries no session, so remember the last one to return to.
   useEffect(() => {
@@ -462,18 +468,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [progress],
   );
 
+  // The player is a screen, not a spinner on the previous one: show it at once
+  // and let it carry the wait.
+  const beginStart = useCallback(
+    (name: string, poster: string | null) => {
+      const token = startToken.current + 1;
+      startToken.current = token;
+      setStarting({ name, poster });
+      navigate({ name: "player" });
+      return token;
+    },
+    [navigate],
+  );
+
+  const finishStart = useCallback((token: number) => {
+    if (startToken.current === token) setStarting(null);
+  }, []);
+
+  // Pop the player entry the start added, landing on the screen that launched it.
+  const leaveStart = useCallback(() => {
+    const base = playerBase.current;
+    playerBase.current = null;
+    if (base && depth.current > 0) {
+      routeRef.current = base;
+      depth.current -= 1;
+      window.history.back();
+      return;
+    }
+    navigate({ name: "home" }, { replace: true });
+  }, [navigate]);
+
+  const cancelStart = useCallback(() => {
+    startToken.current += 1;
+    pending.current = null;
+    setStarting(null);
+    leaveStart();
+  }, [leaveStart]);
+
   const playRequest = useCallback(
-    async (request: PlayRequest) => {
+    async (request: PlayRequest): Promise<boolean> => {
       // A double click used to start two players; the last one won, but both
       // sessions were spawned and both were pushed onto history.
-      if (opening.current) return;
+      if (opening.current) return true;
       opening.current = true;
       try {
         const snapshot = await api.player.open(request);
         setPlayer(snapshot);
-        navigate({ name: "player" });
+        // The screen is already up while the source resolves.
+        if (routeRef.current.name !== "player") navigate({ name: "player" });
+        return true;
       } catch (error) {
         notify(errorMessage(error), "error");
+        return false;
       } finally {
         opening.current = false;
       }
@@ -559,8 +605,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id, name: item.name };
+      const token = beginStart(item.name, item.poster ?? null);
       try {
-        notify(`Finding a source for ${item.name}…`);
         // A movie's tt id is what the stream addons key on, so the hunt can run
         // alongside the details fetch instead of queueing behind it.
         const early =
@@ -568,6 +614,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ? api.streams({ id: item.id, mediaType: item.type })
             : null;
         const [details, prefetched] = await Promise.all([api.details(item.id, item.type), early]);
+        if (startToken.current !== token) return;
         let video: Video | null = null;
         if (details.type === "series") {
           const last = progress
@@ -600,6 +647,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             episode: session.episode,
             imdbId: details.imdbId,
           }));
+        if (startToken.current !== token) return;
         const source = pickSource(
           options,
           settings?.preferredQuality ?? "auto",
@@ -608,17 +656,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         if (!source) throw noSourceError(options, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
+        if (startToken.current !== token) return;
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
           : details.name;
-        await playRequest({ url, title: label, startAt: resume, session });
+        const opened = await playRequest({ url, title: label, startAt: resume, session });
+        if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
-        notify(errorMessage(error), "error");
+        // The screen is already open, so a failed hunt returns to where it began.
+        if (startToken.current === token) {
+          notify(errorMessage(error), "error");
+          leaveStart();
+        }
       } finally {
         pending.current = null;
+        finishStart(token);
       }
     },
     [
+      beginStart,
+      finishStart,
+      leaveStart,
       notify,
       playRequest,
       progress,
@@ -640,14 +698,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id: entry.key, name: entry.name };
+      const token = beginStart(entry.name, entry.poster ?? null);
       try {
-        notify(`Resuming ${entry.name}…`);
         // The entry already carries every session field, and a tt id is exactly
         // what the stream addons key on. Fetching details first only resolved
         // that same id, at the cost of a full metadata round trip before the hunt.
         const imdbId = entry.metaId.startsWith("tt") ? entry.metaId : null;
         const details = imdbId ? null : await api.details(entry.metaId, entry.type);
+        if (startToken.current !== token) return;
         if (details && entry.type === "series" && details.videos.length === 0) {
+          setStarting(null);
           navigate({ name: "details", id: entry.metaId, type: entry.type });
           return;
         }
@@ -669,6 +729,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode,
           imdbId: imdbId ?? details?.imdbId ?? null,
         });
+        if (startToken.current !== token) return;
         const source = pickSource(
           sources,
           settings?.preferredQuality ?? "auto",
@@ -677,7 +738,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
-        await playRequest({
+        if (startToken.current !== token) return;
+        const opened = await playRequest({
           url,
           title:
             entry.type === "series"
@@ -686,13 +748,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           startAt: resumePosition(entry.position, entry.duration),
           session,
         });
+        if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
-        notify(errorMessage(error), "error");
+        if (startToken.current === token) {
+          notify(errorMessage(error), "error");
+          leaveStart();
+        }
       } finally {
         pending.current = null;
+        finishStart(token);
       }
     },
     [
+      beginStart,
+      finishStart,
+      leaveStart,
       navigate,
       notify,
       playRequest,
@@ -714,6 +784,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       progress,
       toasts,
       route,
+      starting,
+      cancelStart,
       navigate,
       back,
       leavePlayer,
@@ -743,6 +815,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       progress,
       toasts,
       route,
+      starting,
+      cancelStart,
       navigate,
       back,
       leavePlayer,
