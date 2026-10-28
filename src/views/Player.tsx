@@ -431,10 +431,6 @@ export function PlayerView() {
   const frameSeq = useRef(0);
   const frameBucket = useRef(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  // Stored position offered by the resume prompt, and the seconds left before
-  // it settles on Resume by itself.
-  const [resumeAt, setResumeAt] = useState<number | null>(null);
-  const [resumeLeft, setResumeLeft] = useState(8);
   const [thumbBroken, setThumbBroken] = useState(false);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [markMsg, setMarkMsg] = useState<string | null>(null);
@@ -451,7 +447,6 @@ export function PlayerView() {
   const hudOutTimer = useRef<number | null>(null);
   const volOsdTimer = useRef<number | null>(null);
   const volSeen = useRef<number | null>(null);
-  const openedAt = useRef(Date.now());
   // A segment jumps once per playback session, even if the tick lands inside
   // the window again.
   const fired = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
@@ -466,8 +461,6 @@ export function PlayerView() {
   const livePct = useRef(0);
   // False once the screen closes, so a slow open cannot navigate back into it.
   const alive = useRef(true);
-  // The session whose progress was applied directly, so it is not prompted again.
-  const skipResume = useRef<string | null>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -633,7 +626,6 @@ export function PlayerView() {
           saved && saved.duration > 0 && saved.position / saved.duration < 0.9
             ? saved.position
             : 0;
-        skipResume.current = nextSession.key;
         const opened = await playRequest({
           url,
           title: `${details.name} · ${seasonLabel(video.season, video.episode ?? video.number)}`,
@@ -702,7 +694,6 @@ export function PlayerView() {
 
   const seekTo = useCallback(
     (target: number, user = true) => {
-      setResumeAt(null);
       // A user going back before the intro re-arms the skip for it; the
       // auto-skip path must not.
       if (user && markers?.introStart != null && target < markers.introStart) {
@@ -717,7 +708,6 @@ export function PlayerView() {
 
   const seekRel = useCallback(
     (delta: number) => {
-      setResumeAt(null);
       if (markers?.introStart != null && posRef.current + delta < markers.introStart) {
         fired.current = { intro: false, outro: false };
       }
@@ -1053,26 +1043,16 @@ export function PlayerView() {
     advanced.current = true;
   }, []);
 
-  const applyResume = useCallback(
-    (target: number) => {
-      setResumeAt(null);
-      send("seek", Math.max(0, target));
-    },
-    [send],
-  );
-
   // Each episode is a fresh session: clear everything that belonged to the
   // previous one, including a dismissed next-episode card.
   useEffect(() => {
     advanced.current = false;
-    openedAt.current = Date.now();
     setSubs(null);
     setSources(null);
     setSourceFilter(null);
     setSelectedLang(null);
     setNextOff(false);
     setThumbBroken(false);
-    setResumeAt(null);
     setSurface(null);
     setLoadedSub(null);
     setHover(null);
@@ -1170,52 +1150,6 @@ export function PlayerView() {
       if (last.key && last.action !== "stop") pushScrobble(last.key, "stop");
     };
   }, [traktOn, traktKey, pushScrobble]);
-
-  // A stored position is worth offering when it is past the opening minutes
-  // but not close enough to the end to count as finished.
-  useEffect(() => {
-    const key = session?.key;
-    if (!key || !settings?.autoResume) return;
-    // A position already applied by playVideo must not be offered again.
-    if (skipResume.current === key) return;
-    let live = true;
-    void api.progress
-      .forKey(key)
-      .then((entry) => {
-        if (!live || !entry || entry.duration <= 0) return;
-        // A lookup that took this long is not an "on open" prompt any more.
-        if (Date.now() - openedAt.current > 30000) return;
-        if (entry.position > 30 && entry.position / entry.duration < 0.92) {
-          setResumeAt(entry.position);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [session?.key, settings?.autoResume]);
-
-  // The prompt settles on Resume after eight seconds of playback. The clock
-  // only starts once the picture is open, so a slow source cannot eat it, and
-  // it samples the playhead so a stream that already resumed is never rewound.
-  useEffect(() => {
-    if (resumeAt == null || loading || showNext) return;
-    setResumeLeft(8);
-    let atStoredPoint = Math.abs(posRef.current - resumeAt) <= 12;
-    const deadline = Date.now() + 8000;
-    const tick = window.setInterval(() => {
-      if (Math.abs(posRef.current - resumeAt) <= 12) atStoredPoint = true;
-      setResumeLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
-    }, 250);
-    const done = window.setTimeout(() => {
-      if (atStoredPoint) setResumeAt(null);
-      else applyResume(resumeAt);
-    }, 8000);
-    return () => {
-      window.clearInterval(tick);
-      window.clearTimeout(done);
-    };
-  }, [resumeAt, loading, showNext, applyResume]);
 
   // Markers move the playhead through the same path the skip buttons use. The
   // check is local, so it costs nothing per tick.
@@ -1349,8 +1283,8 @@ export function PlayerView() {
       if (typing) return;
       const key = event.key;
       if (locked && key !== "Escape") return;
-      // A panel or the resume prompt owns the keyboard; Escape still closes it.
-      if ((surface || resumeAt != null) && key !== "Escape") return;
+      // A panel owns the keyboard; Escape still closes it.
+      if (surface && key !== "Escape") return;
       // Holding a seek or volume key keeps stepping; every other key acts once.
       const seeks = /^(Arrow(Left|Right|Up|Down)|j|J|l|L)$/.test(key);
       if (event.repeat && !seeks) return;
@@ -1425,7 +1359,6 @@ export function PlayerView() {
             setLocked(false);
             setChrome(true);
           } else if (surface) setSurface(null);
-          else if (resumeAt != null) setResumeAt(null);
           else if (showNext) dismissNext();
           else if (fsNow.current) leaveFullscreen();
           // Escape never ends playback; leaving is the explicit Close.
@@ -1450,7 +1383,6 @@ export function PlayerView() {
     locked,
     nextEpisode,
     playVideo,
-    resumeAt,
     seekRel,
     showNext,
     step,
@@ -2377,33 +2309,6 @@ export function PlayerView() {
             </Overlay>
           ) : null}
         </>
-      ) : null}
-
-      {resumeAt != null && !loading && !showNext && !failed ? (
-        <section className="pv-upnext pv-resume" aria-label="Resume playback">
-          <div className="pv-upnext-info">
-            <div className="pv-upnext-copy">
-              <p className="pv-upnext-label">Continue watching</p>
-              <p className="pv-upnext-name">Pick up at {formatTime(resumeAt)}</p>
-              <p className="pv-upnext-meta">Resuming automatically in {resumeLeft}s</p>
-            </div>
-            <div className="pv-upnext-actions">
-              <button type="button" className="pv-upnext-btn" onClick={() => applyResume(0)}>
-                Start over
-              </button>
-              <button
-                type="button"
-                className="pv-upnext-btn pv-upnext-btn--play"
-                onClick={() => applyResume(resumeAt)}
-              >
-                Resume
-              </button>
-            </div>
-            <span className="pv-resume-timer" aria-hidden="true">
-              <span style={{ width: `${Math.max(0, Math.min(100, (resumeLeft / 8) * 100))}%` }} />
-            </span>
-          </div>
-        </section>
       ) : null}
 
       {showNext && nextEpisode ? (

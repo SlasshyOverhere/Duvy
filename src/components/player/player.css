@@ -1,4 +1,4 @@
-/* ---------------------------------------------------------------------------
+﻿/* ---------------------------------------------------------------------------
    Player HUD
    Mirrors Nuvio Desktop's modern layout: top-right window controls, a centred
    transport, and a bottom column of title, chapter, timeline and actions.
@@ -160,9 +160,7 @@
   transition: opacity 0.2s ease, visibility 0s linear 0.2s;
 }
 
-.pv--panel .pv-resume,
 .pv--panel .pv-upnext,
-.pv--locked .pv-resume,
 .pv--locked .pv-upnext {
   display: none;
 }
@@ -1390,9 +1388,8 @@
   margin-top: 18px;
 }
 
-/* ---- resume and next episode ------------------------------------------- */
+/* ---- next episode ------------------------------------------------------ */
 
-.pv-resume,
 .pv-upnext {
   position: absolute;
   left: 44px;
@@ -1405,42 +1402,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.pv-resume-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-}
-
-.pv-resume-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-}
-
-.pv-resume-choice {
-  padding: 4px 0;
-  border: 0;
-  background: none;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--accent);
-  text-align: left;
-}
-
-.pv-resume-choice:hover {
-  color: color-mix(in srgb, var(--accent) 76%, #fff);
-}
-
-.pv-resume-choice.is-quiet {
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.pv-resume-choice.is-quiet:hover {
-  color: #fff;
 }
 
 .pv-upnext {
@@ -1653,7 +1614,6 @@
 .pv .pv-source-row:focus-visible,
 .pv .pv-chapter-row:focus-visible,
 .pv .pv-episode-row:focus-visible,
-.pv .pv-resume-choice:focus-visible,
 .pv .pv-upnext-play:focus-visible,
 .pv .pv-upnext-close:focus-visible {
   outline: 2px solid var(--accent);
@@ -1675,7 +1635,6 @@
     padding: 24px 24px 24px;
   }
 
-  .pv-resume,
   .pv-upnext {
     left: 24px;
     width: min(400px, calc(100vw - 48px));
@@ -2361,34 +2320,6 @@
 
 .pv .pv-upnext--end .pv-upnext-info {
   flex: 1 1 auto;
-}
-
-/* ---- resume card: the next-video card's twin ---------------------------- */
-
-.pv .pv-resume {
-  width: min(26rem, calc(100vw - 4rem));
-}
-
-.pv .pv-resume .pv-upnext-info {
-  position: relative;
-  flex: 1 1 auto;
-  padding-bottom: 5px;
-}
-
-.pv .pv-resume-timer {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.pv .pv-resume-timer > span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.96s linear;
 }
 
 /* ---- narrow window: fold the action row into a popup -------------------- */
