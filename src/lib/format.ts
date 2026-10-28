@@ -1,3 +1,10 @@
+/** A human line from anything thrown: IPC errors, addon strings, plain junk. */
+export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error) return error;
+  return fallback;
+}
+
 export function formatTime(seconds: number, forceHours = false): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const total = Math.floor(seconds);

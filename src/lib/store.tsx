@@ -10,7 +10,7 @@ import {
 } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./bridge";
-import { seasonLabel } from "./format";
+import { errorMessage, seasonLabel } from "./format";
 import type {
   AddonInfo,
   AppInfo,
@@ -110,10 +110,16 @@ export function sessionFor(details: Details, video: Video | null): PlaybackSessi
   };
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Something went wrong";
+/** A stored position at or past this share of the runtime counts as finished. */
+const FINISHED_SHARE = 0.9;
+
+/** Info hashes arrive as 40 hex or 32 base32 chars; anything else never becomes a magnet. */
+const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Z2-7]{32})$/;
+
+/** A finished title restarts instead of resuming its last few seconds. */
+function resumePosition(position: number, duration: number): number {
+  if (!(duration > 0)) return position > 0 ? position : 0;
+  return position / duration >= FINISHED_SHARE ? 0 : position;
 }
 
 /**
@@ -169,7 +175,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toastId = useRef(1);
   const depth = useRef(0);
   const opening = useRef(false);
-  const pending = useRef(false);
+  // The item whose source is being found right now, so a different click can
+  // say what it is waiting for instead of dying silently.
+  const pending = useRef<{ id: string; name: string } | null>(null);
+  const toggling = useRef(new Set<string>());
+  const progressFails = useRef(0);
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
@@ -272,17 +282,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshProgress = useCallback(async () => {
     try {
       setProgress(await api.progress.list());
+      progressFails.current = 0;
     } catch {
-      // Progress is cosmetic; a failed refresh must never break a screen.
+      // Progress is cosmetic; a failed refresh must never break a screen. Two in
+      // a row is worth one quiet note that the timeline is stale.
+      progressFails.current += 1;
+      if (progressFails.current === 2) notify("Could not refresh progress");
     }
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
+        // One failing slice (a broken addon store, a locked progress file) must
+        // not cost the whole app: apply what loaded, then say what did not.
         const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress] =
-          await Promise.all([
+          await Promise.allSettled([
             api.appInfo(),
             api.settings.get(),
             api.addons.list(),
@@ -290,11 +306,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             api.progress.list(),
           ]);
         if (!alive) return;
-        setAppInfo(info);
-        setSettings(loadedSettings);
-        setAddons(loadedAddons);
-        setLibrary(loadedLibrary);
-        setProgress(loadedProgress);
+        if (info.status === "rejected") throw info.reason;
+        setAppInfo(info.value);
+        if (loadedSettings.status === "fulfilled") setSettings(loadedSettings.value);
+        if (loadedAddons.status === "fulfilled") setAddons(loadedAddons.value);
+        if (loadedLibrary.status === "fulfilled") setLibrary(loadedLibrary.value);
+        if (loadedProgress.status === "fulfilled") setProgress(loadedProgress.value);
+        const failed = (
+          [
+            ["settings", loadedSettings.status],
+            ["addons", loadedAddons.status],
+            ["library", loadedLibrary.status],
+            ["progress", loadedProgress.status],
+          ] as const
+        )
+          .filter(([, status]) => status === "rejected")
+          .map(([name]) => name);
+        if (failed.length) notify(`Could not load ${failed.join(", ")}.`, "error");
       } catch (error) {
         if (alive) setBootError(errorMessage(error));
       } finally {
@@ -304,7 +332,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     if (!settings) return;
@@ -387,26 +415,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const toggleLibrary = useCallback(
     async (item: MetaPreview) => {
+      // Two fast clicks on the same poster would race two toggles and land the
+      // badge on the wrong state.
+      if (toggling.current.has(item.id)) return;
+      toggling.current.add(item.id);
+      const entry: LibraryItem = {
+        id: item.id,
+        type: item.type,
+        name: item.name,
+        poster: item.poster ?? null,
+        background: item.background ?? null,
+        addedAt: Date.now(),
+        meta: item,
+      };
       try {
-        const added = await api.library.toggle({
-          id: item.id,
-          type: item.type,
-          name: item.name,
-          poster: item.poster ?? null,
-          background: item.background ?? null,
-          addedAt: Date.now(),
-          meta: item,
-        });
-        await refreshLibrary();
+        const added = await api.library.toggle(entry);
+        // The toggle already reports the new state, so update in place instead
+        // of re-listing the whole library for every click.
+        setLibrary((current) =>
+          added
+            ? current.some((row) => row.id === item.id)
+              ? current
+              : [entry, ...current]
+            : current.filter((row) => row.id !== item.id),
+        );
         notify(
           added ? `Added ${item.name} to your library` : `Removed ${item.name}`,
           added ? "success" : "info",
         );
       } catch (error) {
         notify(errorMessage(error), "error");
+      } finally {
+        toggling.current.delete(item.id);
       }
     },
-    [notify, refreshLibrary],
+    [notify],
   );
 
   const inLibrary = useCallback(
@@ -444,24 +487,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /**
    * Turn a source row into something mpv can actually open: HTTP links pass
-   * through (debrid accounts may still need to unrestrict them), magnets and
-   * hashes go to the local torrent engine.
+   * through (debrid accounts may still need to unrestrict them), torrents try
+   * the connected debrid first, then the local engine behind the P2P gate.
    */
   const resolveStream = useCallback(
     async (stream: StreamOption): Promise<string> => {
-      const direct = stream.url ?? "";
-      const magnet = !direct && stream.infoHash
-        ? `magnet:?xt=urn:btih:${stream.infoHash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`
-        : direct;
-      if (!magnet) throw new Error("That source has no link or info hash to play.");
+      // Some addons put a magnet or a bare hash in `url`; both are torrents.
+      const raw = stream.url ?? "";
+      const magnetUrl = /^magnet:/i.test(raw);
+      const bare = !magnetUrl && INFO_HASH.test(raw);
+      const direct = magnetUrl || bare ? "" : raw;
 
-      if (!magnet.startsWith("magnet:") && !/^[0-9a-f]{40}$/i.test(magnet)) {
+      if (direct) {
+        // Only real web links may reach mpv: no file:// or javascript: rows.
+        if (!/^https?:\/\//i.test(direct)) {
+          throw new Error("That source has a link mpv cannot open.");
+        }
         const providers = await api.debrid.providers().catch(() => []);
         const url = providers.some((provider) => provider.connected)
-          ? await api.debrid.resolve(magnet)
-          : magnet;
+          ? await api.debrid.resolve(direct)
+          : direct;
         setPlayingSource(stream);
         return url;
+      }
+
+      const hashFromUrl = magnetUrl
+        ? /xt=urn:btih:([0-9a-z]+)/i.exec(raw)?.[1]
+        : undefined;
+      const candidates = [bare ? raw : "", stream.infoHash ?? "", hashFromUrl ?? ""]
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!candidates.length) throw new Error("That source has no link or info hash to play.");
+      const hash = candidates.find((value) => INFO_HASH.test(value));
+      if (!hash) throw new Error("That source has an invalid info hash.");
+      // Only the hash and the file index: a stray addon parameter never rides along.
+      const magnet = `magnet:?xt=urn:btih:${hash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`;
+
+      // A cached torrent can play through debrid without turning P2P on.
+      const providers = await api.debrid.providers().catch(() => []);
+      if (providers.some((provider) => provider.connected)) {
+        try {
+          const url = await api.debrid.resolve(magnet);
+          if (url) {
+            setPlayingSource(stream);
+            return url;
+          }
+        } catch {
+          // Not cached, or the account failed: fall through to the local engine.
+        }
       }
 
       if (!settings?.p2pConsent) {
@@ -484,8 +557,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (item: MetaPreview, fromStart = false) => {
       // One click, one chain: a second click while a source is still being
       // found used to start a whole second hunt behind the first.
-      if (pending.current) return;
-      pending.current = true;
+      const id = fromStart ? `${item.id}:start` : item.id;
+      const busy = pending.current;
+      if (busy) {
+        if (busy.id !== id) notify(`Already starting ${busy.name}`);
+        return;
+      }
+      pending.current = { id, name: item.name };
       try {
         notify(`Finding a source for ${item.name}…`);
         // A movie's tt id is what the stream addons key on, so the hunt can run
@@ -513,7 +591,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
-        const resume = settings?.autoResume && !fromStart ? progressFor(session.key)?.position ?? 0 : 0;
+        const stored = progressFor(session.key);
+        const resume =
+          settings?.autoResume && !fromStart
+            ? resumePosition(stored?.position ?? 0, stored?.duration ?? 0)
+            : 0;
         const options =
           (details.type === item.type ? prefetched : null) ??
           (await api.streams({
@@ -538,7 +620,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         notify(errorMessage(error), "error");
       } finally {
-        pending.current = false;
+        pending.current = null;
       }
     },
     [
@@ -557,8 +639,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Resume a specific Continue Watching entry (exact episode, exact position). */
   const resumeEntry = useCallback(
     async (entry: ProgressItem) => {
-      if (pending.current) return;
-      pending.current = true;
+      const busy = pending.current;
+      if (busy) {
+        if (busy.id !== entry.key) notify(`Already starting ${busy.name}`);
+        return;
+      }
+      pending.current = { id: entry.key, name: entry.name };
       try {
         notify(`Resuming ${entry.name}…`);
         // The entry already carries every session field, and a tt id is exactly
@@ -602,13 +688,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             entry.type === "series"
               ? `${entry.name} · ${seasonLabel(entry.season, entry.episode)}`
               : entry.name,
-          startAt: entry.position,
+          startAt: resumePosition(entry.position, entry.duration),
           session,
         });
       } catch (error) {
         notify(errorMessage(error), "error");
       } finally {
-        pending.current = false;
+        pending.current = null;
       }
     },
     [
