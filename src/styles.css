@@ -2125,7 +2125,8 @@ button.pill:hover {
   z-index: 80;
   display: flex;
   justify-content: flex-end;
-  padding: clamp(0px, 1.2vh, 14px) clamp(0px, 0.8vw, 14px);
+  align-items: flex-start;
+  padding: clamp(14px, 2vh, 24px);
 }
 
 .drawer-backdrop {
@@ -2138,10 +2139,12 @@ button.pill:hover {
   animation: fade-in 0.18s var(--ease);
 }
 
+/* A floating card, not a slab welded to the window edge: it stops short of the
+   top and bottom so the page stays visible, and the list scrolls inside it. */
 .drawer {
   position: relative;
-  width: min(560px, 96vw);
-  height: 100%;
+  width: min(560px, 94vw);
+  max-height: min(720px, 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2164,14 +2167,15 @@ button.pill:hover {
   }
 }
 
-/* The panel has no title bar: the filter row is the bar, and the close button
-   rides at its end. */
+/* The panel has no title bar: the filter row is the bar, with a step arrow on
+   each side and the close button at the end. Every control owns a column, so
+   nothing overlaps the chips. */
 .drawer-filter-bar {
-  position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px 32px;
   align-items: center;
-  gap: 8px;
-  padding-right: 10px;
+  gap: 6px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -2198,12 +2202,11 @@ button.pill:hover {
    mouse has no sideways wheel, and an arrow shows up on any edge that still
    hides chips so the drag is discoverable. */
 .drawer-filters {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-wrap: nowrap;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 1px 0;
   overflow-x: auto;
   scrollbar-width: none;
   user-select: none;
@@ -2215,28 +2218,28 @@ button.pill:hover {
 }
 
 .drawer-filters.can-right {
-  mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
 .drawer-filters.can-left {
-  mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
-  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 20px), transparent);
 }
 
 .drawer-filters.can-left.can-right {
   mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 44px,
-    #000 calc(100% - 44px),
+    #000 20px,
+    #000 calc(100% - 20px),
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0,
-    #000 44px,
-    #000 calc(100% - 44px),
+    #000 20px,
+    #000 calc(100% - 20px),
     transparent 100%
   );
 }
@@ -2245,42 +2248,32 @@ button.pill:hover {
   display: none;
 }
 
-/* A step arrow, not a decoration: it pages the row the same way a drag does. */
+/* A step arrow in its own column, not an overlay: it pages the row the same
+   way a drag does, and dims when that edge has nothing left to reveal. */
 .filter-step {
-  position: absolute;
-  top: 50%;
-  display: none;
+  display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
-  margin-top: -14px;
   border: 0;
-  border-radius: 999px;
-  background: rgba(22, 22, 22, 0.92);
-  color: var(--text);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
 }
 
-.drawer-filters.can-left ~ .filter-step.is-left,
-.drawer-filters.can-right ~ .filter-step.is-right {
-  display: grid;
+.filter-step:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
 }
 
-.filter-step:hover {
-  background: #262626;
-}
-
-.filter-step.is-left {
-  left: 6px;
+.filter-step:disabled {
+  opacity: 0.28;
+  cursor: default;
 }
 
 .filter-step.is-left svg {
   transform: rotate(180deg);
-}
-
-.filter-step.is-right {
-  right: 50px;
 }
 
 .drawer-filters .chip {

@@ -320,8 +320,8 @@ export function StreamDrawer({
             type="button"
             className="filter-step is-left"
             onClick={() => step(-1)}
+            disabled={!edges.left}
             aria-label="Earlier addons"
-            tabIndex={edges.left ? 0 : -1}
           >
             <Icon name="chevron" size={14} />
           </button>
@@ -329,8 +329,8 @@ export function StreamDrawer({
             type="button"
             className="filter-step is-right"
             onClick={() => step(1)}
+            disabled={!edges.right}
             aria-label="More addons"
-            tabIndex={edges.right ? 0 : -1}
           >
             <Icon name="chevron" size={14} />
           </button>
