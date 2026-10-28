@@ -274,69 +274,73 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                 </span>
               ))}
             </div>
-            <p className="detail-overview">{details.description || "No overview yet."}</p>
+            <div className="detail-columns">
+              <div className="detail-main">
+                <p className="detail-overview">{details.description || "No overview yet."}</p>
 
-            <div className="detail-actions">
-              <Button
-                variant="primary"
-                icon="play"
-                onClick={playOrResume}
-                disabled={details.type === "series" && details.videos.length === 0}
-              >
-                {resumeTarget.label}
-              </Button>
-              <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
-                Sources
-              </Button>
-              <Button
-                icon={inWatchlist ? "check" : "plus"}
-                onClick={() =>
-                  void toggleLibrary({
-                    id: details.id,
-                    type: details.type,
-                    name: details.name,
-                    poster: details.poster,
-                    background: details.background,
-                    releaseInfo: details.year,
-                    imdbRating: details.rating,
-                  })
-                }
-              >
-                {inWatchlist ? "In library" : "Library"}
-              </Button>
-              {trailer ? (
-                <Button
-                  icon="external"
-                  onClick={() =>
-                    void openExternal(trailer).catch(() =>
-                      notify("Could not open the trailer", "error"),
-                    )
-                  }
-                >
-                  Trailer
-                </Button>
-              ) : null}
-            </div>
+                <div className="detail-actions">
+                  <Button
+                    variant="primary"
+                    icon="play"
+                    onClick={playOrResume}
+                    disabled={details.type === "series" && details.videos.length === 0}
+                  >
+                    {resumeTarget.label}
+                  </Button>
+                  <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
+                    Sources
+                  </Button>
+                  <Button
+                    icon={inWatchlist ? "check" : "plus"}
+                    onClick={() =>
+                      void toggleLibrary({
+                        id: details.id,
+                        type: details.type,
+                        name: details.name,
+                        poster: details.poster,
+                        background: details.background,
+                        releaseInfo: details.year,
+                        imdbRating: details.rating,
+                      })
+                    }
+                  >
+                    {inWatchlist ? "In library" : "Library"}
+                  </Button>
+                  {trailer ? (
+                    <Button
+                      icon="external"
+                      onClick={() =>
+                        void openExternal(trailer).catch(() =>
+                          notify("Could not open the trailer", "error"),
+                        )
+                      }
+                    >
+                      Trailer
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
 
-            <div className="detail-facts">
-              {(details.director ?? []).length ? (
-                <p>
-                  <span>Director</span> {(details.director ?? []).join(", ")}
-                </p>
-              ) : null}
-              {(details.writer ?? []).length ? (
-                <p>
-                  <span>Writer</span> {(details.writer ?? []).join(", ")}
-                </p>
-              ) : null}
-              {(details.country ?? []).length ? (
-                <p>
-                  <span>Country</span> {(details.country ?? []).join(", ")}
-                </p>
-              ) : null}
-              {details.source === "tmdb" ? (
-                <p className="detail-source">Metadata from TMDB</p>
-              ) : null}
+              <div className="detail-facts">
+                {(details.director ?? []).length ? (
+                  <p>
+                    <span>Director</span> {(details.director ?? []).join(", ")}
+                  </p>
+                ) : null}
+                {(details.writer ?? []).length ? (
+                  <p>
+                    <span>Writer</span> {(details.writer ?? []).join(", ")}
+                  </p>
+                ) : null}
+                {(details.country ?? []).length ? (
+                  <p>
+                    <span>Country</span> {(details.country ?? []).join(", ")}
+                  </p>
+                ) : null}
+                {details.source === "tmdb" ? (
+                  <p className="detail-source">Metadata from TMDB</p>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

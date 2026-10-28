@@ -1663,9 +1663,8 @@ button.pill:hover {
    Details
    --------------------------------------------------------------------------- */
 
-/* Hallmark · screen: title detail · system: app tokens (Instrument Sans,
-   amber accent, black paper) · recomposed hero, no new palette.
-   Pre-emit: P5 H4 E5 S5 R4 V4. */
+/* Hallmark / screen: title detail / system: app tokens (Instrument Sans,
+   amber accent, black paper) / recomposed hero, no new palette. */
 
 .detail-page {
   padding: 0 0 clamp(72px, 9vh, 120px);
@@ -1673,9 +1672,10 @@ button.pill:hover {
 
 .detail-hero {
   position: relative;
-  min-height: min(86vh, 780px);
+  min-height: min(88vh, 820px);
   display: flex;
   align-items: flex-end;
+  padding-top: clamp(120px, 16vh, 200px);
   overflow: hidden;
   isolation: isolate;
 }
@@ -1715,25 +1715,33 @@ button.pill:hover {
     );
 }
 
+/* The info shelf: art owns the top of the frame, the facts get a surface that
+   runs to the window edge, and the poster crosses the seam. */
 .detail-body {
   position: relative;
   z-index: 1;
-  width: 100%;
+  width: calc(100% - var(--pad));
+  margin-left: var(--pad);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: end;
-  gap: clamp(20px, 2.6vw, 38px);
-  padding: clamp(150px, 20vh, 230px) var(--pad) clamp(30px, 4.5vh, 56px);
+  align-items: start;
+  gap: clamp(22px, 2.8vw, 40px);
+  padding: clamp(22px, 2.2vw, 30px) var(--pad) clamp(24px, 2.6vw, 34px)
+    clamp(20px, 2vw, 28px);
+  border-radius: 20px 0 0 0;
+  background: linear-gradient(180deg, rgba(18, 18, 18, 0.96), rgba(8, 8, 8, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .detail-poster {
-  width: 184px;
+  width: 196px;
+  margin-top: -76px;
   aspect-ratio: 2 / 3;
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 26px 50px -26px rgba(0, 0, 0, 0.95);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.95);
 }
 
 .detail-poster img {
@@ -1744,8 +1752,6 @@ button.pill:hover {
 
 .detail-info {
   min-width: 0;
-  max-width: 780px;
-  padding-bottom: 2px;
 }
 
 /* The title art is the composition when the addon has it; the name carries it
@@ -1753,7 +1759,7 @@ button.pill:hover {
 .detail-title {
   margin: 0;
   max-width: 24ch;
-  font-size: clamp(2.2rem, 4.2vw, 3.6rem);
+  font-size: clamp(2.1rem, 3.6vw, 3.1rem);
   line-height: 1.02;
   letter-spacing: -0.03em;
 }
@@ -1762,10 +1768,10 @@ button.pill:hover {
   display: block;
   width: auto;
   height: auto;
-  max-width: min(460px, 78%);
-  max-height: clamp(84px, 11vw, 150px);
+  max-width: min(430px, 74%);
+  max-height: clamp(72px, 8.4vw, 124px);
   object-fit: contain;
-  object-position: left bottom;
+  object-position: left center;
 }
 
 .detail-meta {
@@ -1773,8 +1779,8 @@ button.pill:hover {
   align-items: center;
   flex-wrap: wrap;
   row-gap: 4px;
-  margin-top: 14px;
-  font-size: 12.5px;
+  margin-top: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -1788,9 +1794,23 @@ button.pill:hover {
   color: var(--faint);
 }
 
+/* Overview takes the width; credits sit in their own column instead of a
+   narrow stack under the buttons. */
+.detail-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(176px, 260px);
+  align-items: start;
+  gap: clamp(24px, 4vw, 72px);
+  margin-top: 18px;
+}
+
+.detail-main {
+  min-width: 0;
+}
+
 .detail-overview {
-  margin-top: 16px;
-  max-width: 62ch;
+  margin: 0;
+  max-width: 58ch;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--muted);
@@ -1801,7 +1821,7 @@ button.pill:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 26px;
+  margin-top: 22px;
 }
 
 /* One strong action, the rest quiet commands: no wall of outlined twins. */
@@ -1819,18 +1839,16 @@ button.pill:hover {
 }
 
 .detail-facts {
-  margin-top: 26px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-width: 66ch;
+  gap: 6px;
   font-size: 12px;
   line-height: 1.5;
 }
 
 .detail-facts span {
   display: inline-block;
-  min-width: 64px;
+  min-width: 62px;
   color: var(--faint);
 }
 
@@ -3785,8 +3803,8 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .detail-poster {
-    width: 172px;
-    flex-basis: 172px;
+    width: 168px;
+    margin-top: -64px;
   }
 
   .episode {
@@ -3800,8 +3818,9 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 24px 14px;
   }
 
-  .detail-body {
-    align-items: end;
+  .detail-columns {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 200px);
+    gap: 30px;
   }
 
   .episode {
@@ -3893,16 +3912,49 @@ input[type="range"]::-webkit-slider-thumb {
 
   .detail-hero {
     min-height: 0;
+    padding-top: 96px;
   }
 
   .detail-body {
-    padding-top: 108px;
-    gap: 16px;
+    width: 100%;
+    margin-left: 0;
+    gap: 14px;
+    padding: 18px var(--pad) 26px;
+    border-radius: 16px 16px 0 0;
+    background: linear-gradient(180deg, rgba(16, 16, 16, 0.97), rgba(6, 6, 6, 0.99));
   }
 
   .detail-poster {
-    width: 118px;
-    flex-basis: 118px;
+    width: 110px;
+    margin-top: -52px;
+  }
+
+  .detail-title {
+    font-size: clamp(1.7rem, 6.4vw, 2.3rem);
+  }
+
+  .detail-logo {
+    max-width: min(240px, 66%);
+    max-height: 66px;
+  }
+
+  .detail-meta {
+    font-size: 12px;
+    margin-top: 10px;
+  }
+
+  .detail-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    margin-top: 16px;
+  }
+
+  .detail-overview {
+    font-size: 14px;
+  }
+
+  .detail-actions {
+    margin-top: 18px;
   }
 
   .episode {
