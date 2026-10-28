@@ -8,8 +8,6 @@ A lightweight desktop media hub for Windows: addons, library and playback in one
 > **Independent.** Duvy is an independent project. It is not affiliated with Trakt,
 > Jellyfin, Emby, any debrid provider, or any addon author. See [NOTICE](NOTICE).
 
-![Home](screenshots/home.png)
-
 ## Why this exists
 
 Most desktop media hubs run the whole app, including a large shared UI layer, on one runtime.
