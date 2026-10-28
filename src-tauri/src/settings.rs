@@ -47,6 +47,8 @@ pub struct Settings {
     pub auto_update_check: bool,
     /// A version the user skipped; background checks stay quiet about it.
     pub ignored_update_version: String,
+    /// The bundled metadata addons have been installed once already.
+    pub defaults_seeded: bool,
 }
 
 impl Default for Settings {
@@ -75,6 +77,7 @@ impl Default for Settings {
             trakt_scrobble: true,
             auto_update_check: true,
             ignored_update_version: String::new(),
+            defaults_seeded: false,
         }
     }
 }

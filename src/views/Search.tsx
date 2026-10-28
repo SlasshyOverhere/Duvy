@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { api } from "../lib/bridge";
+import { listen } from "@tauri-apps/api/event";
+import { api, isTauri } from "../lib/bridge";
 import { cachedRecos, saveRecos } from "../lib/feed";
 import { useApp } from "../lib/store";
 import type { HomeRow, MetaPreview } from "../lib/types";
 import { PosterCard, Row } from "../components/media";
-import { Button, EmptyState, Icon, Spinner } from "../components/ui";
+import { Button, EmptyState, Icon, Loading } from "../components/ui";
 
 const RECENT_KEY = "search.recent";
 const RECENT_MAX = 8;
@@ -45,13 +46,24 @@ function withRecent(list: string[], raw: string): string[] {
   return [entry, ...rest].slice(0, RECENT_MAX);
 }
 
+/// Addon rows arrive after the first paint; keep the first copy of each title.
+function mergeResults(base: MetaPreview[], extra: MetaPreview[]): MetaPreview[] {
+  const seen = new Set(base.map((item) => `${item.id}-${item.type}`));
+  return [...base, ...extra.filter((item) => !seen.has(`${item.id}-${item.type}`))];
+}
+
 export function SearchView({ query }: { query?: string }) {
-  const { navigate, playItem, addons } = useApp();
+  const { navigate, playItem } = useApp();
   const [results, setResults] = useState<MetaPreview[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [value, setValue] = useState(query ?? "");
+  // Typing searches on its own; the route only changes on submit.
+  const [activeQuery, setActiveQuery] = useState(query ?? "");
+  const [waiting, setWaiting] = useState(false);
+  const activeRef = useRef(activeQuery);
+  activeRef.current = activeQuery;
   const [recos, setRecos] = useState<HomeRow[]>(cachedRecos);
   const [recoState, setRecoState] = useState<"loading" | "ready" | "error">("loading");
   const [recoAttempt, setRecoAttempt] = useState(0);
@@ -65,6 +77,7 @@ export function SearchView({ query }: { query?: string }) {
     setRecent(list);
     storeRecent(list);
     setValue(next);
+    setActiveQuery(next);
     navigate({ name: "search", query: next });
   };
 
@@ -76,27 +89,40 @@ export function SearchView({ query }: { query?: string }) {
 
   useEffect(() => {
     setValue(query ?? "");
+    setActiveQuery(query ?? "");
   }, [query]);
+
+  // Stremio searches as you type; the debounce keeps it to one request.
+  useEffect(() => {
+    const next = value.trim();
+    if (next === activeQuery) return;
+    const timer = window.setTimeout(() => setActiveQuery(next), 250);
+    return () => window.clearTimeout(timer);
+  }, [value, activeQuery]);
 
   useEffect(() => {
     input.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (!query) {
+    if (!activeQuery) {
       setResults([]);
+      setWaiting(false);
       return;
     }
     let alive = true;
     setLoading(true);
     setError(null);
+    setWaiting(true);
     api
-      .search(query)
+      .search(activeQuery)
       .then((items) => {
         if (alive) setResults(items);
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setWaiting(false);
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -104,27 +130,55 @@ export function SearchView({ query }: { query?: string }) {
     return () => {
       alive = false;
     };
-  }, [query, addons.length, attempt]);
+  }, [activeQuery, attempt]);
 
-  // Recommendations follow the watch history, so they are refetched every visit.
+  // Addon catalogs finish later and land here.
   useEffect(() => {
-    let alive = true;
-    setRecoState("loading");
-    api
-      .recommendations()
-      .then((rows) => {
-        if (!alive) return;
-        setRecos(rows);
-        saveRecos(rows);
-        setRecoState("ready");
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ query: string; items: MetaPreview[] }>("search:addons", (event) => {
+      if (event.payload.query !== activeRef.current) return;
+      setResults((prev) => mergeResults(prev, event.payload.items));
+      setWaiting(false);
+    })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
       })
       .catch(() => {
-        if (alive) setRecoState("error");
+        // No event bridge: the metadata results still land.
       });
     return () => {
-      alive = false;
+      disposed = true;
+      unlisten?.();
     };
-  }, [recoAttempt]);
+  }, []);
+
+  // Recommendations follow the watch history, so they are refetched every visit.
+  // Held back while a search is running: the burst is a dozen metadata calls.
+  useEffect(() => {
+    if (activeQuery) return;
+    let alive = true;
+    setRecoState("loading");
+    const timer = window.setTimeout(() => {
+      api
+        .recommendations()
+        .then((rows) => {
+          if (!alive) return;
+          setRecos(rows);
+          saveRecos(rows);
+          setRecoState("ready");
+        })
+        .catch(() => {
+          if (alive) setRecoState("error");
+        });
+    }, 700);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [recoAttempt, activeQuery]);
 
   // Search returns both kinds at once; split them the way Stremio does.
   const movies = results.filter((item) => item.type === "movie");
@@ -210,11 +264,9 @@ export function SearchView({ query }: { query?: string }) {
         </div>
       ) : null}
 
-      {query ? (
+      {activeQuery ? (
         <div className="search-results">
-          {loading ? (
-            <Spinner label="Searching" />
-          ) : error ? (
+          {error ? (
             <EmptyState
               icon="info"
               title="Search failed"
@@ -225,12 +277,18 @@ export function SearchView({ query }: { query?: string }) {
                 </Button>
               }
             />
+          ) : loading && results.length === 0 ? (
+            <Loading variant="grid" label="Searching" />
           ) : results.length === 0 ? (
-            <EmptyState
-              icon="search"
-              title="Nothing matched"
-              body="Try a shorter title, or check that a catalog addon with search support is enabled."
-            />
+            waiting ? (
+              <Loading variant="grid" label="Searching addons" count={4} />
+            ) : (
+              <EmptyState
+                icon="search"
+                title="Nothing matched"
+                body="Try a shorter title, or check that a catalog addon with search support is enabled."
+              />
+            )
           ) : (
             <>
               {movies.length ? (
@@ -269,7 +327,7 @@ export function SearchView({ query }: { query?: string }) {
           ))}
         </div>
       ) : recoState === "loading" ? (
-        <Spinner label="Cooking up your recommendations" />
+        <Loading variant="rows" label="Cooking up your recommendations" />
       ) : recoState === "error" ? (
         <EmptyState
           icon={null}

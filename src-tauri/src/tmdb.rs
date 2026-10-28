@@ -7,7 +7,6 @@ use serde_json::Value;
 use std::time::Duration;
 
 const API: &str = "https://api.themoviedb.org/3";
-const BALLOON: &str = "https://api.balloonerismm.workers.dev";
 const CINEMETA_CATALOG: &str = "https://v3-cinemeta.strem.io/catalog";
 const IMG: &str = "https://image.tmdb.org/t/p";
 
@@ -46,8 +45,8 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
     }
     let media_type = if media_type == "tv" { "series".to_string() } else { media_type };
 
-    // The mirror keys its rows by IMDb id, which is also what stream addons
-    // expect, so an `tt` id is kept as-is instead of being wrapped in `tmdb:`.
+    // IMDb ids are what stream addons expect, so an `tt` id is kept as-is
+    // instead of being wrapped in `tmdb:`.
     let imdb = item
         .get("imdb_id")
         .and_then(|v| v.as_str())
@@ -122,14 +121,6 @@ fn items_of(value: &Value) -> Vec<MetaPreview> {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(preview_from_item).collect())
         .unwrap_or_default()
-}
-
-/// One catalog page from the IMDb-keyed mirror.
-async fn mirror(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
-    match fetch(client, &format!("{BALLOON}{path}")).await {
-        Ok(value) => items_of(&value),
-        Err(_) => Vec::new(),
-    }
 }
 
 fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
@@ -256,7 +247,7 @@ pub async fn similar(
         .collect()
 }
 
-/// (mirror path, Cinemeta catalog, TMDB path, row title)
+/// (row id, Cinemeta catalog, TMDB path, row title)
 const ROWS: &[(&str, &str, &str, &str)] = &[
     ("/popular/all", "", "trending/all/week", "Trending this week"),
     ("/popular/movie", "movie/top", "movie/popular", "Popular movies"),
@@ -271,20 +262,17 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
     // slowest row instead of the sum of all six.
     let mut set = tokio::task::JoinSet::new();
     for (index, row) in ROWS.iter().enumerate() {
-        let (mirror_path, cinemeta_path, tmdb_path, title) = *row;
+        let (row_id, cinemeta_path, tmdb_path, title) = *row;
         let client = client.clone();
         let key = key.to_string();
         set.spawn(async move {
             // Cinemeta answers without a key and hands back IMDb ids, which is
-            // what stream addons key on. The mirror and TMDB are the fallbacks.
+            // what stream addons key on. TMDB is the fallback when a key is set.
             let mut items = if cinemeta_path.is_empty() {
                 Vec::new()
             } else {
                 cinemeta_catalog(&client, cinemeta_path).await
             };
-            if items.is_empty() {
-                items = mirror(&client, mirror_path).await;
-            }
             if items.is_empty() && !key.is_empty() {
                 items = get(&client, &key, &format!("/{tmdb_path}"), &[("language", "en-US")])
                     .await
@@ -297,11 +285,11 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
             (
                 index,
                 Some(HomeRow {
-                    id: format!("row:{mirror_path}"),
+                    id: format!("row:{row_id}"),
                     title: title.to_string(),
                     addon: Some("Discover".into()),
                     media_type: "mixed".into(),
-                    catalog_id: mirror_path.to_string(),
+                    catalog_id: row_id.to_string(),
                     items,
                 }),
             )
@@ -328,20 +316,6 @@ pub async fn search(
 ) -> Result<Vec<MetaPreview>, String> {
     // Cinemeta first: no key, and the ids are the ones addons can stream.
     let mut items = cinemeta_search(client, query).await;
-
-    if items.is_empty() {
-        let mut url =
-            reqwest::Url::parse(&format!("{BALLOON}/search/multi")).map_err(|e| e.to_string())?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("query", query);
-            pairs.append_pair("language", "en-US");
-        }
-        items = fetch(client, url.as_str())
-            .await
-            .map(|value| items_of(&value))
-            .unwrap_or_default();
-    }
 
     if items.is_empty() && !key.is_empty() {
         let value = get(

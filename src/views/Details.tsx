@@ -4,7 +4,7 @@ import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row } from "../components/media";
-import { Button, EmptyState, Icon, Spinner } from "../components/ui";
+import { Button, EmptyState, Icon, Loading } from "../components/ui";
 import {
   episodeCode,
   placeholderGradient,
@@ -208,8 +208,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   if (loading) {
     return (
-      <div className="page page-loading">
-        <Spinner label="Loading title…" />
+      <div className="page">
+        <Loading variant="detail" label="Loading title" />
       </div>
     );
   }

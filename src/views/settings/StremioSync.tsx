@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/bridge";
 import { useApp } from "../../lib/store";
-import { Badge, Button, Icon, Spinner, Toggle } from "../../components/ui";
+import { Badge, Button, Icon, Loading, Toggle } from "../../components/ui";
 import type { StremioStatus } from "../../lib/types";
 
 function message(error: unknown): string {
@@ -88,7 +88,7 @@ export function StremioSync() {
     }
   };
 
-  if (!status && !error) return <Spinner label="Reading Stremio account…" />;
+  if (!status && !error) return <Loading variant="list" label="Reading Stremio account" count={2} />;
 
   return (
     <>

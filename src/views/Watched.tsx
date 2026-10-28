@@ -3,7 +3,7 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { WatchedItem } from "../lib/types";
 import { PosterCard } from "../components/media";
-import { Button, EmptyState, IconButton, Spinner } from "../components/ui";
+import { Button, EmptyState, IconButton, Loading } from "../components/ui";
 import { seasonLabel, placeholderGradient } from "../lib/format";
 
 const MONTHS = [
@@ -185,9 +185,7 @@ export function WatchedView() {
           }
         />
       ) : !items ? (
-        <div className="page-loading">
-          <Spinner label="Loading watched titles" />
-        </div>
+        <Loading variant="grid" label="Loading watched titles" />
       ) : items.length === 0 ? (
         <EmptyState
           icon="check"

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { AddonInfo } from "../lib/types";
-import { Badge, Button, EmptyState, Icon, Spinner, Toggle, type IconName } from "../components/ui";
+import { Badge, Button, EmptyState, Icon, Loading, Toggle, type IconName } from "../components/ui";
 
 const RESOURCE_LABELS: Record<string, string> = {
   catalog: "Catalogs",
@@ -200,7 +200,7 @@ export function AddonsPanel() {
         ) : null}
       </section>
 
-      {loading ? <Spinner label="Loading addons…" /> : null}
+      {loading ? <Loading variant="list" label="Loading addons" /> : null}
 
       {!loading && addons.length === 0 ? (
         <EmptyState

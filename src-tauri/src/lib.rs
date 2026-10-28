@@ -469,6 +469,8 @@ pub fn run() {
             });
 
             updates::watch(app.handle().clone());
+            // Cinemeta ships by default, the way Stremio and Nuvio do it.
+            tauri::async_runtime::spawn(commands::seed_default_addons(app.handle().clone()));
 
             // The window itself stays opaque (a transparent window cannot host
             // the video surface); only the web layer is see-through, so the

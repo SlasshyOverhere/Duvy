@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { TraktStatus } from "../lib/types";
-import { Badge, Button, Icon, Spinner, Toggle } from "../components/ui";
+import { Badge, Button, Icon, Loading, Spinner, Toggle } from "../components/ui";
 
 type SyncResult = { pulled?: number; pushed?: number };
 type Busy = "connect" | "sync" | "disconnect" | null;
@@ -185,7 +185,7 @@ export function TraktView() {
         </div>
       </header>
 
-      {!status && !error ? <Spinner label="Reading local settings…" /> : null}
+      {!status && !error ? <Loading variant="list" label="Reading local settings" count={3} /> : null}
 
       {error ? <p className="form-error">{error}</p> : null}
 

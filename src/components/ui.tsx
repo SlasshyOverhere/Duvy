@@ -569,6 +569,97 @@ export function Spinner({ label }: { label?: string }) {
   );
 }
 
+const times = (count: number) => Array.from({ length: count }, (_, index) => index);
+
+/** A shimmering silhouette of the screen that is arriving, under a bold caption
+ * so a wait reads as progress instead of an empty page. */
+export function Loading({
+  label,
+  variant = "grid",
+  count = variant === "list" ? 4 : 8,
+}: {
+  label: string;
+  variant?: "detail" | "grid" | "rows" | "list";
+  count?: number;
+}) {
+  return (
+    <div className="loading" role="status" aria-live="polite">
+      <div className="loading-head">
+        <span className="spinner" aria-hidden="true" />
+        <p className="loading-label">{label}</p>
+      </div>
+      <div className="loading-body" aria-hidden="true">
+        {variant === "detail" ? (
+          <div className="ld-detail">
+            <div className="ld-hero">
+              <span className="sk ld-poster" />
+              <div className="ld-info">
+                <span className="sk ld-title" />
+                <span className="sk ld-title is-short" />
+                <span className="ld-chips">
+                  {times(4).map((index) => (
+                    <span className="sk" key={index} />
+                  ))}
+                </span>
+                {times(3).map((index) => (
+                  <span className={`sk ld-copy${index === 2 ? " is-short" : ""}`} key={index} />
+                ))}
+                <span className="ld-actions">
+                  <span className="sk ld-button" />
+                  <span className="sk ld-button is-quiet" />
+                </span>
+              </div>
+            </div>
+            <div className="ld-cast">
+              {times(6).map((index) => (
+                <span className="ld-person" key={index}>
+                  <span className="sk ld-face" />
+                  <span className="sk ld-name" />
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : variant === "rows" ? (
+          <div className="ld-rows">
+            {times(2).map((row) => (
+              <div className="ld-section" key={row}>
+                <span className="sk ld-head" />
+                <div className="ld-strip">
+                  {times(6).map((index) => (
+                    <span className="sk ld-tile" key={index} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : variant === "list" ? (
+          <div className="ld-list">
+            {times(count).map((index) => (
+              <div className="ld-row" key={index}>
+                <span className="sk ld-thumb" />
+                <span className="ld-row-text">
+                  <span className="sk ld-copy" />
+                  <span className="sk ld-copy is-short" />
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="ld-grid">
+            {times(count).map((index) => (
+              <span className="ld-card" key={index}>
+                <span className="sk ld-tile" />
+                <span className="sk ld-copy" />
+                <span className="sk ld-copy is-short" />
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EmptyState({
   title,
   body,

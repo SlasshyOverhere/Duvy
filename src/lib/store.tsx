@@ -457,6 +457,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [notify]);
 
+  // The bundled addon is installed after the first list load; pick it up live.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("addons:changed", () => void refreshAddons())
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No event bridge: the next launch loads the list anyway.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [refreshAddons]);
+
   // Player events are pushed from Rust while mpv is running.
   useEffect(() => {
     if (!isTauri()) return;

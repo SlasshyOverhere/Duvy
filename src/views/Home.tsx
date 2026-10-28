@@ -123,8 +123,8 @@ export function HomeView() {
         {!loading && feed && feed.rows.length === 0 ? (
           <EmptyState
             icon="puzzle"
-            title="Your home screen is waiting for addons"
-            body="BetterNuvio ships with no content. Add a catalog addon to fill this screen, or connect TMDB for curated rows."
+            title="No catalog answered"
+            body="Cinemeta is built in, so this is usually a connection problem. Try again, add a catalog addon, or connect TMDB for curated rows."
             action={
               <div className="empty-actions">
                 <Button
