@@ -22,6 +22,8 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const NEXT_LEAD = 45;
 const SUB_STYLE_KEY = "betternuvio.subtitleStyle";
 const VIDEO_MODE_KEY = "betternuvio.videoMode";
+const VOLUME_KEY = "betternuvio.volume";
+const MAX_VOLUME = 200;
 const OFF = "__off__";
 const SUB_COLORS = [
   { value: "#ffffff", label: "White" },
@@ -90,7 +92,7 @@ const DEFAULT_SUB_STYLE: SubtitleStyle = {
   delay: 0,
   position: 96,
 };
-const MAX_DELAY = 10;
+const MAX_DELAY = 60;
 
 /** ISO codes and full names both arrive from mpv and from addons. */
 const LANG_NAMES: Record<string, string> = {
@@ -131,6 +133,16 @@ function langLabel(lang?: string | null, fallback?: string | null): string {
 function readVideoMode(): VideoMode {
   const stored = window.localStorage.getItem(VIDEO_MODE_KEY);
   return VIDEO_MODES.some((mode) => mode.id === stored) ? (stored as VideoMode) : "fit";
+}
+
+function readVolume(): number {
+  try {
+    const raw = window.localStorage.getItem(VOLUME_KEY);
+    if (raw == null || raw.trim() === "") return 100;
+    return whole(raw, 0, MAX_VOLUME, 100);
+  } catch {
+    return 100;
+  }
 }
 
 interface SubVariant {
@@ -226,7 +238,8 @@ function readSubtitleStyle(): SubtitleStyle {
         ? String(stored.outlineColor)
         : DEFAULT_SUB_STYLE.outlineColor,
       bold: stored.bold === true,
-      delay: tenths(stored.delay, DEFAULT_SUB_STYLE.delay),
+      // Delay is session-only, never carried over from a previous run.
+      delay: DEFAULT_SUB_STYLE.delay,
       position: whole(stored.position, 25, 100, DEFAULT_SUB_STYLE.position),
     };
   } catch {
@@ -407,7 +420,7 @@ export function PlayerView() {
   const dragging = useRef(false);
   const wasPlaying = useRef(false);
   const fsNow = useRef(false);
-  const volRef = useRef(100);
+  const volRef = useRef(readVolume());
   const speedRef = useRef(1);
   const posRef = useRef(0);
   const hudTimer = useRef<number | null>(null);
@@ -611,7 +624,13 @@ export function PlayerView() {
 
   const setVolume = useCallback(
     (value: number) => {
-      send("volume", Math.min(130, Math.max(0, value)));
+      const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(value)));
+      try {
+        window.localStorage.setItem(VOLUME_KEY, String(next));
+      } catch {
+        // Storage can be blocked; the level still applies to this session.
+      }
+      send("volume", next);
     },
     [send],
   );
@@ -657,7 +676,7 @@ export function PlayerView() {
 
   const changeVolume = useCallback(
     (delta: number) => {
-      const next = Math.min(130, Math.max(0, Math.round(volRef.current + delta)));
+      const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(volRef.current + delta)));
       volRef.current = next;
       setVolume(next);
       showHud("Volume", `${next}%`);
@@ -936,9 +955,20 @@ export function PlayerView() {
     };
   }, [session?.key]);
 
+  // The saved level is pushed once per session, then echoes keep the ref true.
+  const volumeSession = useRef<string | null>(null);
   useEffect(() => {
-    volRef.current = local?.volume ?? volRef.current;
-  }, [local?.volume]);
+    if (!local) return;
+    const key = session?.key ?? "";
+    if (volumeSession.current !== key) {
+      volumeSession.current = key;
+      const next = readVolume();
+      volRef.current = next;
+      send("volume", next);
+      return;
+    }
+    volRef.current = local.volume;
+  }, [local?.volume, send, session?.key]);
 
   useEffect(() => {
     speedRef.current = local?.speed ?? speedRef.current;
@@ -1101,20 +1131,10 @@ export function PlayerView() {
     return () => window.clearTimeout(timer);
   }, [hover]);
 
-  // Delay survives a restart, but the next episode starts on its own timing.
-  const delaySession = useRef(false);
-  useEffect(() => {
-    if (!delaySession.current) {
-      delaySession.current = true;
-      return;
-    }
-    setSubStyle((current) => (current.delay === 0 ? current : { ...current, delay: 0 }));
-  }, [session?.key]);
-
-  // Local storage is the persistence layer; the settings blob has no key for this.
+  // Local storage is the persistence layer, except delay which is session-only.
   useEffect(() => {
     try {
-      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
+      window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify({ ...subStyle, delay: 0 }));
     } catch {
       // Storage can be full or blocked; the panel still works for this session.
     }
@@ -1192,6 +1212,14 @@ export function PlayerView() {
         case "ArrowRight":
           event.preventDefault();
           seekRel((key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 60 : step));
+          break;
+        case "j":
+        case "J":
+          seekRel(-10);
+          break;
+        case "l":
+        case "L":
+          seekRel(10);
           break;
         case "ArrowUp":
         case "ArrowDown":
@@ -1340,7 +1368,7 @@ export function PlayerView() {
   const styleOn = Boolean(activeSub || loadedSub) && currentLang != null && Boolean(activeVariant);
   const hoverBucket = hover ? Math.round(hover.time / 5) * 5 : 0;
   const shot = frame && frame.time === hoverBucket ? frame.src : null;
-  const volumeFill = Math.min(100, Math.max(0, (local.volume / 130) * 100));
+  const volumeFill = Math.min(100, Math.max(0, (local.volume / MAX_VOLUME) * 100));
 
   const seasonOptions = [...new Set(queue.map((video) => video.season ?? 0))].sort(
     (a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b),
@@ -1376,6 +1404,7 @@ export function PlayerView() {
     ["Space / K", "Play and pause"],
     ["← / →", `Seek ${step}s`],
     ["Shift + ← / →", "Seek 60s"],
+    ["J / L", "Seek 10s back and ahead"],
     ["↑ / ↓", "Volume up and down"],
     ["M", "Mute"],
     ["S", "Cycle subtitles"],
@@ -2413,7 +2442,7 @@ export function PlayerView() {
               <input
                 type="range"
                 min={0}
-                max={130}
+                max={MAX_VOLUME}
                 value={Math.round(local.volume)}
                 aria-label="Volume"
                 style={{
