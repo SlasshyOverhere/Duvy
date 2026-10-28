@@ -253,7 +253,8 @@ fn magnet_hash(url: &str) -> Option<String> {
 pub fn valid_hash(value: &str) -> bool {
     let value = value.trim();
     let hex = value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit());
-    let base32 = value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    let base32 =
+        value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() && !matches!(byte, b'0' | b'1' | b'8' | b'9'));
     hex || base32
 }
 
@@ -499,6 +500,16 @@ mod tests {
         );
         assert!(!junk.playable);
         assert!(junk.info_hash.is_none());
+
+        // 32 alphanumeric is not enough: base32 has no 0, 1, 8 or 9.
+        let bad_base32 = normalize(
+            "A",
+            &Stream {
+                info_hash: Some("0123456789ABCDEFGHIJKLMNOPQRSTUV".into()),
+                ..Default::default()
+            },
+        );
+        assert!(!bad_base32.playable);
     }
 
     #[test]
