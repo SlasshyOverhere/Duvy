@@ -21,6 +21,8 @@ jobs:
 
       - run: bun run build
 
+      - run: bun run test
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

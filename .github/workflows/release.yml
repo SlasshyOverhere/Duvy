@@ -47,24 +47,9 @@ jobs:
           }
           "Releasing $version"
 
-      # The bundled player is git-ignored, so the runner fetches the exact build
-      # the notices describe and checks it before anything is packaged.
-      - name: Fetch mpv
-        shell: pwsh
-        run: |
-          $url = 'https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-20261021-git-e471496c56.7z'
-          $sha = '4a355f3e89c83fabc730d33fb4e759dfec747806ed2287b61a90d1681b83e8d3'
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv.7z"
-          $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv.7z" -Algorithm SHA256).Hash.ToLower()
-          if ($actual -ne $sha) { throw "mpv archive checksum mismatch: $actual" }
-          New-Item -ItemType Directory -Force src-tauri/resources/mpv | Out-Null
-          7z x "$env:RUNNER_TEMP\mpv.7z" -o"$env:RUNNER_TEMP\mpv" -y | Out-Null
-          Copy-Item "$env:RUNNER_TEMP\mpv\mpv.exe" src-tauri/resources/mpv/mpv.exe
-          Copy-Item "$env:RUNNER_TEMP\mpv\d3dcompiler_43.dll" src-tauri/resources/mpv/d3dcompiler_43.dll
-          & src-tauri/resources/mpv/mpv.exe --version | Select-Object -First 1
-
       # Builds both installers, signs the updater bundles, publishes the release
       # and uploads latest.json, which is what the app's update endpoint reads.
+      # mpv is not packaged; first run downloads it from the player release.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
