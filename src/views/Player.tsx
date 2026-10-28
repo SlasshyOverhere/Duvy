@@ -253,7 +253,7 @@ function readSubtitleStyle(): SubtitleStyle {
     const stored = JSON.parse(raw) as Partial<SubtitleStyle> | null;
     if (!stored || typeof stored !== "object") return DEFAULT_SUB_STYLE;
     return {
-      size: whole(stored.size, 30, 90, DEFAULT_SUB_STYLE.size),
+      size: whole(stored.size, 10, 90, DEFAULT_SUB_STYLE.size),
       color: SUB_COLORS.some((option) => option.value === stored.color)
         ? String(stored.color)
         : DEFAULT_SUB_STYLE.color,
@@ -932,8 +932,8 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
               <StyleSection title="Font size">
                 <Stepper
                   value={`${subStyle.size}`}
-                  onDown={() => onPatch({ size: whole(subStyle.size - 2, 30, 90, 46) })}
-                  onUp={() => onPatch({ size: whole(subStyle.size + 2, 30, 90, 46) })}
+                  onDown={() => onPatch({ size: whole(subStyle.size - 2, 10, 90, 46) })}
+                  onUp={() => onPatch({ size: whole(subStyle.size + 2, 10, 90, 46) })}
                   downLabel="Smaller subtitles"
                   upLabel="Larger subtitles"
                 />

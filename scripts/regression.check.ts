@@ -10,6 +10,7 @@ const updates = read("src-tauri/src/updates.rs");
 const commands = read("src-tauri/src/commands.rs");
 const player = read("src-tauri/src/player.rs");
 const store = read("src/lib/store.tsx");
+const playerView = read("src/views/Player.tsx");
 
 /** Slice a top-level Rust function: from `fn name` to the next `}` in column 0. */
 function rustFn(src: string, name: string): string {
@@ -147,6 +148,23 @@ run("cancelled start cannot clear the next start", () => {
     return ["a finished start clears the pending guard of a newer one"];
   }
   return [];
+});
+
+run("subtitle size can go below the old floor", () => {
+  const out: string[] = [];
+  const floors = [
+    ...playerView.matchAll(/whole\((?:stored\.size|subStyle\.size [+-] 2),\s*(\d+),\s*(\d+)/g),
+  ].map((match) => Number(match[1]));
+  if (floors.length < 3) {
+    return ["Player.tsx: subtitle size clamp not found in read and stepper"];
+  }
+  if (floors.some((floor) => floor > 10)) {
+    out.push(`Player.tsx clamps subtitle size at ${Math.max(...floors)}, above the 10 the player accepts`);
+  }
+  if (!/10\.0\.\.=200\.0/.test(player)) {
+    out.push("player.rs: subtitle size floor is not 10");
+  }
+  return out;
 });
 
 let failed = 0;
