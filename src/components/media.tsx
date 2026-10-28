@@ -377,9 +377,14 @@ export function Hero({
           </div>
           {item.description ? <p className="hero-overview">{item.description}</p> : null}
           <div className="hero-actions">
-            <button type="button" className="btn btn-primary btn-lg" onClick={onPlay}>
-              <Icon name="play" size={17} />
-              <span>Watch Now</span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onPlay}
+              title="Watch Now"
+              aria-label="Watch Now"
+            >
+              <Icon name="play" size={20} />
             </button>
             <button
               type="button"

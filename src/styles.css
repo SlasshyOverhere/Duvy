@@ -1388,7 +1388,7 @@ button.pill:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   margin-top: 30px;
 }
@@ -1396,15 +1396,53 @@ button.pill:hover {
 .hero-link {
   border: 0;
   background: none;
-  padding: 10px 2px;
+  padding: 0 18px;
   font-size: 13.5px;
   font-weight: 600;
   color: rgba(253, 250, 245, 0.72);
   transition: color 0.15s var(--ease);
 }
 
+/* Same glass shell as the detail actions: circles for icon-only commands,
+   a pill when a command carries a word. */
+.hero-actions .btn,
+.hero-link {
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--pill);
+  color: rgba(255, 255, 255, 0.82);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+.hero-actions .btn:hover:not(:disabled),
 .hero-link:hover {
-  color: var(--accent);
+  color: var(--text);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.17) 0%,
+    rgba(255, 255, 255, 0.07) 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.17),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.hero-actions .btn-primary,
+.hero-actions .btn-square {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+.hero-actions .btn-primary svg {
+  width: 20px;
+  height: 20px;
 }
 
 .hero-dots {
