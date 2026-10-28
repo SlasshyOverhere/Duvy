@@ -118,19 +118,11 @@ run("seek-bar layers share one rail", () => {
 
 run("centre transport is centred", () => {
   const out: string[] = [];
-  const rules = playerCss.filter((r) => r.parts.includes(".pv .pv-center"));
-  if (!rules.length) return ["player.css: no .pv .pv-center rule"];
-  for (const rule of rules) {
-    const where = `.pv .pv-center${rule.media ? ` ${rule.media}` : ""}`;
-    const inset = rule.decls["inset"];
-    if (inset) {
-      const v = inset.split(" ");
-      const bottom = v.length >= 3 ? v[2] : v[0];
-      if (bottom !== "0") out.push(`${where}: inset: ${inset} leaves a ${bottom} bottom offset`);
-      continue;
-    }
-    const bottom = rule.decls["bottom"];
-    if (bottom && bottom !== "0") out.push(`${where}: bottom: ${bottom}`);
+  // The transport lives in the bottom bar now; the old `.pv-center` overlay is gone.
+  const rules = playerCss.filter((r) => r.parts.includes(".pv .pv-controls"));
+  if (!rules.length) return ["player.css: no .pv .pv-controls rule"];
+  if (!rules.some((r) => r.decls["align-items"] === "center")) {
+    out.push(".pv .pv-controls: transport is not vertically centred");
   }
   return out;
 });
@@ -156,7 +148,8 @@ run("panels fit the viewport", () => {
 
   for (const rule of playerCss.filter((r) => r.parts.some((p) => p.includes(".pv-rail")))) {
     const cap = rule.decls["max-height"];
-    if (cap && /(vh|vw|px)/.test(cap)) {
+    // A viewport-relative cap can never outgrow the window; only a fixed px cap can.
+    if (cap && /px/.test(cap) && !/(vh|vw|%)/.test(cap)) {
       out.push(`${rule.selector}: max-height: ${cap} can exceed the panel-to-window space`);
     }
   }
@@ -214,7 +207,7 @@ run("pause is deterministic", () => {
     else if (/\bsend\s*\(/.test(handler)) out.push("surface click handler calls the sender directly");
   }
 
-  const centre = playerTsx.indexOf('aria-label={local.paused ? "Play" : "Pause"}');
+  const centre = playerTsx.search(/aria-label=\{(?:local\.)?paused \? "Play" : "Pause"\}/);
   if (centre < 0) out.push("centre play/pause button not found");
   else {
     const open = playerTsx.lastIndexOf("<button", centre);

@@ -32,111 +32,6 @@
   min-width: 0;
 }
 
-.pv .pv-round {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.38);
-  color: #fff;
-  transition: background 0.14s ease;
-}
-
-.pv .pv-round:hover {
-  background: rgba(0, 0, 0, 0.62);
-}
-
-.pv .pv-window {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 4px;
-}
-
-.pv .pv-window .pv-round {
-  width: 34px;
-  height: 34px;
-}
-
-.pv .pv-window svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.2;
-}
-
-.pv .pv-round--close:hover {
-  background: #a52f27;
-}
-
-/* ---- centred transport -------------------------------------------------- */
-
-.pv .pv-center {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 92px;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.pv:not(.pv--awake) .pv-center {
-  opacity: 0;
-}
-
-.pv .pv-center-btn {
-  pointer-events: auto;
-  display: grid;
-  place-items: center;
-  width: 60px;
-  height: 60px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  /* The glyph has to hold over a bright frame, so it gets its own backing. */
-  background: rgba(0, 0, 0, 0.34);
-  color: #fff;
-  transition: background 0.14s ease;
-}
-
-.pv .pv-center-btn:hover {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.pv .pv-center-btn--play {
-  width: 76px;
-  height: 76px;
-  background: rgba(0, 0, 0, 0.44);
-}
-
-.pv .pv-center-btn--play:hover {
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.pv:not(.pv--awake) .pv-center-btn {
-  pointer-events: none;
-}
-
-/* ---- bottom column ------------------------------------------------------ */
-
-.pv .pv-timeline {
-  position: relative;
-  z-index: 2;
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 0 44px 24px;
-  transition: opacity 0.2s ease, transform 0.2s var(--ease);
-}
-
 .pv:not(.pv--awake) .pv-timeline {
   opacity: 0;
   transform: translateY(10px);
@@ -149,9 +44,7 @@
 
 /* A panel owns the screen: the chrome hides from the eye and from the keyboard. */
 .pv--panel .pv-top,
-.pv--panel .pv-center,
 .pv--panel .pv-timeline,
-.pv--panel .pv-hud,
 .pv--panel .pv-indicator,
 .pv--panel .pv-volosd {
   opacity: 0;
@@ -163,165 +56,6 @@
 .pv--panel .pv-upnext,
 .pv--locked .pv-upnext {
   display: none;
-}
-
-.pv .pv-details {
-  min-width: 0;
-  padding-bottom: 2px;
-}
-
-.pv .pv-details-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.005em;
-  color: #fff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
-}
-
-.pv .pv-details-ep {
-  margin: 4px 0 0;
-  font-size: 13.5px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.78);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv .pv-details-badges {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.66);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv .pv-details-release {
-  margin: 2px 0 0;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.56);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv .pv-chapter-title {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.68);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---- seek bar ----------------------------------------------------------- */
-
-.pv .pv-scrub {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 8px;
-}
-
-.pv .pv-time {
-  flex: none;
-  /* Fixed width, so 9:59 and 10:00 do not resize the bar. */
-  width: 9ch;
-  padding: 8px 0;
-  border: 0;
-  background: none;
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-  text-align: left;
-}
-
-.pv .pv-time--end {
-  text-align: right;
-  transition: color 0.14s ease;
-}
-
-.pv .pv-time--end:hover {
-  color: #fff;
-}
-
-.pv .pv-scrub .pv-track {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
-  margin: 0;
-  cursor: grab;
-}
-
-.pv .pv-scrub .pv-track.is-dragging {
-  cursor: grabbing;
-}
-
-.pv .pv-trackrail,
-.pv .pv-buffer,
-.pv .pv-played {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  height: 6px;
-  margin-top: -3px;
-  border-radius: 999px;
-  /* Transform only: animating height made the caps jump as the rail grew. */
-  transform: scaleY(1);
-  transform-origin: center;
-  transition: transform 0.16s ease;
-}
-
-.pv .pv-trackrail {
-  right: 0;
-  background: rgba(255, 255, 255, 0.28);
-}
-
-.pv .pv-buffer {
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.pv .pv-played {
-  background: var(--accent);
-}
-
-/* Playhead stays a fixed dot; the scaled rail must not stretch it. */
-.pv .pv-knob {
-  position: absolute;
-  top: 50%;
-  z-index: 3;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
-}
-
-
-.pv .pv-tip {
-  position: absolute;
-  z-index: 3;
-  bottom: calc(100% + 12px);
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 5px;
-  border-radius: 8px;
-  background: #101012;
-  pointer-events: none;
 }
 
 .pv .pv-tip-shot {
@@ -338,140 +72,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.pv .pv-tip b {
-  font-size: 11.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.86);
-  text-align: center;
-}
-
-/* ---- action row --------------------------------------------------------- */
-
-.pv .pv-actionbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding-top: 10px;
-}
-
-.pv .pv-vol {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  padding: 0;
-}
-
-/* The global range is 2px tall; the player needs a real hit box. */
-.pv .pv-vol input[type="range"] {
-  width: 96px;
-  height: 28px;
-  margin: 0 4px;
-  padding: 0;
-  border-radius: 999px;
-  background-size: 100% 4px;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-
-.pv .pv-vol input[type="range"]::-webkit-slider-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.pv .pv-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-  /* The scroll box is exactly the buttons' height, so the focus ring is
-     clipped; the padding buys it room and the margin gives the height back. */
-  padding: 4px 0;
-  margin: -4px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.pv .pv-actions::-webkit-scrollbar {
-  display: none;
-}
-
-.pv .pv-action {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.9);
-  transition: color 0.14s ease, background 0.14s ease;
-}
-
-.pv .pv-action:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.pv .pv-action.is-on {
-  color: var(--accent);
-}
-
-.pv .pv-action:disabled {
-  opacity: 0.4;
-}
-
-.pv .pv-action--big {
-  width: 60px;
-  height: 46px;
-}
-
-.pv .pv-action--chevron svg {
-  transition: transform 0.16s ease;
-}
-
-/* ---- transient readout -------------------------------------------------- */
-
-.pv-hud {
-  position: absolute;
-  left: 50%;
-  bottom: var(--pv-deck);
-  z-index: 5;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  background: #101012;
-  opacity: 1;
-  pointer-events: none;
-  transition: opacity 0.18s ease;
-}
-
-.pv-hud.is-out {
-  opacity: 0;
-}
-
-.pv-hud span {
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.pv-hud b {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---- floating panels ---------------------------------------------------- */
@@ -1358,114 +958,6 @@
   margin-top: 18px;
 }
 
-/* ---- next episode ------------------------------------------------------ */
-
-.pv-upnext {
-  position: absolute;
-  left: 44px;
-  bottom: var(--pv-deck);
-  z-index: 4;
-  width: min(400px, calc(100vw - 88px));
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: #101012;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pv-upnext {
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-}
-
-.pv-upnext-thumb {
-  width: 78px;
-  height: 44px;
-  flex: none;
-  border-radius: 6px;
-  object-fit: cover;
-  background: #1e1e22;
-}
-
-.pv-upnext-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.pv-upnext-label {
-  margin: 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--accent);
-}
-
-.pv-upnext-name {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pv-upnext-meta {
-  margin: 2px 0 0;
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.pv-upnext-play {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.pv-upnext-play:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-.pv-upnext-play:disabled {
-  opacity: 0.5;
-}
-
-.pv-upnext-close {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.66);
-}
-
-.pv-upnext-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-
-.pv-upnext--end {
-  padding: 14px 16px;
-}
-
-.pv-upnext--end .pv-upnext-text {
-  margin-right: auto;
-}
 
 /* ---- locked ------------------------------------------------------------- */
 
@@ -1566,10 +1058,6 @@
 
 /* ---- focus -------------------------------------------------------------- */
 
-.pv .pv-round:focus-visible,
-.pv .pv-center-btn:focus-visible,
-.pv .pv-action:focus-visible,
-.pv .pv-time:focus-visible,
 .pv .pv-rail-row:focus-visible,
 .pv .pv-toggle:focus-visible,
 .pv .pv-filter:focus-visible,
@@ -1634,14 +1122,6 @@
     --pv-deck: 208px;
   }
 
-  .pv .pv-details-title {
-    font-size: 16.5px;
-  }
-
-  .pv .pv-vol input[type="range"] {
-    width: 64px;
-  }
-
   .pv .pv-overlay {
     padding: 16px 16px 24px;
   }
@@ -1659,10 +1139,6 @@
   .pv .pv-tip-shot {
     width: 132px;
   }
-
-  .pv .pv-center {
-    gap: 48px;
-  }
 }
 
 @media (max-width: 520px) {
@@ -1673,10 +1149,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pv-hud,
-  .pv .pv-center,
-  .pv .pv-timeline,
-  .pv .pv-action--chevron svg {
+  .pv .pv-timeline {
     transition: none;
   }
 }
@@ -1818,20 +1291,6 @@
   color: #fff;
 }
 
-.pv .pv-window {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-right: 6px;
-}
-
-.pv .pv-window svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.2;
-}
 
 /* ---- seek row ----------------------------------------------------------- */
 
