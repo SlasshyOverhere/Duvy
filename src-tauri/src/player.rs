@@ -731,6 +731,9 @@ impl Player {
             .arg("--osd-font-size=34")
             .arg("--osd-duration=2500")
             .arg("--sub-font-size=46")
+            // ASS tracks carry their own styling and ignore every sub-* property
+            // below unless this is set; without it the style panel looks dead.
+            .arg("--sub-ass-override=force")
             .arg("--sub-auto=fuzzy")
             .arg("--sub-visibility=yes")
             .arg("--volume=100")

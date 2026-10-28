@@ -2369,12 +2369,11 @@ export function PlayerView() {
   const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
-  const activeVariant = currentVariants.find((variant) =>
-    variant.trackId != null ? local.activeSub === variant.trackId : loadedSub?.url === variant.url,
-  );
   const offSelected =
     selectedLang === OFF || (selectedLang === null && !activeSub && !loadedSub);
-  const styleOn = Boolean(activeSub || loadedSub) && currentLang != null && Boolean(activeVariant);
+  // Styling is a player-wide preference: it must not wait for a track to be
+  // matched to a variant, or the panel vanishes on the first tick after a load.
+  const styleOn = Boolean(activeSub || loadedSub);
   const volumeFill = Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
 
   const chapterIndex = chapters.reduce(
