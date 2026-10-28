@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a capability or an improvement.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the roadmap first. Features that need bundled media, scrapers or pirated sources
+        are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that the app makes hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: Describe the behaviour, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you tried
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Playback
+        - Sources and addons
+        - Library and details
+        - Settings and shell
+        - Sync and integrations
+        - Build and release
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I read the roadmap and this is not already planned.
+          required: true
+        - label: This request does not require bundling media, addons or scrapers.
+          required: true
