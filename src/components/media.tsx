@@ -4,7 +4,7 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
 import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
-import { ContextMenu, Icon, IconButton, Badge, type ContextAction } from "./ui";
+import { ContextMenu, Icon, IconButton, Badge, ImdbMark, type ContextAction } from "./ui";
 
 function initials(name: string) {
   return name
@@ -165,6 +165,57 @@ export function Row({
     if (!node) return;
     node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
   };
+
+  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    let start: { x: number; left: number } | null = null;
+    let moved = false;
+
+    const down = (event: PointerEvent) => {
+      if (event.button !== 0 || event.pointerType !== "mouse") return;
+      start = { x: event.clientX, left: node.scrollLeft };
+      moved = false;
+    };
+    const move = (event: PointerEvent) => {
+      if (!start) return;
+      const dx = event.clientX - start.x;
+      if (!moved && Math.abs(dx) < 6) return;
+      if (!moved) {
+        moved = true;
+        node.classList.add("is-dragging");
+      }
+      event.preventDefault();
+      node.scrollLeft = start.left - dx;
+    };
+    const up = () => {
+      start = null;
+      node.classList.remove("is-dragging");
+    };
+    const click = (event: MouseEvent) => {
+      if (!moved) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moved = false;
+    };
+    const dragStart = (event: DragEvent) => event.preventDefault();
+
+    node.addEventListener("pointerdown", down);
+    node.addEventListener("click", click, true);
+    node.addEventListener("dragstart", dragStart);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      node.removeEventListener("pointerdown", down);
+      node.removeEventListener("click", click, true);
+      node.removeEventListener("dragstart", dragStart);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, []);
 
   return (
     <section className="row">
@@ -366,7 +417,12 @@ export function Hero({
         >
           <h1 className="hero-title">{item.name}</h1>
           <div className="hero-meta">
-            {item.imdbRating ? <Badge tone="accent">★ {item.imdbRating}</Badge> : null}
+            {item.imdbRating ? (
+              <Badge tone="accent">
+                <span className="rating-value">{item.imdbRating}</span>
+                <ImdbMark />
+              </Badge>
+            ) : null}
             {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
             {item.runtime ? <span>{item.runtime}</span> : null}
             {item.genres?.slice(0, 2).map((genre) => (
