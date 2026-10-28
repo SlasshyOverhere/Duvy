@@ -476,7 +476,8 @@ pub fn progress_missing_meta(conn: &Connection) -> rusqlite::Result<Vec<(String,
     let mut stmt = conn.prepare(
         "SELECT meta_id, media_type FROM progress
          WHERE meta_id LIKE 'tt%'
-           AND (name IS NULL OR name = '' OR name LIKE 'tt%')
+           AND (name IS NULL OR name = '' OR name LIKE 'tt%'
+                OR poster IS NULL OR poster = '')
          GROUP BY meta_id
          ORDER BY MAX(updated_at) DESC LIMIT 40",
     )?;
@@ -495,8 +496,8 @@ pub fn set_progress_meta(
     conn.execute(
         "UPDATE progress
          SET name = CASE WHEN name IS NULL OR name = '' OR name LIKE 'tt%' THEN ?2 ELSE name END,
-             poster = COALESCE(poster, ?3),
-             background = COALESCE(background, ?4)
+             poster = COALESCE(NULLIF(poster, ''), ?3),
+             background = COALESCE(NULLIF(background, ''), ?4)
          WHERE meta_id = ?1",
         params![meta_id, name, poster, background],
     )?;
@@ -508,7 +509,8 @@ pub fn library_missing_meta(conn: &Connection) -> rusqlite::Result<Vec<(String, 
     let mut stmt = conn.prepare(
         "SELECT id, media_type FROM library
          WHERE id LIKE 'tt%'
-           AND (name IS NULL OR name = '' OR name LIKE 'tt%')
+           AND (name IS NULL OR name = '' OR name LIKE 'tt%'
+                OR poster IS NULL OR poster = '')
          ORDER BY added_at DESC LIMIT 40",
     )?;
     let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -525,8 +527,8 @@ pub fn set_library_meta(
     conn.execute(
         "UPDATE library
          SET name = CASE WHEN name IS NULL OR name = '' OR name LIKE 'tt%' THEN ?2 ELSE name END,
-             poster = COALESCE(poster, ?3),
-             background = COALESCE(background, ?4)
+             poster = COALESCE(NULLIF(poster, ''), ?3),
+             background = COALESCE(NULLIF(background, ''), ?4)
          WHERE id = ?1",
         params![id, name, poster, background],
     )?;
