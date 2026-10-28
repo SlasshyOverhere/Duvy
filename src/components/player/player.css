@@ -571,6 +571,8 @@
   gap: 14px;
   min-width: 0;
   min-height: 0;
+  /* Three independent scroll columns, never a sheet taller than the window. */
+  max-height: min(60vh, 620px);
 }
 
 .pv .pv-rail {
@@ -1611,6 +1613,7 @@
     flex: 0 0 auto;
     flex-direction: column;
     align-items: stretch;
+    max-height: none;
   }
 
   .pv .pv-rail--lang,
