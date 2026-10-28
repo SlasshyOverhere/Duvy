@@ -432,6 +432,20 @@ run("opening a session does not flash the volume card", () => {
     : ["the saved volume push reads as a change and flashes the OSD"];
 });
 
+run("subtitles load before the panel opens", () => {
+  const at = playerTsx.indexOf("Each episode is a fresh session");
+  if (at < 0) return ["Player.tsx: session reset effect not found"];
+  const block = playerTsx.slice(at, at + 900);
+  const out: string[] = [];
+  if (!/loadSubtitles\(true\)/.test(block)) {
+    out.push("subtitles are only fetched when the panel opens");
+  }
+  if (!/subsFetch\.current === key/.test(playerTsx)) {
+    out.push("the prefetch and the panel can request the same list twice");
+  }
+  return out;
+});
+
 run("the shortcut sheet matches Escape", () => {
   return /\["Esc", "[^"]*hide the controls"\]/.test(playerTsx)
     ? []

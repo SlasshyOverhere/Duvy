@@ -1617,10 +1617,15 @@ export function PlayerView() {
     setSurface((current) => (current === next ? null : next));
   }, []);
 
+  // One addon subtitle request per session, whether the panel or the prefetch
+  // asked first.
+  const subsFetch = useRef<string | null>(null);
   const loadSubtitles = useCallback(
     async (force = false) => {
-      if (!session || (subs && !force)) return;
+      if (!session) return;
       const key = session.key;
+      if (!force && (subs || subsFetch.current === key)) return;
+      subsFetch.current = key;
       setSubs(null);
       try {
         const result = await api.subtitles({
@@ -1633,6 +1638,8 @@ export function PlayerView() {
         if (sessionRef.current?.key === key) setSubs(result);
       } catch {
         if (sessionRef.current?.key === key) setSubs([]);
+      } finally {
+        if (subsFetch.current === key) subsFetch.current = null;
       }
     },
     [session?.metaId, session?.type, session?.season, session?.episode, subs],
@@ -1844,6 +1851,9 @@ export function PlayerView() {
     setLoadedSub(null);
     frameCache.current.clear();
     frameBucket.current = 0;
+    // Addon subtitle lists are slow; fetch one while the film plays so the
+    // panel is ready when it opens.
+    void loadSubtitles(true);
   }, [session?.key]);
 
   // Markers are stored per episode, keyed like the session. The command still
