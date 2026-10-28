@@ -251,6 +251,14 @@ export interface Chapter {
   title?: string | null;
 }
 
+/** What the player shows while a start is still resolving its source. */
+export interface StartingArt {
+  name: string;
+  sub?: string | null;
+  logo?: string | null;
+  background?: string | null;
+}
+
 export interface PlaybackSession {
   key: string;
   metaId: string;

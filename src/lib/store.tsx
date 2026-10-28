@@ -23,6 +23,7 @@ import type {
   ProgressItem,
   Settings,
   StreamOption,
+  StartingArt,
   Video,
 } from "./types";
 
@@ -53,7 +54,7 @@ interface Store {
   toasts: Toast[];
   route: Route;
   /** Non-null from the click until the source is resolved; the player opens at once. */
-  starting: { name: string; poster: string | null } | null;
+  starting: StartingArt | null;
   cancelStart: () => void;
   navigate: (route: Route) => void;
   back: () => void;
@@ -230,7 +231,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
-  const [starting, setStarting] = useState<{ name: string; poster: string | null } | null>(null);
+  const [starting, setStarting] = useState<StartingArt | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(1);
   const depth = useRef(0);
@@ -527,10 +528,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The player is a screen, not a spinner on the previous one: show it at once
   // and let it carry the wait.
   const beginStart = useCallback(
-    (name: string, poster: string | null) => {
+    (art: StartingArt & { poster?: string | null }, sub?: string | null) => {
       const token = startToken.current + 1;
       startToken.current = token;
-      setStarting({ name, poster });
+      setStarting({
+        name: art.name,
+        sub: sub ?? null,
+        logo: art.logo ?? null,
+        background: art.background ?? art.poster ?? null,
+      });
       navigate({ name: "player" });
       return token;
     },
@@ -661,7 +667,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id, name: item.name };
-      const token = beginStart(item.name, item.poster ?? null);
+      const token = beginStart(item);
       try {
         // A movie's tt id is what the stream addons key on, so the hunt can run
         // alongside the details fetch instead of queueing behind it.
@@ -772,7 +778,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       pending.current = { id: entry.key, name: entry.name };
-      const token = beginStart(entry.name, entry.poster ?? null);
+      const token = beginStart(
+        entry,
+        entry.type === "series" ? seasonLabel(entry.season, entry.episode) : null,
+      );
       try {
         // The entry already carries every session field, and a tt id is exactly
         // what the stream addons key on, so metadata is only needed to hunt.

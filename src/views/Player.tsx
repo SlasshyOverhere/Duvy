@@ -1430,12 +1430,15 @@ export function PlayerView() {
       return (
         <div className="pv pv--awake">
           <div className="pv-wait">
-            {starting.poster ? (
-              <img className="pv-pulse" src={starting.poster} alt="" draggable={false} />
+            {starting.background ? (
+              <img className="pv-wait-bg" src={starting.background} alt="" draggable={false} />
+            ) : null}
+            {starting.logo ? (
+              <img className="pv-pulse" src={starting.logo} alt="" draggable={false} />
             ) : (
-              <Spinner label="Opening stream" />
+              <h1 className="pv-wait-title">{starting.name}</h1>
             )}
-            <p className="pv-wait-label">{starting.name}</p>
+            {starting.sub ? <p className="pv-wait-label">{starting.sub}</p> : null}
             <p className="pv-hint">Finding a source…</p>
             <button type="button" className="btn btn-ghost" onClick={cancelStart}>
               Back
@@ -1462,6 +1465,8 @@ export function PlayerView() {
   // mpv reports the cache relative to the playhead; the bar wants where it ends.
   const bufferedPercent = bufferPercent(position, local.buffered ?? 0, duration);
   const title = session?.name ?? local.title;
+  const artBackground =
+    details?.background ?? session?.background ?? session?.poster ?? null;
   const activeAudio = audioTracks.find((track) => track.id === local.activeAudio) ?? null;
   const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
   const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
@@ -1658,10 +1663,13 @@ export function PlayerView() {
 
       {loading ? (
         <div className="pv-wait">
-          {details?.poster ? (
-            <img className="pv-pulse" src={details.poster} alt="" draggable={false} />
+          {artBackground ? (
+            <img className="pv-wait-bg" src={artBackground} alt="" draggable={false} />
+          ) : null}
+          {details?.logo ? (
+            <img className="pv-pulse" src={details.logo} alt="" draggable={false} />
           ) : (
-            <Spinner label="Opening stream" />
+            <h1 className="pv-wait-title">{title}</h1>
           )}
           <p className="pv-wait-label">Opening stream</p>
           {/* The counter stays out of the live region, or it announces twice a second. */}

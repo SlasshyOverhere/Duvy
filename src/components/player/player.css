@@ -1575,6 +1575,7 @@
 /* The elapsed counter sits right under the spinner, not on a paragraph margin. */
 .pv .pv-wait .pv-hint {
   margin: -8px 0 0;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
 /* ---- failed source ------------------------------------------------------ */
@@ -2160,10 +2161,36 @@
 
 .pv .pv-pulse {
   display: block;
-  max-width: 11rem;
-  max-height: 15rem;
-  border-radius: 10px;
+  max-width: min(26rem, 70vw);
+  max-height: 11rem;
   object-fit: contain;
+  animation: pv-pulse 2s ease-in-out infinite;
+}
+
+/* The art fills the screen while mpv has no frame to show yet. */
+.pv .pv-wait-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* No title art: the name carries the screen, sized like the logo would be. */
+.pv .pv-wait-title {
+  margin: 0;
+  max-width: min(26rem, 78vw);
+  font-family: var(--display);
+  font-size: clamp(1.9rem, 5vw, 3.2rem);
+  font-weight: 400;
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.65);
   animation: pv-pulse 2s ease-in-out infinite;
 }
 
@@ -2173,6 +2200,7 @@
   font-weight: 600;
   letter-spacing: 0.01em;
   color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
 @keyframes pv-pulse {
