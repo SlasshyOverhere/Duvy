@@ -433,7 +433,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     void run();
-    const timer = setInterval(() => void run(), 5 * 60 * 1000);
+    const timer = setInterval(() => void run(), 2.5 * 60 * 1000);
     return () => {
       alive = false;
       clearInterval(timer);
