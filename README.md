@@ -1,7 +1,6 @@
 # Duvy
 
-An independent, performance-first desktop media hub for Windows. Rust and Tauri on the inside,
-React on the outside, mpv for playback.
+A lightweight desktop media hub for Windows: addons, library and playback in one fast window.
 
 [![CI](https://github.com/SlasshyOverhere/Duvy/actions/workflows/ci.yml/badge.svg)](https://github.com/SlasshyOverhere/Duvy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

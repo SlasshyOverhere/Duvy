@@ -44,8 +44,8 @@
     "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "Entertainment",
-    "shortDescription": "Fast native media hub",
-    "longDescription": "Duvy is a performance-first desktop media hub that brings your own addons, libraries and player together.",
+    "shortDescription": "Lightweight media hub",
+    "longDescription": "A lightweight desktop media hub for Windows: addons, library and playback in one fast window.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
