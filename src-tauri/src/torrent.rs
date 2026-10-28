@@ -556,7 +556,7 @@ mod tests {
 
     fn scratch_dir(tag: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("betternuvio-torrent-{tag}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("duvy-torrent-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

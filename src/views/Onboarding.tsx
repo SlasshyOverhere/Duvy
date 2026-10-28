@@ -259,8 +259,8 @@ export function Onboarding({
               <>
                 <header className="ob-head">
                   <Mark still={still} />
-                  <h1 className="ob-word" aria-label="betterNuvio">
-                    {[..."betterNuvio"].map((letter, index) => (
+                  <h1 className="ob-word" aria-label="Duvy">
+                    {[..."Duvy"].map((letter, index) => (
                       <motion.span
                         key={`${letter}-${index}`}
                         aria-hidden="true"
@@ -293,7 +293,7 @@ export function Onboarding({
                 <header className="ob-head">
                   <motion.div className="ob-masthead" {...rise(0)}>
                     <Mark size={24} still />
-                    <span>betterNuvio</span>
+                    <span>Duvy</span>
                   </motion.div>
                   <motion.h1 className="ob-title" {...rise(0.04)}>
                     Bring your history with you

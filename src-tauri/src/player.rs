@@ -1,7 +1,7 @@
 //! Native playback through mpv.
 //!
 //! Video is decoded by mpv (hardware accelerated, in-process with its own
-//! render surface) while BetterNuvio drives it over mpv's JSON IPC socket. The
+//! render surface) while Duvy drives it over mpv's JSON IPC socket. The
 //! picture is painted into the app window itself and the web layer above it
 //! stays transparent, so playback never leaves the window and the WebView stays
 //! completely out of the decode path.
@@ -276,11 +276,11 @@ fn pipe_name() -> String {
         .unwrap_or(0);
     #[cfg(windows)]
     {
-        format!(r"\\.\pipe\betternuvio-{}-{stamp}", std::process::id())
+        format!(r"\\.\pipe\duvy-{}-{stamp}", std::process::id())
     }
     #[cfg(unix)]
     {
-        format!("/tmp/betternuvio-{}-{stamp}.sock", std::process::id())
+        format!("/tmp/duvy-{}-{stamp}.sock", std::process::id())
     }
 }
 
@@ -700,7 +700,7 @@ impl Player {
     ) -> Result<Self, String> {
         validate_media_url(&request.url)?;
         let mpv = find_mpv(&settings.mpv_path, resource_dir).ok_or_else(|| {
-            "mpv was not found. Reinstall BetterNuvio, or point it at an mpv.exe in Settings → Playback."
+            "mpv was not found. Reinstall Duvy, or point it at an mpv.exe in Settings → Playback."
                 .to_string()
         })?;
 
@@ -767,7 +767,7 @@ impl Player {
             .arg("--dither-depth=auto")
             // mpv 0.40+ dropped space-separated values for these two.
             .arg(format!("--force-media-title={}", request.title))
-            .arg("--user-agent=Mozilla/5.0 BetterNuvio/0.1")
+            .arg("--user-agent=Mozilla/5.0 Duvy/0.1")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(match stderr_sink {
@@ -809,7 +809,7 @@ impl Player {
                     .arg("--force-window=yes")
                     .arg("--osc=yes")
                     .arg("--autofit-larger=90%x90%")
-                    .arg("--title=BetterNuvio");
+                    .arg("--title=Duvy");
             }
         }
 

@@ -12,7 +12,7 @@ function message(error: unknown): string {
  * Stremio account panel.
  *
  * Signs in to the same account the official apps use, so addons, library rows
- * and resume points converge across Stremio, Nuvio and BetterNuvio. Addons are
+ * and resume points converge across Stremio, Nuvio and Duvy. Addons are
  * matched by manifest URL, so the same addon on two accounts stays one row.
  */
 export function StremioSync() {

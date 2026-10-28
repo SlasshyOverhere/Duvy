@@ -11,7 +11,7 @@ fn temp_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("betternuvio-test-{stamp}.db"))
+    std::env::temp_dir().join(format!("duvy-test-{stamp}.db"))
 }
 
 fn temp_database() -> (rusqlite::Connection, PathBuf) {

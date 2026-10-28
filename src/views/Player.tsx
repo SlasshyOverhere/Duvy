@@ -1,4 +1,4 @@
-﻿import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -30,9 +30,9 @@ import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const NEXT_LEAD = 45;
-const SUB_STYLE_KEY = "betternuvio.subtitleStyle";
-const VIDEO_MODE_KEY = "betternuvio.videoMode";
-const VOLUME_KEY = "betternuvio.volume";
+const SUB_STYLE_KEY = "duvy.subtitleStyle";
+const VIDEO_MODE_KEY = "duvy.videoMode";
+const VOLUME_KEY = "duvy.volume";
 const MAX_VOLUME = 200;
 const OFF = "__off__";
 const SUB_COLORS = [

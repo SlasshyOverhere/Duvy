@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for every agent working in BetterNuvio.
+Instructions for every agent working in Duvy.
 
 ## Repo facts
 

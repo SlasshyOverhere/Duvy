@@ -1,6 +1,6 @@
 //! Stremio-compatible addon protocol client.
 //!
-//! A BetterNuvio addon is any HTTP service that serves the open Stremio addon
+//! An addon is any HTTP service that serves the open Stremio addon
 //! protocol (`/manifest.json`, `/catalog/...`, `/meta/...`, `/stream/...`,
 //! `/subtitles/...`). Nothing here ships content: the user brings their own
 //! addon URLs.

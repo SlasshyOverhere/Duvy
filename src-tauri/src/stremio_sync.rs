@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 const BASE: &str = "https://api.strem.io";
 const SESSION_KEY: &str = "stremio";
 const LIBRARY_COLLECTION: &str = "libraryItem";
-const UA: &str = "BetterNuvio/0.1";
+const UA: &str = "Duvy/0.1";
 
 // ---------------------------------------------------------------------------
 // Session + status

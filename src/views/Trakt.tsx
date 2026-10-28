@@ -360,7 +360,7 @@ export function TraktView() {
       <footer className="page-note">
         <Icon name="info" size={15} />
         <span>
-          Trakt is a third-party service. BetterNuvio is not affiliated with or endorsed by Trakt.
+          Trakt is a third-party service. Duvy is not affiliated with or endorsed by Trakt.
         </span>
       </footer>
     </div>

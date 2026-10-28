@@ -1,6 +1,6 @@
-# Contributing to BetterNuvio
+# Contributing to Duvy
 
-Thanks for looking. BetterNuvio is a Windows desktop app: React 19 and TypeScript in the WebView,
+Thanks for looking. Duvy is a Windows desktop app: React 19 and TypeScript in the WebView,
 Rust and Tauri in the backend, mpv for playback. This file covers the practical bits; the design
 rules are in [AGENTS.md](AGENTS.md).
 
@@ -8,9 +8,9 @@ rules are in [AGENTS.md](AGENTS.md).
 
 - Open an issue for anything larger than a small fix. It is cheaper to agree on the shape first.
 - Bug reports need the app version, Windows version, what you did, what happened, and the relevant
-  lines from `%APPDATA%\app.betternuvio.desktop\mpv.log` or `mpv-stderr.log` when playback is
+  lines from `%APPDATA%\app.duvy.desktop\mpv.log` or `mpv-stderr.log` when playback is
   involved.
-- BetterNuvio ships no media, catalogs, addons or scrapers. Do not add a bundled source, a
+- Duvy ships no media, catalogs, addons or scrapers. Do not add a bundled source, a
   hard-coded addon URL, or anything that ships copyrighted content.
 
 ## Setup
@@ -23,7 +23,7 @@ bun run app        # desktop app; first run downloads mpv in the background
 bun run dev        # Vite only, with the in-browser mock backend
 ```
 
-Dev builds use the `app.betternuvio.desktop.dev` identifier, so they keep their own database and
+Dev builds use the `app.duvy.desktop.dev` identifier, so they keep their own database and
 player.
 
 ## Checks

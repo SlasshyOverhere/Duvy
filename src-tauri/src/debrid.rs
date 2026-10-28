@@ -644,7 +644,7 @@ fn request(
 ) -> reqwest::RequestBuilder {
     let builder = http.request(method, url);
     match provider {
-        "alldebrid" => builder.query(&[("agent", "BetterNuvio")]).bearer_auth(key),
+        "alldebrid" => builder.query(&[("agent", "Duvy")]).bearer_auth(key),
         "premiumize" => builder.query(&[("apikey", key)]),
         _ => builder.bearer_auth(key),
     }

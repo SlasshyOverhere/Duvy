@@ -932,7 +932,7 @@ export function SettingsView({ section }: { section?: string }) {
               <Button
                 variant="primary"
                 onClick={() =>
-                  window.dispatchEvent(new Event("betternuvio:preview-onboarding"))
+                  window.dispatchEvent(new Event("duvy:preview-onboarding"))
                 }
               >
                 Preview onboarding

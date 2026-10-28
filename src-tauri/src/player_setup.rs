@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The release that carries the player build. Bump the tag to ship a new mpv.
 const RELEASE: &str =
-    "https://github.com/SlasshyOverhere/BetterNuvio/releases/download/player-1";
+    "https://github.com/SlasshyOverhere/Duvy/releases/download/player-1";
 
 static DIR: OnceLock<PathBuf> = OnceLock::new();
 static RUNNING: AtomicBool = AtomicBool::new(false);
@@ -125,7 +125,7 @@ async fn install(app: &AppHandle) -> Result<(), String> {
     // The shared client caps a whole request at 18s, which a 120 MB body would
     // blow through on a slow line. The player gets its own generous budget.
     let http = reqwest::Client::builder()
-        .user_agent("BetterNuvio/0.1 (+https://github.com/better-nuvio)")
+        .user_agent("Duvy/0.1 (+https://github.com/SlasshyOverhere/Duvy)")
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(900))
         .build()

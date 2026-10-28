@@ -137,7 +137,7 @@ fn inflight() -> &'static tokio::sync::Mutex<HashMap<u64, Job>> {
 async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {
     // One folder per call: concurrent previews cannot read each other's jpg.
     let dir = std::env::temp_dir().join(format!(
-        "betternuvio-frame-{}-{}",
+        "duvy-frame-{}-{}",
         std::process::id(),
         stamp()
     ));

@@ -31,7 +31,7 @@ pub const DEFAULT_FALLBACK: &str = "https://api-two.nuvioapp.space";
 pub const DEFAULT_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI";
 
 const SESSION_KEY: &str = "nuvio";
-const UA: &str = "BetterNuvio/0.1";
+const UA: &str = "Duvy/0.1";
 
 // ---------------------------------------------------------------------------
 // Session + status
@@ -511,7 +511,7 @@ fn content_type(value: &Value) -> String {
 }
 
 /// Local progress key for a remote entry: `metaId` for movies, `metaId:s:e`
-/// for episodes, so BetterNuvio can resolve its own resume lookups.
+/// for episodes, so Duvy can resolve its own resume lookups.
 fn local_key(content_id: &str, season: i64, episode: i64) -> String {
     if season > 0 && episode > 0 {
         format!("{content_id}:{season}:{episode}")

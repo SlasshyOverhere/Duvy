@@ -1,12 +1,12 @@
-# BetterNuvio
+# Duvy
 
 An independent, performance-first desktop media hub for Windows. Rust and Tauri on the inside,
 React on the outside, mpv for playback.
 
-[![CI](https://github.com/SlasshyOverhere/BetterNuvio/actions/workflows/ci.yml/badge.svg)](https://github.com/SlasshyOverhere/BetterNuvio/actions/workflows/ci.yml)
+[![CI](https://github.com/SlasshyOverhere/Duvy/actions/workflows/ci.yml/badge.svg)](https://github.com/SlasshyOverhere/Duvy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Independent.** BetterNuvio is an independent project. It is not affiliated with Trakt,
+> **Independent.** Duvy is an independent project. It is not affiliated with Trakt,
 > Jellyfin, Emby, any debrid provider, or any addon author. See [NOTICE](NOTICE).
 
 ![Home](screenshots/home.png)
@@ -14,7 +14,7 @@ React on the outside, mpv for playback.
 ## Why this exists
 
 Most desktop media hubs run the whole app, including a large shared UI layer, on one runtime.
-BetterNuvio takes a different route: a small Rust core and a WebView that never touches a video
+Duvy takes a different route: a small Rust core and a WebView that never touches a video
 frame:
 
 - **Playback is out of process.** mpv decodes with `hwdec=auto-safe` and paints into the app
@@ -108,7 +108,7 @@ For UI work without Rust rebuilds:
 bun run dev        # Vite only, with an in-browser mock backend
 ```
 
-Development builds use the `app.betternuvio.desktop.dev` identifier, so their database and
+Development builds use the `app.duvy.desktop.dev` identifier, so their database and
 downloaded player live beside, not inside, a production install.
 
 ## Checks
@@ -141,7 +141,7 @@ One-time setup: the workflow signs with a minisign key that has to match
 secret:
 
 ```bash
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/betternuvio.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/duvy.key
 ```
 
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is only needed if the key has a password. Keep the key safe:
@@ -157,7 +157,7 @@ A local `bun run tauri build` still works for smoke tests, but it needs the same
 
 ## Bring your own content
 
-BetterNuvio ships no media, no catalogs, no addons and no scrapers. Everything comes from addon
+Duvy ships no media, no catalogs, no addons and no scrapers. Everything comes from addon
 URLs you add, servers you connect, or files you open.
 
 1. **Metadata and catalogs:** Cinemeta is installed on first launch and gives artwork,
@@ -204,12 +204,12 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Where data lives
 
-`%APPDATA%\app.betternuvio.desktop\betternuvio.db` on Windows. The same folder holds `mpv.log`,
+`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`,
 `mpv-stderr.log`, the temporary `torrent-cache` directory and `player/` (the mpv the app
 downloaded on first run). Seek-bar previews decode into the system temp folder and are removed
 when they expire. Delete the database file to reset the app.
 
-Development builds use `%APPDATA%\app.betternuvio.desktop.dev`, so they never touch production
+Development builds use `%APPDATA%\app.duvy.desktop.dev`, so they never touch production
 data.
 
 ## Project layout
@@ -256,7 +256,7 @@ Security problems go through [SECURITY.md](SECURITY.md), not the public issue tr
 
 ## License
 
-MIT for this repository's code. BetterNuvio is an independent implementation; no third-party
+MIT for this repository's code. Duvy is an independent implementation; no third-party
 client code is included here.
 
 On first run the app downloads a Windows build of mpv, which is free software under

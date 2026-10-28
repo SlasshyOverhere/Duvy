@@ -14,7 +14,7 @@ use tauri::State;
 const KEY_BLOB: &str = "servers";
 const TIMEOUT: Duration = Duration::from_secs(15);
 const CLIENT: &str =
-    r#"MediaBrowser Client="BetterNuvio", Device="Desktop", DeviceId="betternuvio", Version="0.1.0""#;
+    r#"MediaBrowser Client="Duvy", Device="Desktop", DeviceId="duvy", Version="0.1.0""#;
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -477,9 +477,9 @@ mod tests {
     #[test]
     fn auth_header_identifies_the_client() {
         let header = auth_header();
-        assert!(header.contains(r#"Client="BetterNuvio""#));
+        assert!(header.contains(r#"Client="Duvy""#));
         assert!(header.contains(r#"Device="Desktop""#));
-        assert!(header.contains(r#"DeviceId="betternuvio""#));
+        assert!(header.contains(r#"DeviceId="duvy""#));
         assert!(header.contains(r#"Version="0.1.0""#));
         assert!(!header.to_ascii_lowercase().contains("token="));
     }

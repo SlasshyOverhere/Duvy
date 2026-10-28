@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned work for BetterNuvio, audited October 2026. Shipped features live in
+Planned work for Duvy, audited October 2026. Shipped features live in
 [`FEATURES.md`](./FEATURES.md); this file is only the work queue.
 
 Effort is a rough single-developer estimate, not a promise:
@@ -221,7 +221,7 @@ feature.
 | RG-03 | Delta updates | zsync metadata | M | |
 | RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | No crash path at all |
 | RG-06 | Installer signing | Authenticode certificate | M | Updater bundles are signed in CI; the installer itself is unsigned |
-| RG-07 | Deep links | `betternuvio://` registration, launch args, routing to meta / downloads / party | M | Nothing registered |
+| RG-07 | Deep links | `duvy://` registration, launch args, routing to meta / downloads / party | M | Nothing registered |
 | RG-08 | Window state restore | Geometry, maximized, fullscreen on relaunch | S | Recreates 1440x920 every launch |
 | RG-09 | Discord rich presence | IPC integration | M | |
 | RG-10 | Windows renderer choice | OpenGL vs default WebView2 | S | |

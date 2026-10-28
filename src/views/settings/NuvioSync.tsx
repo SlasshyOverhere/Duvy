@@ -13,7 +13,7 @@ function message(error: unknown): string {
  *
  * Signs in to the same backend the official Nuvio apps use, so watched flags,
  * resume points and the library converge across Nuvio mobile, Nuvio Desktop and
- * BetterNuvio on the next sync.
+ * Duvy on the next sync.
  */
 export function NuvioSync() {
   const { settings, saveSettings, refreshProgress, refreshLibrary, refreshAddons } = useApp();

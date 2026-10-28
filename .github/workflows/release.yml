@@ -58,7 +58,7 @@ jobs:
         with:
           tauriScript: bun run tauri
           tagName: ${{ github.ref_name }}
-          releaseName: BetterNuvio ${{ github.ref_name }}
+          releaseName: Duvy ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true

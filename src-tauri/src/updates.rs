@@ -68,7 +68,7 @@ pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
 #[tauri::command]
 pub async fn update_install(app: AppHandle) -> Result<(), String> {
     let Some(update) = fetch(&app).await? else {
-        return Err("BetterNuvio is already up to date.".into());
+        return Err("Duvy is already up to date.".into());
     };
     let handle = app.clone();
     let mut downloaded = 0usize;
@@ -119,7 +119,7 @@ fn announce(app: &AppHandle, info: &UpdateInfo) {
     let _ = app
         .notification()
         .builder()
-        .title(format!("BetterNuvio {} is available", info.version))
-        .body("Open Settings, About to install it.")
+        .title(format!("Duvy {} is available", info.version))
+        .body("Open Settings, Update to install it.")
         .show();
 }

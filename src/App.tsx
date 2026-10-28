@@ -104,10 +104,10 @@ function Screen() {
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") setPreview(false);
     };
-    window.addEventListener("betternuvio:preview-onboarding", show);
+    window.addEventListener("duvy:preview-onboarding", show);
     window.addEventListener("keydown", key);
     return () => {
-      window.removeEventListener("betternuvio:preview-onboarding", show);
+      window.removeEventListener("duvy:preview-onboarding", show);
       window.removeEventListener("keydown", key);
     };
   }, []);
@@ -130,7 +130,7 @@ function Screen() {
             />
           </svg>
         </div>
-        <p className="boot-title">betterNuvio</p>
+        <p className="boot-title">Duvy</p>
         <p className="boot-sub">Warming up the projector…</p>
       </div>
     );
@@ -139,7 +139,7 @@ function Screen() {
   if (bootError) {
     return (
       <div className="boot">
-        <p className="boot-title">BetterNuvio could not start</p>
+        <p className="boot-title">Duvy could not start</p>
         <p className="boot-sub">{bootError}</p>
         <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
           Reload

@@ -1,4 +1,4 @@
-//! BetterNuvio: an unofficial, performance-first desktop media hub.
+//! Duvy: a performance-first desktop media hub.
 //!
 //! The Rust side owns everything that should never block the UI: the local
 //! store, addon HTTP calls, metadata enrichment and playback control.
@@ -406,7 +406,7 @@ pub(crate) fn player_is_live(app: &tauri::AppHandle) -> bool {
 /// and timeouts short enough that a dead host cannot hold a screen hostage.
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("BetterNuvio/0.1 (+https://github.com/better-nuvio)")
+        .user_agent("Duvy/0.1 (+https://github.com/SlasshyOverhere/Duvy)")
         .timeout(Duration::from_secs(18))
         .connect_timeout(Duration::from_secs(8))
         .tcp_keepalive(Duration::from_secs(30))
@@ -442,7 +442,7 @@ pub fn run() {
                 .expect("the app data directory should be available");
             std::fs::create_dir_all(&data_dir)?;
 
-            let db_path = data_dir.join("betternuvio.db");
+            let db_path = data_dir.join("duvy.db");
             let connection = match db::open(&db_path) {
                 Ok(connection) => connection,
                 Err(error) => {
@@ -454,10 +454,10 @@ pub fn run() {
                     // be queued and the exit taken from its callback.
                     app.dialog()
                         .message(format!(
-                            "BetterNuvio could not open its local database:\n\n{}\n\n{error}\n\nThe app will now close.",
+                            "Duvy could not open its local database:\n\n{}\n\n{error}\n\nThe app will now close.",
                             db_path.display()
                         ))
-                        .title("BetterNuvio cannot start")
+                        .title("Duvy cannot start")
                         .kind(MessageDialogKind::Error)
                         .show(|_| std::process::exit(1));
                     return Ok(());
@@ -563,7 +563,7 @@ pub fn run() {
             debrid::resolve,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building BetterNuvio");
+        .expect("error while building Duvy");
 
     app.run(|handle, event| {
         match event {

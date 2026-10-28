@@ -5,7 +5,7 @@ import { useApp } from "../../lib/store";
 import { errorMessage } from "../../lib/format";
 import { Button, Toggle } from "../../components/ui";
 
-const RELEASES = "https://github.com/SlasshyOverhere/BetterNuvio/releases";
+const RELEASES = "https://github.com/SlasshyOverhere/Duvy/releases";
 
 function megabytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -60,7 +60,7 @@ export function Updates() {
     setProgress(null);
     try {
       await api.updates.install();
-      setNote("Installing. BetterNuvio restarts when it finishes.");
+      setNote("Installing. Duvy restarts when it finishes.");
     } catch (error) {
       setNote(errorMessage(error));
       setInstalling(false);

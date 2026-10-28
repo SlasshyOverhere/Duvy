@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security report
-    url: https://github.com/SlasshyOverhere/BetterNuvio/security/advisories/new
+    url: https://github.com/SlasshyOverhere/Duvy/security/advisories/new
     about: Report a vulnerability privately. Do not open a public issue.
   - name: Roadmap
-    url: https://github.com/SlasshyOverhere/BetterNuvio/blob/main/docs/ROADMAP.md
+    url: https://github.com/SlasshyOverhere/Duvy/blob/main/docs/ROADMAP.md
     about: Check what is already planned before filing a feature request.

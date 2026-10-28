@@ -380,7 +380,7 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       return {
         version: "0.1.0-preview",
         platform: "browser preview",
-        dataDir: "~/BetterNuvio",
+        dataDir: "~/Duvy",
         mpv: { path: "C:\\Program Files\\mpv\\mpv.exe", version: "mpv 0.41.0" },
       } satisfies AppInfo;
 

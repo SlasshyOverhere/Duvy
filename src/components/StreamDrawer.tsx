@@ -499,7 +499,7 @@ export function StreamDrawer({
               {groups.length === 1 ? "addon" : "addons"}
             </span>
           ) : (
-            <span>Streams are provided by your own addons. BetterNuvio ships no content.</span>
+            <span>Streams are provided by your own addons. Duvy ships no content.</span>
           )}
         </footer>
       </aside>

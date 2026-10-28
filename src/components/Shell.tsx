@@ -80,9 +80,9 @@ export function TopBar() {
           type="button"
           className="wordmark"
           onClick={() => navigate({ name: "home" })}
-          aria-label="BetterNuvio home"
+          aria-label="Duvy home"
         >
-          betterNuvio
+          Duvy
         </button>
       </div>
 

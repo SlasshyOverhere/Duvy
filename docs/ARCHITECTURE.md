@@ -120,7 +120,7 @@ The UI turns a stream row into a playable URL in this order:
 1. The UI opens the player route first and calls `player_open({ url, title, startAt, session })`
    once the source resolves. While it waits, the start screen shows the title backdrop and logo.
 2. Rust drops any existing player (terminating the old mpv), then spawns mpv with
-   `--no-config --idle=yes --keep-open=no --input-ipc-server=\\.\pipe\betternuvio-<pid>-<ts>`,
+   `--no-config --idle=yes --keep-open=no --input-ipc-server=\\.\pipe\duvy-<pid>-<ts>`,
    hardware decoding from settings, `--vo=gpu-next`, `--tone-mapping=bt.2390`, `--cache=yes`,
    `--demuxer-max-bytes` / `--demuxer-max-back-bytes` from the buffer settings, `--sub-auto=fuzzy`,
    subtitle/audio language preferences, and `--wid=<app window>` on Windows. Logs go to the app

@@ -187,7 +187,7 @@ export function pickSource(
 /** The whole source a session played last time, so resuming skips the hunt. */
 export type SourceMemory = StreamOption;
 
-const SOURCE_MEMORY_KEY = "betternuvio:sources";
+const SOURCE_MEMORY_KEY = "duvy:sources";
 const SOURCE_MEMORY_LIMIT = 200;
 
 function readSourceMemory(): Record<string, SourceMemory> {
@@ -232,7 +232,7 @@ export interface SubtitleMemory {
   off?: boolean;
 }
 
-const SUBTITLE_MEMORY_KEY = "betternuvio:subtitles";
+const SUBTITLE_MEMORY_KEY = "duvy:subtitles";
 const SUBTITLE_MEMORY_LIMIT = 200;
 
 function readSubtitleMemory(): Record<string, SubtitleMemory> {
@@ -497,7 +497,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void listen<UpdateInfo>("update:available", (event) => {
       setUpdate(event.payload);
       notify(
-        `BetterNuvio ${event.payload.version} is available. Install it from Settings, About.`,
+        `Duvy ${event.payload.version} is available. Install it from Settings, Update.`,
       );
     })
       .then((stop) => {

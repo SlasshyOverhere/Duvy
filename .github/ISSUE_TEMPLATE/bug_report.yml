@@ -52,7 +52,7 @@ body:
     attributes:
       label: Logs
       description: |
-        Playback issues: the last lines of `%APPDATA%\app.betternuvio.desktop\mpv.log` and
+        Playback issues: the last lines of `%APPDATA%\app.duvy.desktop\mpv.log` and
         `mpv-stderr.log`. Remove tokens and personal paths before pasting.
       render: text
     validations:
