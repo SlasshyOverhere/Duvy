@@ -151,7 +151,9 @@
 .pv--panel .pv-top,
 .pv--panel .pv-center,
 .pv--panel .pv-timeline,
-.pv--panel .pv-hud {
+.pv--panel .pv-hud,
+.pv--panel .pv-indicator,
+.pv--panel .pv-volosd {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -1766,3 +1768,619 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Stremio-style chrome
+   Port of stremio-web's player HUD: back + title on top, a seek row with the
+   time on either side, then one row of square transport buttons.
+   --------------------------------------------------------------------------- */
+
+.pv .pv-top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  height: 72px;
+  padding: 0 16px 0 4px;
+  transition: opacity 0.2s ease;
+}
+
+.pv .pv-top::before {
+  content: "";
+  position: absolute;
+  inset: -24px 0 auto;
+  height: 148px;
+  z-index: -1;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent);
+  pointer-events: none;
+}
+
+.pv .pv-top-back {
+  margin-left: 12px;
+}
+
+.pv .pv-top-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 16px;
+}
+
+.pv .pv-top-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-top-sub {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-top-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.pv .pv-top-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  opacity: 0.84;
+  transition: background-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
+}
+
+.pv .pv-top-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  opacity: 1;
+}
+
+.pv .pv-top-btn--win {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.pv .pv-top-btn--close:hover {
+  background: #a52f27;
+  color: #fff;
+}
+
+.pv .pv-window {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+}
+
+.pv .pv-window svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+
+/* ---- seek row ----------------------------------------------------------- */
+
+.pv .pv-timeline {
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 32px 14px;
+  transition: opacity 0.2s ease, transform 0.2s var(--ease);
+}
+
+.pv .pv-timeline::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 160px;
+  z-index: -1;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+  pointer-events: none;
+}
+
+.pv .pv-seek {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.pv .pv-seek-time {
+  flex: none;
+  width: 6rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pv .pv-seek-time--end {
+  direction: ltr;
+}
+
+.pv .pv-seek .pv-track {
+  flex: 1;
+  min-width: 0;
+  height: 2.5rem;
+  margin: 0 1.2rem;
+  cursor: pointer;
+}
+
+.pv .pv-seek .pv-track.is-dragging {
+  cursor: grabbing;
+}
+
+.pv .pv-trackrail,
+.pv .pv-buffer,
+.pv .pv-played {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 0.4rem;
+  margin-top: -0.2rem;
+  border-radius: 999px;
+  transform: none;
+  transition: none;
+}
+
+.pv .pv-trackrail {
+  right: 0;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.pv .pv-buffer {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.pv .pv-played {
+  background: var(--accent);
+}
+
+.pv .pv-knob {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: -0.6rem 0 0 -0.6rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: none;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+.pv .pv-track:hover .pv-knob,
+.pv .pv-track.is-dragging .pv-knob {
+  transform: scale(1.2);
+}
+
+.pv .pv-mark {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 2px;
+  height: 0.4rem;
+  margin-top: -0.2rem;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.6);
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.pv .pv-track:hover .pv-mark,
+.pv .pv-track.is-dragging .pv-mark {
+  height: 0.6rem;
+  margin-top: -0.3rem;
+}
+
+.pv .pv-tip {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% - 4px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(16, 16, 18, 0.96);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.pv .pv-tip b {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+}
+
+/* ---- transport row ------------------------------------------------------ */
+
+.pv .pv-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pv .pv-cbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.pv .pv-cbtn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.pv .pv-cbtn:disabled {
+  opacity: 0.4;
+}
+
+.pv .pv-cbtn.is-on {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pv .pv-spacer {
+  flex: 1;
+}
+
+.pv .pv-cluster {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.pv .pv-cbtn--fold {
+  display: none;
+}
+
+/* Stremio's slider: a hairline track with a round thumb, not a chunky rail. */
+.pv .pv-vslider {
+  display: flex;
+  align-items: center;
+  flex: 0 1 10rem;
+  height: 3.5rem;
+  margin: 0 6px;
+}
+
+.pv .pv-vslider input[type="range"] {
+  width: 100%;
+  height: 0.35rem;
+  margin: 0;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.2);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+.pv .pv-vslider input[type="range"]::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+}
+
+/* ---- transient readouts ------------------------------------------------- */
+
+.pv-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 136px;
+  z-index: 5;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.6rem;
+  padding: 0 1.4rem;
+  border-radius: 999px;
+  background: rgba(16, 16, 18, 0.82);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.pv-indicator.is-out {
+  opacity: 0;
+}
+
+.pv .pv-volosd {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.6rem 2rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  pointer-events: none;
+}
+
+.pv .pv-volosd-bar {
+  display: block;
+  width: 6.5rem;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  overflow: hidden;
+}
+
+.pv .pv-volosd-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #fff;
+}
+
+/* ---- opening stream ----------------------------------------------------- */
+
+.pv .pv-pulse {
+  display: block;
+  max-width: 11rem;
+  max-height: 15rem;
+  border-radius: 10px;
+  object-fit: contain;
+  animation: pv-pulse 2s ease-in-out infinite;
+}
+
+.pv .pv-wait-label {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+@keyframes pv-pulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+}
+
+/* ---- next episode card -------------------------------------------------- */
+
+.pv .pv-upnext {
+  position: absolute;
+  right: 2rem;
+  bottom: 132px;
+  left: auto;
+  z-index: 4;
+  width: min(34rem, calc(100vw - 4rem));
+  min-height: 10rem;
+  padding: 0;
+  border-radius: 10px;
+  background: #101012;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  animation: pv-slide 0.4s var(--ease);
+}
+
+.pv .pv-upnext-poster {
+  flex: 1 1 26%;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  background: #1a1a1d;
+}
+
+.pv .pv-upnext-thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.pv .pv-upnext-blank {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.pv .pv-upnext-info {
+  flex: 1 1 74%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.pv .pv-upnext-copy {
+  padding: 1.1rem 1.4rem 0.6rem;
+}
+
+.pv .pv-upnext-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pv .pv-upnext-name {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #fff;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.pv .pv-upnext-meta {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pv .pv-upnext-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 0.9rem;
+  padding: 0 1rem 1rem;
+}
+
+.pv .pv-upnext-btn {
+  flex: 0 1 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.6rem;
+  padding: 0 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.pv .pv-upnext-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pv .pv-upnext-btn:disabled {
+  opacity: 0.5;
+}
+
+.pv .pv-upnext-btn--play {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pv .pv-upnext-btn--play:hover {
+  background: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+.pv .pv-upnext--end {
+  width: min(26rem, calc(100vw - 4rem));
+}
+
+.pv .pv-upnext--end .pv-upnext-info {
+  flex: 1 1 auto;
+}
+
+/* ---- narrow window: fold the action row into a popup -------------------- */
+
+@media (max-width: 1000px) {
+  .pv .pv-timeline {
+    padding: 0 12px 10px;
+  }
+
+  .pv .pv-seek-time {
+    width: 4.4rem;
+    font-size: 0.95rem;
+  }
+
+  .pv .pv-vslider {
+    display: none;
+  }
+
+  .pv .pv-cluster {
+    position: absolute;
+    right: 8px;
+    bottom: 4.4rem;
+    z-index: 6;
+    display: none;
+    flex-wrap: wrap;
+    max-width: calc(100vw - 16px);
+    padding: 6px;
+    border-radius: 10px;
+    background: #101012;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  }
+
+  .pv .pv-cluster.is-open {
+    display: flex;
+  }
+
+  .pv .pv-cbtn--fold {
+    display: flex;
+  }
+
+  .pv .pv-upnext {
+    right: 12px;
+    bottom: 116px;
+    width: calc(100vw - 24px);
+  }
+}
+

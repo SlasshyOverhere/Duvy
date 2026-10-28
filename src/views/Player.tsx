@@ -387,7 +387,8 @@ export function PlayerView() {
   const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [locked, setLocked] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  // Narrow player: the right-hand action row folds into one popup.
+  const [btnMenu, setBtnMenu] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
@@ -397,6 +398,8 @@ export function PlayerView() {
   const [waited, setWaited] = useState(0);
 
   const [hud, setHud] = useState<Hud | null>(null);
+  // Stremio's centre card: the level moved, so show it big for a moment.
+  const [volOsd, setVolOsd] = useState(false);
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
   const [showRemaining, setShowRemaining] = useState(false);
@@ -413,7 +416,6 @@ export function PlayerView() {
   const frameCache = useRef(new Map<number, string>());
   const frameSeq = useRef(0);
   const frameBucket = useRef(0);
-  const actionsRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   // Stored position offered by the resume prompt, and the seconds left before
   // it settles on Resume by itself.
@@ -433,6 +435,8 @@ export function PlayerView() {
   const posRef = useRef(0);
   const hudTimer = useRef<number | null>(null);
   const hudOutTimer = useRef<number | null>(null);
+  const volOsdTimer = useRef<number | null>(null);
+  const volSeen = useRef<number | null>(null);
   const openedAt = useRef(Date.now());
   // A segment jumps once per playback session, even if the tick lands inside
   // the window again.
@@ -753,18 +757,29 @@ export function PlayerView() {
     () => () => {
       if (hudTimer.current) window.clearTimeout(hudTimer.current);
       if (hudOutTimer.current) window.clearTimeout(hudOutTimer.current);
+      if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
     },
     [],
   );
+
+  // The level changed: flash the centre card, the way Stremio does.
+  useEffect(() => {
+    const level = local?.volume ?? null;
+    if (level != null && volSeen.current != null && level !== volSeen.current) {
+      setVolOsd(true);
+      if (volOsdTimer.current) window.clearTimeout(volOsdTimer.current);
+      volOsdTimer.current = window.setTimeout(() => setVolOsd(false), 1500);
+    }
+    volSeen.current = level;
+  }, [local?.volume]);
 
   const changeVolume = useCallback(
     (delta: number) => {
       const next = Math.min(MAX_VOLUME, Math.max(0, Math.round(volRef.current + delta)));
       volRef.current = next;
       setVolume(next);
-      showHud("Volume", `${next}%`);
     },
-    [setVolume, showHud],
+    [setVolume],
   );
 
   const toggleMute = useCallback(() => {
@@ -774,13 +789,11 @@ export function PlayerView() {
       volRef.current = restored;
       setVolume(restored);
       send("mute", false);
-      showHud("Sound", `${restored}%`);
       return;
     }
     // Send the target, not a toggle: mpv cycles and two senders would cancel.
     send("mute", !silent);
-    showHud("Sound", silent ? "On" : "Muted");
-  }, [local?.volume, send, setVolume, showHud, silent]);
+  }, [local?.volume, send, setVolume, silent]);
 
   const changeSpeed = useCallback(
     (direction: 1 | -1) => {
@@ -1006,14 +1019,6 @@ export function PlayerView() {
     setChrome(false);
     setSurface(null);
   }, [locked]);
-
-  // Expanding the row reveals actions to the right; bring the last one into
-  // view on narrow windows, the way Nuvio scrolls its action rail.
-  useEffect(() => {
-    const rail = actionsRef.current;
-    if (!rail) return;
-    rail.scrollTo({ left: expanded ? rail.scrollWidth : 0, behavior: "smooth" });
-  }, [expanded]);
 
   // Keep the chrome on screen while the next-episode card is offered, so the
   // card has the timeline it belongs above.
@@ -1521,15 +1526,10 @@ export function PlayerView() {
     (found, chapter, at) => (chapter.start <= shownPosition + 0.25 ? at : found),
     -1,
   );
-  const chapterTitle =
-    chapterIndex >= 0
-      ? chapters[chapterIndex].title?.trim() || `Chapter ${chapterIndex + 1}`
-      : null;
 
   const sourceTitle = playingSource
     ? playingSource.name ?? playingSource.addon ?? "Source"
     : null;
-  const badges = [...new Set(playingSource?.badges ?? [])].slice(0, 4);
 
   const ratioFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1617,12 +1617,32 @@ export function PlayerView() {
 
       {!locked ? (
         <header className="pv-top">
+          <button
+            type="button"
+            className="pv-top-btn pv-top-back"
+            onClick={() => void stop()}
+            aria-label="Close player"
+            title="Close player"
+          >
+            <Icon name="back" size={26} />
+          </button>
+          <div className="pv-top-text">
+            <h2 className="pv-top-title" title={title}>
+              {title}
+            </h2>
+            {session?.season != null ? (
+              <p className="pv-top-sub">
+                {episodeCode({ season: session.season, episode: session.episode })}
+                {session.episodeTitle ? ` · ${session.episodeTitle}` : ""}
+              </p>
+            ) : null}
+          </div>
           <div className="pv-top-right">
             {isTauri() && !fullscreen ? (
               <div className="pv-window">
                 <button
                   type="button"
-                  className="pv-round"
+                  className="pv-top-btn pv-top-btn--win"
                   onClick={() => void getCurrentWindow().minimize()}
                   aria-label="Minimise window"
                   title="Minimise"
@@ -1633,7 +1653,7 @@ export function PlayerView() {
                 </button>
                 <button
                   type="button"
-                  className="pv-round pv-round--close"
+                  className="pv-top-btn pv-top-btn--win pv-top-btn--close"
                   onClick={() => void getCurrentWindow().close()}
                   aria-label="Close window"
                   title="Close window"
@@ -1646,30 +1666,21 @@ export function PlayerView() {
             ) : null}
             <button
               type="button"
-              className="pv-round"
+              className="pv-top-btn"
               onClick={() => void toggleFullscreen()}
               aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
             >
-              <Icon name={fullscreen ? "compress" : "expand"} size={19} />
+              <Icon name={fullscreen ? "compress" : "expand"} size={24} />
             </button>
             <button
               type="button"
-              className="pv-round"
+              className="pv-top-btn"
               onClick={cycleLock}
               aria-label="Lock controls"
               title="Lock controls"
             >
-              <Icon name="lock" size={19} />
-            </button>
-            <button
-              type="button"
-              className="pv-round"
-              onClick={() => void stop()}
-              aria-label="Close player"
-              title="Close player"
-            >
-              <Icon name="back" size={19} />
+              <Icon name="lock" size={24} />
             </button>
           </div>
         </header>
@@ -1704,7 +1715,12 @@ export function PlayerView() {
 
       {loading ? (
         <div className="pv-wait">
-          <Spinner label="Opening stream" />
+          {details?.poster ? (
+            <img className="pv-pulse" src={details.poster} alt="" draggable={false} />
+          ) : (
+            <Spinner label="Opening stream" />
+          )}
+          <p className="pv-wait-label">Opening stream</p>
           {/* The counter stays out of the live region, or it announces twice a second. */}
           <p className="pv-hint" aria-hidden="true">
             {waited.toFixed(1)}s
@@ -1747,35 +1763,6 @@ export function PlayerView() {
             <span>{formatTime(shownPosition)}</span>
             <span>{formatTime(duration)}</span>
           </div>
-        </div>
-      ) : null}
-
-      {!locked && !failed && !loading ? (
-        <div className="pv-center">
-          <button
-            type="button"
-            className="pv-center-btn"
-            onClick={() => seekRel(-10)}
-            aria-label="Back 10 seconds"
-          >
-            <Icon name="replay10" size={34} />
-          </button>
-          <button
-            type="button"
-            className="pv-center-btn pv-center-btn--play"
-            onClick={togglePause}
-            aria-label={local.paused ? "Play" : "Pause"}
-          >
-            <Icon name={local.paused ? "play" : "pause"} size={42} />
-          </button>
-          <button
-            type="button"
-            className="pv-center-btn"
-            onClick={() => seekRel(10)}
-            aria-label="Forward 10 seconds"
-          >
-            <Icon name="forward10" size={34} />
-          </button>
         </div>
       ) : null}
 
@@ -2407,87 +2394,79 @@ export function PlayerView() {
 
       {showNext && nextEpisode ? (
         <section className="pv-upnext" aria-label="Next episode">
-          {nextThumb ? (
-            <img
-              className="pv-upnext-thumb"
-              src={nextThumb}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              onError={() => setThumbBroken(true)}
-            />
-          ) : (
-            <span className="pv-upnext-thumb pv-upnext-thumb--blank" aria-hidden="true" />
-          )}
-          <div className="pv-upnext-text">
-            <p className="pv-upnext-label">Up next</p>
-            <p className="pv-upnext-name">
-              {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
-            </p>
-            <p className="pv-upnext-meta">
-              {nextAutoPlay
-                ? local.ended
-                  ? "Starting now"
-                  : `Starting in ${nextCountdown}s`
-                : "Ready when you are"}
-            </p>
+          <div className="pv-upnext-poster">
+            {nextThumb ? (
+              <img
+                className="pv-upnext-thumb"
+                src={nextThumb}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setThumbBroken(true)}
+              />
+            ) : (
+              <span className="pv-upnext-blank" aria-hidden="true">
+                <Icon name="episodes" size={36} />
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            className="pv-upnext-play"
-            disabled={busy}
-            onClick={() => void playVideo(nextEpisode)}
-          >
-            <Icon name="play" size={13} />
-            {busy ? "Loading" : "Play"}
-          </button>
-          <button
-            type="button"
-            className="pv-upnext-close"
-            onClick={dismissNext}
-            aria-label="Dismiss next episode"
-          >
-            <Icon name="x" size={14} />
-          </button>
+          <div className="pv-upnext-info">
+            <div className="pv-upnext-copy">
+              <p className="pv-upnext-label">Up next</p>
+              <p className="pv-upnext-name">
+                {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
+              </p>
+              <p className="pv-upnext-meta">
+                {nextAutoPlay
+                  ? local.ended
+                    ? "Starting now"
+                    : `Starting in ${nextCountdown}s`
+                  : "Ready when you are"}
+              </p>
+            </div>
+            <div className="pv-upnext-actions">
+              <button
+                type="button"
+                className="pv-upnext-btn"
+                onClick={dismissNext}
+              >
+                <Icon name="x" size={20} />
+                Dismiss
+              </button>
+              <button
+                type="button"
+                className="pv-upnext-btn pv-upnext-btn--play"
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+              >
+                <Icon name="play" size={20} />
+                {busy ? "Loading" : "Watch now"}
+              </button>
+            </div>
+          </div>
         </section>
       ) : null}
 
       {local.ended && !nextEpisode && !failed ? (
         <section className="pv-upnext pv-upnext--end">
-          <div className="pv-upnext-text">
-            <p className="pv-upnext-label">End</p>
-            <p className="pv-upnext-name">Nothing queued after this one.</p>
+          <div className="pv-upnext-info">
+            <div className="pv-upnext-copy">
+              <p className="pv-upnext-label">End</p>
+              <p className="pv-upnext-name">Nothing queued after this one.</p>
+            </div>
+            <div className="pv-upnext-actions">
+              <button type="button" className="pv-upnext-btn" onClick={() => void stop()}>
+                Close
+              </button>
+            </div>
           </div>
-          <button type="button" className="pv-upnext-play" onClick={() => void stop()}>
-            Close
-          </button>
         </section>
       ) : null}
 
       {!locked ? (
         <footer className="pv-timeline">
-          <div className="pv-details">
-            <p className="pv-details-title" title={title}>
-              {title}
-            </p>
-            {session?.season != null ? (
-              <p className="pv-details-ep">
-                {episodeCode({ season: session.season, episode: session.episode })}
-                {session.episodeTitle ? ` · ${session.episodeTitle}` : ""}
-              </p>
-            ) : null}
-            {badges.length > 0 ? (
-              <p className="pv-details-badges">{badges.join(" · ")}</p>
-            ) : null}
-            {details?.releaseInfo ? (
-              <p className="pv-details-release">{details.releaseInfo}</p>
-            ) : null}
-          </div>
-
-          {chapterTitle ? <p className="pv-chapter-title">{chapterTitle}</p> : null}
-
-          <div className="pv-scrub">
-            <span className="pv-time">{formatTime(shownPosition)}</span>
+          <div className={`pv-seek${dragging.current ? " is-active" : ""}`}>
+            <span className="pv-seek-time">{formatTime(shownPosition)}</span>
 
             <div
               className={`pv-track${dragging.current ? " is-dragging" : ""}`}
@@ -2569,7 +2548,7 @@ export function PlayerView() {
 
             <button
               type="button"
-              className="pv-time pv-time--end"
+              className="pv-seek-time pv-seek-time--end"
               onClick={() => setShowRemaining((current) => !current)}
               aria-label={showRemaining ? "Show total length" : "Show time remaining"}
               title={showRemaining ? "Total length" : "Time remaining"}
@@ -2578,17 +2557,38 @@ export function PlayerView() {
             </button>
           </div>
 
-          <div className={`pv-actionbar${expanded ? " is-expanded" : ""}`}>
-            <div className="pv-vol">
+          <div className="pv-controls">
+            <button
+              type="button"
+              className="pv-cbtn"
+              aria-label={local.paused ? "Play" : "Pause"}
+              title={local.paused ? "Play" : "Pause"}
+              onClick={togglePause}
+            >
+              <Icon name={local.paused ? "play" : "pause"} size={26} />
+            </button>
+            {nextEpisode ? (
               <button
                 type="button"
-                className="pv-action"
-                aria-label={silent ? "Unmute" : "Mute"}
-                title={silent ? "Unmute" : "Mute"}
-                onClick={toggleMute}
+                className="pv-cbtn"
+                aria-label="Next episode"
+                title="Next episode"
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
               >
-                <Icon name={silent ? "mute" : "volume"} size={24} />
+                <Icon name="next" size={26} />
               </button>
+            ) : null}
+            <button
+              type="button"
+              className="pv-cbtn"
+              aria-label={silent ? "Unmute" : "Mute"}
+              title={silent ? "Unmute" : "Mute"}
+              onClick={toggleMute}
+            >
+              <Icon name={silent ? "mute" : "volume"} size={26} />
+            </button>
+            <div className="pv-vslider">
               <input
                 type="range"
                 min={0}
@@ -2596,33 +2596,37 @@ export function PlayerView() {
                 value={Math.round(local.volume)}
                 aria-label="Volume"
                 style={{
-                  // Image only: the player CSS owns the 4px track sizing.
-                  backgroundImage: `linear-gradient(to right, var(--accent) ${volumeFill}%, rgba(255, 255, 255, 0.24) ${volumeFill}%)`,
+                  backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
                 }}
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
             </div>
 
-            <div className="pv-actions" ref={actionsRef}>
+            <div className="pv-spacer" />
+
+            <div
+              className={`pv-cluster${btnMenu ? " is-open" : ""}`}
+              onClick={() => setBtnMenu(false)}
+            >
               {(() => {
                 const actions: Array<{
                   key: string;
                   icon: IconName;
                   label: string;
-                  big?: boolean;
                   on: () => void;
-                  disabled?: boolean;
                 }> = [];
-                if (nextEpisode) {
-                  actions.push({
-                    key: "next",
-                    icon: "next",
-                    label: "Next episode",
-                    big: true,
-                    disabled: busy,
-                    on: () => void playVideo(nextEpisode),
-                  });
-                }
+                actions.push({
+                  key: "info",
+                  icon: "info",
+                  label: "Stream info",
+                  on: () => toggleSurface("info"),
+                });
+                actions.push({
+                  key: "speed",
+                  icon: "speed",
+                  label: `Speed ${local.speed}×`,
+                  on: cycleSpeed,
+                });
                 actions.push({
                   key: "subs",
                   icon: "subtitle",
@@ -2635,6 +2639,14 @@ export function PlayerView() {
                   label: "Audio",
                   on: () => toggleSurface("audio"),
                 });
+                if (details?.type === "series") {
+                  actions.push({
+                    key: "episodes",
+                    icon: "episodes",
+                    label: "Episodes",
+                    on: openEpisodes,
+                  });
+                }
                 if (chapters.length > 0) {
                   actions.push({
                     key: "chapters",
@@ -2652,20 +2664,6 @@ export function PlayerView() {
                     void loadSources();
                   },
                 });
-                if (details?.type === "series") {
-                  actions.push({
-                    key: "episodes",
-                    icon: "episodes",
-                    label: "Episodes",
-                    on: openEpisodes,
-                  });
-                }
-                actions.push({
-                  key: "speed",
-                  icon: "speed",
-                  label: `Speed ${local.speed}×`,
-                  on: cycleSpeed,
-                });
                 actions.push({
                   key: "mode",
                   icon: "aspect",
@@ -2673,68 +2671,56 @@ export function PlayerView() {
                   on: cycleVideoMode,
                 });
                 actions.push({
-                  key: "info",
-                  icon: "info",
-                  label: "Stream info",
-                  on: () => toggleSurface("info"),
-                });
-                actions.push({
                   key: "more",
                   icon: "more",
                   label: "More actions",
                   on: () => toggleSurface("more"),
                 });
-                const shown = expanded ? actions : actions.slice(0, 5);
-                const hasOverflow = actions.length > 5;
-                return (
-                  <>
-                    {shown.map((action) => (
-                      <button
-                        key={action.key}
-                        type="button"
-                        className={`pv-action${action.big ? " pv-action--big" : ""}${
-                          surface === action.key ? " is-on" : ""
-                        }`}
-                        aria-label={action.label}
-                        title={action.label}
-                        aria-expanded={surface === action.key ? true : undefined}
-                        disabled={action.disabled}
-                        onClick={action.on}
-                      >
-                        <Icon name={action.icon} size={action.big ? 40 : 24} />
-                      </button>
-                    ))}
-                    {hasOverflow ? (
-                      <button
-                        type="button"
-                        className="pv-action pv-action--chevron"
-                        aria-label={expanded ? "Fewer actions" : "More actions"}
-                        title={expanded ? "Fewer actions" : "More actions"}
-                        aria-expanded={expanded}
-                        onClick={() => {
-                          setExpanded((current) => !current);
-                          bump();
-                        }}
-                      >
-                        <Icon
-                          name="chevron"
-                          size={22}
-                          style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-                        />
-                      </button>
-                    ) : null}
-                  </>
-                );
+                return actions.map((action) => (
+                  <button
+                    key={action.key}
+                    type="button"
+                    className={`pv-cbtn${surface === action.key ? " is-on" : ""}`}
+                    aria-label={action.label}
+                    title={action.label}
+                    aria-expanded={surface === action.key ? true : undefined}
+                    onClick={action.on}
+                  >
+                    <Icon name={action.icon} size={24} />
+                  </button>
+                ));
               })()}
             </div>
+
+            <button
+              type="button"
+              className="pv-cbtn pv-cbtn--fold"
+              aria-label="More actions"
+              title="More actions"
+              aria-expanded={btnMenu}
+              onClick={() => {
+                setBtnMenu((current) => !current);
+                bump();
+              }}
+            >
+              <Icon name="more" size={24} />
+            </button>
           </div>
         </footer>
       ) : null}
 
       {hud ? (
-        <div className={`pv-hud${hud.out ? " is-out" : ""}`} role="status" aria-live="polite">
-          <span>{hud.label}</span>
-          <b>{hud.value}</b>
+        <div className={`pv-indicator${hud.out ? " is-out" : ""}`} role="status" aria-live="polite">
+          {hud.label} {hud.value}
+        </div>
+      ) : null}
+
+      {volOsd && !locked && !chrome ? (
+        <div className="pv-volosd" aria-hidden="true">
+          <Icon name={silent ? "mute" : "volume"} size={72} />
+          <span className="pv-volosd-bar">
+            <span style={{ width: `${volumeFill}%` }} />
+          </span>
         </div>
       ) : null}
     </div>
