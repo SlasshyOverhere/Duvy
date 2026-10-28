@@ -67,8 +67,9 @@ folder scanning. See
 - [Bun](https://bun.sh) 1.2 or newer
 
 Windows installers bundle mpv, so no separate player install is needed. A source checkout does
-not contain mpv: `src-tauri/resources/mpv/` is git-ignored. Either install mpv or put a Windows
-build at `src-tauri/resources/mpv/mpv.exe`:
+not contain mpv: `src-tauri/resources/mpv/` is git-ignored, and the release workflow fetches that
+build from a pinned URL with a checksum before it packages anything. For local builds either
+install mpv or put a Windows build at `src-tauri/resources/mpv/mpv.exe`:
 
 ```powershell
 winget install mpv
@@ -101,26 +102,31 @@ cargo test --manifest-path src-tauri/Cargo.toml
 CI runs those three commands on Windows. Interactive playback and third-party services are not
 covered by automated tests.
 
-## Build an installer
+## Releasing
+
+Releases are built and published by CI only. Push a tag and `.github/workflows/release.yml` does
+the rest: it sets the version from the tag, fetches the pinned mpv build, builds the MSI and NSIS
+installers, signs the updater bundles, publishes the GitHub release and uploads `latest.json`
+(the manifest the in-app updater reads).
 
 ```bash
-bun run tauri build
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-Artifacts land in `src-tauri/target/release/bundle/`. On Windows the configured targets produce
-MSI and NSIS installers, and both include `mpv.exe` and `d3dcompiler_43.dll`. Installers are not
-built by CI.
-
-`bundle.createUpdaterArtifacts` is on, so a release build also needs the signing key that matches
-the `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`:
+One-time setup: the workflow signs with a minisign key that has to match
+`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Add the private key as a repository
+secret:
 
 ```bash
-TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/betternuvio.key bun run tauri build
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/betternuvio.key
 ```
 
-That writes a `.sig` next to each installer. Publish the installers, their signatures and a
-`latest.json` (Tauri's static release manifest) to the GitHub release the endpoint points at;
-without them the updater reports that the release feed could not be read.
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is only needed if the key has a password. Keep the key safe:
+lose it and every install already in the wild can no longer verify updates.
+
+A local `bun run tauri build` still works for smoke tests, but it needs the same key
+(`TAURI_SIGNING_PRIVATE_KEY_PATH`) and its artifacts are never published.
 
 ## Bring your own content
 

@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: bun install --frozen-lockfile
+
+      # The tag is the version. Cargo, the Tauri config and the updater all read
+      # it from here, so they can never disagree.
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag '$env:GITHUB_REF_NAME' is not v<major>.<minor>.<patch>"
+          }
+          foreach ($file in 'package.json', 'src-tauri/tauri.conf.json') {
+            (Get-Content $file -Raw) -replace '"version": "[^"]+"', "`"version`": `"$version`"" |
+              Set-Content $file -NoNewline
+          }
+          (Get-Content src-tauri/Cargo.toml -Raw) -replace '(?m)^version = "[^"]+"', "version = `"$version`"" |
+            Set-Content src-tauri/Cargo.toml -NoNewline
+
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $cargo = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"$' | Select-Object -First 1
+          if ($conf.version -ne $version -or $cargo.Matches[0].Groups[1].Value -ne $version) {
+            throw "version did not land in every manifest"
+          }
+          "Releasing $version"
+
+      # The bundled player is git-ignored, so the runner fetches the exact build
+      # the notices describe and checks it before anything is packaged.
+      - name: Fetch mpv
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-20261021-git-e471496c56.7z'
+          $sha = '4a355f3e89c83fabc730d33fb4e759dfec747806ed2287b61a90d1681b83e8d3'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\mpv.7z"
+          $actual = (Get-FileHash "$env:RUNNER_TEMP\mpv.7z" -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $sha) { throw "mpv archive checksum mismatch: $actual" }
+          New-Item -ItemType Directory -Force src-tauri/resources/mpv | Out-Null
+          7z x "$env:RUNNER_TEMP\mpv.7z" -o"$env:RUNNER_TEMP\mpv" -y | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\mpv\mpv.exe" src-tauri/resources/mpv/mpv.exe
+          Copy-Item "$env:RUNNER_TEMP\mpv\d3dcompiler_43.dll" src-tauri/resources/mpv/d3dcompiler_43.dll
+          & src-tauri/resources/mpv/mpv.exe --version | Select-Object -First 1
+
+      # Builds both installers, signs the updater bundles, publishes the release
+      # and uploads latest.json, which is what the app's update endpoint reads.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: bun run tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: BetterNuvio ${{ github.ref_name }}
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true

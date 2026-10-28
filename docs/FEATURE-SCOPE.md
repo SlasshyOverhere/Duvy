@@ -351,7 +351,7 @@ Everything below is the exhaustive union, not just that list.
 | Custom/self-hosted backend validation + trust warnings | yes | yes (server URL override) | NO (no backend) | — |
 | Keychain-backed credential vault | — | — | GAP | **P0** |
 | Multi-window / detachable player | — | yes (separate mpv window) | GAP | P3 |
-| macOS + Linux builds, code signing, auto-update artifacts | untested | yes | GAP | P1 |
+| macOS + Linux builds, Authenticode signing | untested | yes | GAP | P1 |
 | i18n: many locales, per-surface language (UI vs subtitles) | yes (25+) | yes | GAP | P1 |
 | RTL layout support | yes | yes | GAP | P2 |
 | Keyboard shortcuts + discoverable cheat-sheet | partial | yes | PART (3 keys) | P1 |

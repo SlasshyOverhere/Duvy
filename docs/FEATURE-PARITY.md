@@ -79,7 +79,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 
 | Capability | Upstream | BetterNuvio |
 | --- | --- | --- |
-| Windows | MSI | **Done** in development; MSI and NSIS configured, not built by CI |
+| Windows | MSI | **Done**; MSI and NSIS built, signed and released by CI on tag |
 | macOS / Linux | DMG, DEB/RPM/Flatpak | Untested; separate mpv window fallback, no packaging support |
 | Android / iOS / TV | Yes (KMP) | Out of scope |
 
