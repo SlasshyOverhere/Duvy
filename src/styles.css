@@ -355,6 +355,8 @@ select {
   justify-content: space-between;
   gap: clamp(14px, 2vw, 28px);
   padding: 0 var(--pad);
+  /* The trailing window control hugs the edge instead of the content gutter. */
+  padding-right: 24px;
 }
 
 .topbar::before {
@@ -380,6 +382,7 @@ select {
     var(--pad),
     calc((100% - var(--page-max)) / 2 + var(--pad))
   );
+  padding-right: 24px;
 }
 
 .topbar .icon-btn {
@@ -500,8 +503,6 @@ select {
   align-items: center;
   gap: 12px;
   flex: 0 0 auto;
-  /* Window controls sit a touch nearer the edge than the content gutter. */
-  margin-right: -28px;
 }.pill {
   display: inline-flex;
   align-items: center;
@@ -3974,10 +3975,6 @@ input[type="range"]::-webkit-slider-thumb {
 
   .topbar {
     gap: 12px;
-  }
-
-  .topbar-right {
-    margin-right: 0;
   }
 
   .wordmark {
