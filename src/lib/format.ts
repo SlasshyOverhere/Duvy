@@ -29,6 +29,15 @@ export function timeAgo(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
+/** "1h 12m left" style label from the seconds still to play. */
+export function remainingLabel(seconds: number): string {
+  const total = Math.max(1, Math.floor(seconds / 60));
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (!hours) return `${total}m left`;
+  return minutes ? `${hours}h ${minutes}m left` : `${hours}h left`;
+}
+
 export function progressPercent(position: number, duration: number): number {
   if (!duration) return 0;
   return Math.min(100, Math.max(0, (position / duration) * 100));

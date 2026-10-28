@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
-import { placeholderGradient, progressPercent } from "../lib/format";
+import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
 import { ContextMenu, Icon, IconButton, Badge, type ContextAction } from "./ui";
 
 function initials(name: string) {
@@ -271,6 +271,9 @@ export function ContinueCard({
         <span className="continue-name">{name}</span>
         {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
       </span>
+      {duration > 0 ? (
+        <span className="continue-left">{remainingLabel(duration - position)}</span>
+      ) : null}
       <span className="continue-play">
         <Icon name="play" size={16} />
       </span>
