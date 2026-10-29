@@ -125,6 +125,7 @@ let settings: Settings = {
   autoUpdateCheck: true,
   ignoredUpdateVersion: "",
   onboarded: true,
+  telemetry: null,
 };
 
 let addons: AddonInfo[] = [

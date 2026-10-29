@@ -27,6 +27,7 @@ mod updates;
 
 use std::sync::{Mutex, RwLock};
 use std::time::Duration;
+use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
@@ -40,6 +41,27 @@ pub struct AppState {
 
 #[cfg(test)]
 mod db_tests;
+
+/// A panic ends the process, so the hook is the last thing that can say why:
+/// one line in the local journal, plus a report to the window while it lasts.
+fn install_crash_hook(handle: tauri::AppHandle) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let detail = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|text| (*text).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "panic".to_string());
+        let message = match info.location() {
+            Some(place) => format!("{detail} ({}:{})", place.file(), place.line()),
+            None => detail,
+        };
+        playback_log::mark(format!("crash: {message}"));
+        let _ = handle.emit("app:error", message);
+        previous(info);
+    }));
+}
 
 /// Keep the web layer above mpv's render window.
 ///
@@ -444,6 +466,10 @@ pub fn run() {
                 .app_data_dir()
                 .expect("the app data directory should be available");
             std::fs::create_dir_all(&data_dir)?;
+            // The journal exists before anything can fail, and a panic is the
+            // one failure with nowhere else to go.
+            playback_log::init(&data_dir);
+            install_crash_hook(app.handle().clone());
 
             let db_path = data_dir.join("duvy.db");
             let connection = match db::open(&db_path) {

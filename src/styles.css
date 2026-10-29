@@ -5738,6 +5738,67 @@ input[type="range"]::-webkit-slider-thumb {
   background: none;
 }
 
+/* Consent for crash reports: asked once, answered in one click. */
+.consent {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.74);
+}
+
+.consent-card {
+  width: min(470px, 100%);
+  padding: 26px 26px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.consent-card h2 {
+  margin: 0 0 10px;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+
+.consent-card p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.consent-card .consent-fine {
+  margin-bottom: 0;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.consent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.settings-log {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* No blur support: the same glass falls back to its strongest fill. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .dock,

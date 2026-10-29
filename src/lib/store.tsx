@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
+import { report } from "./telemetry";
 import type {
   AddonInfo,
   AppInfo,
@@ -352,6 +353,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const notify = useCallback(
     (text: string, tone: ToastTone = "info") => {
+      // Every failure the user is told about is also a failure we could fix.
+      if (tone === "error") report(text, { area: "ui" });
       const id = toastId.current++;
       setToasts((current) => [...current.slice(-4), { id, text, tone }]);
       toastTimers.current.set(id, window.setTimeout(() => dismissToast(id), 4200));

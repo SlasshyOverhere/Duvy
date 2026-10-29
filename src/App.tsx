@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
 import { ResizeEdges, WindowControls } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
+import { report } from "./lib/telemetry";
+import { CrashReporting } from "./components/Consent";
 import { Icon } from "./components/ui";
 import { HomeView } from "./views/Home";
 import { Onboarding } from "./views/Onboarding";
@@ -42,6 +44,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
     this.chunk =
       error instanceof Error &&
       /dynamically imported module|Importing a module script|ChunkLoadError/i.test(error.message);
+    const state = window.history.state as { route?: { name?: string } } | null;
+    report(error, {
+      area: "render",
+      extra: { screen: state?.route?.name ?? "unknown", unloadedChunk: this.chunk },
+    });
   }
 
   render() {
@@ -224,6 +231,7 @@ export default function App() {
       <ResizeEdges />
       {/* Outside the shell so boot and onboarding can report failures too. */}
       <Toasts />
+      <CrashReporting />
     </StoreProvider>
   );
 }
