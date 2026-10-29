@@ -10,7 +10,6 @@ import {
 } from "motion/react";
 import { api, isTauri } from "../lib/bridge";
 import { useApp } from "../lib/store";
-import { TitleBar } from "../components/TitleBar";
 import { Button, Icon, Spinner } from "../components/ui";
 import type { PlayerSetup } from "../lib/types";
 
@@ -247,7 +246,6 @@ export function Onboarding({
 
   return (
     <div className="app">
-      <TitleBar />
       <main className="onboarding">
         <Lamp />
         <AnimatePresence mode="wait" initial={false}>

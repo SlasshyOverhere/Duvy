@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri } from "../lib/bridge";
+import { api, isTauri } from "../lib/bridge";
+import { Icon } from "./ui";
 
 // Frameless windows lose the OS resize border, so each edge gets an invisible
 // strip that hands the drag back to the window manager.
@@ -48,8 +49,16 @@ export function ResizeEdges() {
   );
 }
 
-export function TitleBar() {
+/**
+ * The window buttons live inline at the end of the app's own header row.
+ * `player` drops fullscreen, which the player already owns.
+ */
+export function WindowControls({ variant = "app" }: { variant?: "app" | "player" }) {
   const [maximized, setMaximized] = useState(false);
+  const [fullscreen, setFullscreen] = useState(
+    () => document.documentElement.dataset.fullscreen === "on",
+  );
+  const shellControls = variant === "app";
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -69,52 +78,78 @@ export function TitleBar() {
     };
   }, []);
 
+  const toggleFullscreen = useCallback(async () => {
+    const next = !fullscreen;
+    try {
+      await api.window.fullscreen(next);
+    } catch {
+      // The window refused, so the button keeps reporting the real state.
+      return;
+    }
+    setFullscreen(next);
+    if (next) document.documentElement.dataset.fullscreen = "on";
+    else delete document.documentElement.dataset.fullscreen;
+  }, [fullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen || !shellControls) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") void toggleFullscreen();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, shellControls, toggleFullscreen]);
+
   // The browser preview has no window to move, so it gets no fake chrome.
   if (!isTauri()) return null;
   const win = getCurrentWindow();
 
   return (
-    <>
-      <div className="titlebar" data-tauri-drag-region>
-        <div className="titlebar-controls">
-          <button
-            type="button"
-            className="titlebar-button"
-            aria-label="Minimise"
-            onClick={() => run(win.minimize())}
-          >
-            <svg viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M1 5h8" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="titlebar-button"
-            aria-label={maximized ? "Restore" : "Maximise"}
-            onClick={() => run(win.toggleMaximize())}
-          >
-            <svg viewBox="0 0 10 10" aria-hidden="true">
-              {maximized ? (
-                <path d="M3 1.5h5.5V7M1.5 3H7v5.5H1.5z" />
-              ) : (
-                <path d="M1.5 1.5h7v7h-7z" />
-              )}
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="titlebar-button is-close"
-            aria-label="Close"
-            onClick={() => run(win.close())}
-          >
-            <svg viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <ResizeEdges />
-    </>
+    <div className="win-bar">
+      {shellControls ? (
+        <button
+          type="button"
+          className="win-btn"
+          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          onClick={() => void toggleFullscreen()}
+        >
+          <Icon name={fullscreen ? "compress" : "expand"} size={17} />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="win-btn win-btn-frame"
+        aria-label="Minimise"
+        title="Minimise"
+        onClick={() => run(win.minimize())}
+      >
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M1 5h8" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="win-btn win-btn-frame"
+        aria-label={maximized ? "Restore" : "Maximise"}
+        title={maximized ? "Restore" : "Maximise"}
+        onClick={() => run(win.toggleMaximize())}
+      >
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          {maximized ? <path d="M3 1.5h5.5V7M1.5 3H7v5.5H1.5z" /> : <path d="M1.5 1.5h7v7h-7z" />}
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="win-btn win-btn-frame is-close"
+        aria-label="Close"
+        title="Close"
+        onClick={() => run(win.close())}
+      >
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+        </svg>
+      </button>
+    </div>
   );
 }

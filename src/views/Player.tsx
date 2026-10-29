@@ -24,6 +24,7 @@ import type {
   Video,
 } from "../lib/types";
 import { Icon, Spinner, type IconName } from "../components/ui";
+import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
 import "../components/player/player.css";
@@ -2532,14 +2533,14 @@ export function PlayerView() {
     >
       <div className="pv-shade" aria-hidden="true" />
 
-      {/* The player covers the titlebar; this is the window's handle while windowed. */}
+      {/* The player owns the window's top edge while windowed. */}
       {!fullscreen ? <div className="pv-drag" data-tauri-drag-region aria-hidden="true" /> : null}
 
       {!locked ? (
         <header className="pv-top">
           <button
             type="button"
-            className="pv-top-btn pv-top-back"
+            className="win-btn pv-top-btn pv-top-back"
             onClick={() => void stop()}
             aria-label="Close player"
             title="Close player"
@@ -2560,7 +2561,7 @@ export function PlayerView() {
           <div className="pv-top-right">
             <button
               type="button"
-              className="pv-top-btn"
+              className="win-btn pv-top-btn"
               onClick={() => void toggleFullscreen()}
               aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -2569,13 +2570,14 @@ export function PlayerView() {
             </button>
             <button
               type="button"
-              className="pv-top-btn"
+              className="win-btn pv-top-btn"
               onClick={cycleLock}
               aria-label="Lock controls"
               title="Lock controls"
             >
               <Icon name="lock" size={24} />
             </button>
+            <WindowControls variant="player" />
           </div>
         </header>
       ) : null}

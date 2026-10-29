@@ -6,13 +6,28 @@
    --------------------------------------------------------------------------- */
 
 .pv {
-  /* Panel surfaces and the two quiet text tones, so hexes are not scattered. */
-  --pv-panel: #101012;
-  --pv-panel-2: #111113;
-  --pv-well: #141416;
-  --pv-control: #1a1a1d;
-  --pv-control-2: #1c1c1f;
-  --pv-control-hover: #26262a;
+  /* Glass over a live picture: translucent fills and drawn rims, never a blur.
+     The fill stays dark enough for white text over any frame. */
+  --pv-panel: rgba(18, 18, 21, 0.82);
+  --pv-panel-2: rgba(14, 14, 17, 0.86);
+  --pv-glass-press: rgba(8, 8, 10, 0.9);
+  --pv-well: rgba(255, 255, 255, 0.045);
+  --pv-control: rgba(255, 255, 255, 0.055);
+  --pv-control-2: rgba(255, 255, 255, 0.07);
+  --pv-control-hover: rgba(255, 255, 255, 0.12);
+  --pv-wash: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.035) 46%,
+    rgba(255, 255, 255, 0.015) 100%
+  );
+  --pv-edge: rgba(255, 255, 255, 0.14);
+  --pv-edge-soft: rgba(255, 255, 255, 0.07);
+  --pv-spec: rgba(255, 255, 255, 0.2);
+  --pv-disp: color-mix(in srgb, var(--accent) 20%, transparent);
+  --pv-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.4),
+    0 16px 36px -24px rgba(0, 0, 0, 0.9);
   --pv-muted: rgba(255, 255, 255, 0.62);
   --pv-faint: rgba(255, 255, 255, 0.5);
 }
@@ -96,10 +111,12 @@
   min-height: 0;
   padding: 16px 18px 18px;
   border-radius: 12px;
-  background: var(--pv-panel);
+  background: var(--pv-wash), var(--pv-panel);
   box-shadow:
-    0 18px 38px -12px rgba(0, 0, 0, 0.7),
-    0 2px 8px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
 }
 
 /* Only the contents scroll, so the header stays reachable on a short screen. */
@@ -134,7 +151,7 @@
 }
 
 .pv .pv-overlay-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -227,6 +244,9 @@
   padding: 6px;
   border-radius: 12px;
   background: var(--pv-well);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
 }
 
 .pv .pv-rail-list--menu .pv-rail-row {
@@ -246,11 +266,11 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
   text-align: left;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .pv .pv-rail-row:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--pv-control-2);
   color: #fff;
 }
 
@@ -384,6 +404,9 @@
   padding: 2px;
   border-radius: 8px;
   background: var(--pv-control-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
 }
 
 .pv .pv-stepper button {
@@ -397,11 +420,11 @@
   border-radius: 6px;
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .pv .pv-stepper button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -422,13 +445,16 @@
   border: 0;
   border-radius: 8px;
   background: var(--pv-control-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
   color: rgba(255, 255, 255, 0.82);
   font-size: 12.5px;
   font-weight: 600;
 }
 
 .pv .pv-toggle:hover {
-  background: var(--pv-control-hover);
+  background-color: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -456,12 +482,12 @@
 }
 
 .pv .pv-swatch:hover {
-  box-shadow: 0 0 0 2px var(--pv-panel), 0 0 0 3px rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 2px var(--pv-glass-press), 0 0 0 3px rgba(255, 255, 255, 0.55);
 }
 
 .pv .pv-swatch.is-on {
   box-shadow:
-    0 0 0 2px var(--pv-panel),
+    0 0 0 2px var(--pv-glass-press),
     0 0 0 3px rgba(255, 255, 255, 0.92);
 }
 
@@ -583,7 +609,12 @@
   height: 100%;
   padding: 24px;
   border-radius: 16px 0 0 16px;
-  background: var(--pv-panel-2);
+  background: var(--pv-wash), var(--pv-panel-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
 }
 
 .pv .pv-side-head {
@@ -681,7 +712,7 @@
 }
 
 .pv .pv-source-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-source-row.is-on {
@@ -753,12 +784,12 @@
 }
 
 .pv .pv-chapter-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
   color: #fff;
 }
 
 .pv .pv-chapter-row.is-on {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -832,11 +863,11 @@
 }
 
 .pv .pv-episode-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-episode-row.is-on {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pv-control-hover);
 }
 
 .pv .pv-episode-row img,
@@ -962,12 +993,16 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.44);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   color: #fff;
 }
 
 .pv .pv-locked-btn:hover {
-  background: rgba(0, 0, 0, 0.64);
+  background-color: var(--pv-glass-press);
 }
 
 .pv .pv-locked-hint {
@@ -1022,7 +1057,12 @@
   width: min(380px, calc(100vw - 52px));
   padding: 20px 22px;
   border-radius: 16px;
-  background: var(--pv-panel-2);
+  background: var(--pv-wash), var(--pv-panel-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
   cursor: default;
 }
 
@@ -1230,25 +1270,7 @@
   flex: none;
 }
 
-.pv .pv-top-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.92);
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.pv .pv-top-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-}
+/* Geometry and hover come from the shared .win-btn, same as the header. */
 
 /* ---- seek row ----------------------------------------------------------- */
 
@@ -1370,8 +1392,11 @@
   gap: 4px;
   padding: 6px;
   border-radius: 8px;
-  background: rgba(16, 16, 18, 0.96);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   pointer-events: none;
 }
 
@@ -1409,13 +1434,13 @@
 }
 
 .pv .pv-cbtn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
 .pv .pv-cbtn.is-on {
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-spacer {
@@ -1480,7 +1505,10 @@
   height: 2.6rem;
   padding: 0 1.4rem;
   border-radius: 999px;
-  background: rgba(16, 16, 18, 0.82);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge);
   color: #fff;
   font-size: 0.95rem;
   font-weight: 700;
@@ -1505,7 +1533,10 @@
   gap: 1rem;
   padding: 1.6rem 2rem;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge);
   color: #fff;
   pointer-events: none;
 }
@@ -1594,7 +1625,11 @@
   min-height: 10rem;
   padding: 0;
   border-radius: 10px;
-  background: var(--pv-panel);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -1694,7 +1729,7 @@
 }
 
 .pv .pv-upnext-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--pv-control-hover);
 }
 
 .pv .pv-upnext-btn--play {
@@ -1740,8 +1775,11 @@
     max-width: calc(100vw - 16px);
     padding: 6px;
     border-radius: 10px;
-    background: var(--pv-panel);
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    background: var(--pv-wash), var(--pv-panel);
+    box-shadow:
+      inset 0 1px 0 var(--pv-spec),
+      inset 0 0 0 1px var(--pv-edge),
+      var(--pv-shadow);
   }
 
   .pv .pv-cluster.is-open {

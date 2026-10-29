@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "../lib/bridge";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import type { AppInfo } from "../lib/types";
+import { WindowControls } from "./TitleBar";
 import { Icon, IconButton, type IconName } from "./ui";
 
 /** mpv presence, refreshed when the background download settles. */
@@ -77,32 +78,6 @@ function NowPlaying() {
 export function TopBar() {
   const { navigate, back, route, addons } = useApp();
   const mpv = useMpv();
-  const [fullscreen, setFullscreen] = useState(
-    () => document.documentElement.dataset.fullscreen === "on",
-  );
-
-  const toggleFullscreen = useCallback(async () => {
-    const next = !fullscreen;
-    try {
-      await api.window.fullscreen(next);
-    } catch {
-      // The window refused, so the button keeps reporting the real state.
-      return;
-    }
-    setFullscreen(next);
-    // Fullscreen drops the floating window buttons along with the frame.
-    if (next) document.documentElement.dataset.fullscreen = "on";
-    else delete document.documentElement.dataset.fullscreen;
-  }, [fullscreen]);
-
-  useEffect(() => {
-    if (!fullscreen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") toggleFullscreen();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [fullscreen, toggleFullscreen]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -127,8 +102,11 @@ export function TopBar() {
   }, [navigate, route.name]);
 
   return (
-    <header className={`topbar${route.name === "details" ? " topbar-detail" : ""}`}>
-      <div className="topbar-left">
+    <header
+      className={`topbar${route.name === "details" ? " topbar-detail" : ""}`}
+      data-tauri-drag-region
+    >
+      <div className="topbar-left" data-tauri-drag-region>
         {route.name !== "home" ? <IconButton icon="back" label="Back" onClick={back} /> : null}
         <button
           type="button"
@@ -167,7 +145,7 @@ export function TopBar() {
         })}
       </nav>
 
-      <div className="topbar-right">
+      <div className="topbar-right" data-tauri-drag-region>
         {addons.length === 0 ? (
           <button
             type="button"
@@ -189,17 +167,7 @@ export function TopBar() {
 
         <NowPlaying />
 
-        {isTauri() ? (
-          <button
-            type="button"
-            className="profile-btn"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            <Icon name={fullscreen ? "compress" : "expand"} size={22} />
-          </button>
-        ) : null}
+        <WindowControls />
       </div>
     </header>
   );
