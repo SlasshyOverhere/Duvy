@@ -1084,6 +1084,7 @@ export function PlayerView() {
     progressByKey,
     leavePlayer,
     stopPlayer,
+    playerControl,
     starting,
     cancelStart,
   } = useApp();
@@ -1181,9 +1182,9 @@ export function PlayerView() {
   // unhandled rejection; the next snapshot is the source of truth anyway.
   const send = useCallback(
     (action: string, value?: number | string | boolean | null) => {
-      void api.player.control(action, value).catch(() => undefined);
+      playerControl(action, value);
     },
-    [],
+    [playerControl],
   );
 
   const pushSubStyle = useCallback(() => {

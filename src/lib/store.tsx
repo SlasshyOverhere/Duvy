@@ -13,6 +13,13 @@ import { api, isTauri } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
 import { wentBackwards } from "./errors";
+import {
+  action as watchAction,
+  createWatch,
+  sample as watchSample,
+  timeline,
+  type Sample,
+} from "./playback-watch";
 import { note, report } from "./telemetry";
 import type {
   AddonInfo,
@@ -77,6 +84,8 @@ interface Store {
   markWatched: (key: string, metaId: string, watched: boolean) => Promise<void>;
   /** Intentional stop, so the close it causes is not reported as a crash. */
   stopPlayer: () => void;
+  /** A player control, watched so one that lands nowhere can be reported. */
+  playerControl: (kind: string, value?: number | string | boolean | null) => void;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
   /** The release the last check found, if any. */
@@ -166,6 +175,28 @@ const FINISHED_SHARE = 0.9;
 
 /** Info hashes arrive as 40 hex or 32 base32 chars; anything else never becomes a magnet. */
 const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Za-z2-7]{32})$/;
+
+/** Controls the watchdog checks for effect; style pushes are not actions. */
+const WATCHED_CONTROLS = new Set(["pause", "seek", "speed", "volume"]);
+
+/** A snapshot in the shape the playback rules read. */
+function toSample(snap: PlayerSnapshot): Sample {
+  return {
+    at: Date.now(),
+    position: snap.position,
+    duration: snap.duration,
+    buffered: snap.buffered ?? 0,
+    playing: snap.playing,
+    paused: snap.paused,
+    ended: snap.ended,
+    // Missing track lists are unknown, not empty: only a real zero is a bug.
+    audio: snap.audioTracks?.length ?? -1,
+    subs: snap.subTracks?.length ?? -1,
+    speed: snap.speed,
+    volume: snap.volume,
+  };
+}
+
 
 /** A finished title restarts instead of resuming its last few seconds. */
 function resumePosition(position: number, duration: number): number {
@@ -355,6 +386,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const stopRequested = useRef(false);
   const frameErrorReported = useRef(0);
   const frameTimer = useRef<number | null>(null);
+  // The playback watchdog: rules over the snapshot stream, one set per open.
+  const watch = useRef(createWatch(0));
+  const playerRef = useRef<PlayerSnapshot | null>(null);
+  const lastTick = useRef<{ key: string; position: number; duration: number; ended: boolean } | null>(
+    null,
+  );
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -687,6 +724,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 },
               });
             }
+            playerRef.current = snap;
+            if (snap.session?.key) {
+              lastTick.current = {
+                key: snap.session.key,
+                position: snap.position,
+                duration: snap.duration,
+                ended: snap.ended,
+              };
+            }
+            // Frozen playhead, dead controls, silent tracks: all state, no error.
+            for (const issue of watchSample(watch.current, toSample(snap))) {
+              note(`rule ${issue.rule}`, issue.data);
+              report(new Error(issue.message), {
+                area: "playback",
+                withLog: true,
+                extra: { rule: issue.rule, ...issue.data, timeline: timeline(watch.current) },
+              });
+            }
           }),
         );
         keep(
@@ -701,6 +756,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               !firstFrame.current && !stopRequested.current && openedAt.current > 0 && afterMs < 15000;
             clearFrameWatchdog();
             setPlayer(null);
+            playerRef.current = null;
             if (diedEarly) {
               note("closed before first frame", { afterMs, generation });
               report(new Error("Player closed before the first frame"), {
@@ -708,6 +764,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 withLog: true,
                 extra: { afterMs, generation },
               });
+            }
+            const last = lastTick.current;
+            lastTick.current = null;
+            if (settings?.trackProgress && last && last.position > 60 && !last.ended) {
+              // The ticker writes the playhead itself; a missing row or a stale
+              // one is lost progress, which looks like "it forgot where I was".
+              void api.progress
+                .forKey(last.key)
+                .then((row) => {
+                  const saved = row?.position ?? null;
+                  if (saved == null || Math.abs(saved - last.position) > 120) {
+                    report(new Error("Playback progress was not saved"), {
+                      area: "progress",
+                      extra: {
+                        session: last.key,
+                        stoppedAt: Math.round(last.position),
+                        saved: saved == null ? null : Math.round(saved),
+                      },
+                    });
+                  }
+                })
+                .catch(() => {
+                  // Reading it back is diagnostic only.
+                });
             }
             leavePlayer();
             void refreshProgress();
@@ -728,7 +808,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [clearFrameWatchdog, leavePlayer, refreshProgress]);
+  }, [clearFrameWatchdog, leavePlayer, refreshProgress, settings?.trackProgress]);
 
   const saveSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -828,6 +908,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearFrameWatchdog();
     void api.player.stop().catch(() => undefined);
   }, [clearFrameWatchdog]);
+
+  /** Send control, but remember it: a control that lands nowhere is a bug. */
+  const playerControl = useCallback((kind: string, value?: number | string | boolean | null) => {
+    const snap = playerRef.current;
+    if (snap && WATCHED_CONTROLS.has(kind)) {
+      watchAction(watch.current, kind, toSample(snap), typeof value === "number" ? value : 0);
+      note("control", { kind, value: typeof value === "number" ? value : null });
+    }
+    void api.player.control(kind, value).catch(() => undefined);
+  }, []);
 
   const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);
   const progressByKey = useMemo(
@@ -950,6 +1040,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const snapshot = await api.player.open(request);
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
+        playerRef.current = snapshot;
+        watch.current = createWatch(Date.now());
+        lastTick.current = null;
         openedAt.current = Date.now();
         firstFrame.current = false;
         stopRequested.current = false;
@@ -1305,6 +1398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveSettings,
       markWatched,
       stopPlayer,
+      playerControl,
       toggleLibrary,
       inLibrary,
       update,
@@ -1344,6 +1438,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       saveSettings,
       markWatched,
       stopPlayer,
+      playerControl,
       toggleLibrary,
       inLibrary,
       update,

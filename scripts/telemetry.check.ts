@@ -9,6 +9,12 @@ import {
   traceTail,
   wentBackwards,
 } from "../src/lib/errors.ts";
+import {
+  action,
+  createWatch,
+  sample,
+  type Sample,
+} from "../src/lib/playback-watch.ts";
 
 const checks: Array<{ name: string; fn: () => Promise<string[]> | string[] }> = [];
 
@@ -112,6 +118,115 @@ check("the recorder keeps the last decisions, scrubbed", () => {
   if (joined.includes("leakme")) bad.push("a token survived in the trace");
   if (joined.includes("passkey")) bad.push("a tracker passkey survived in the trace");
   if (!joined.includes("tt1:1:2")) bad.push("session context was lost");
+  return bad;
+});
+
+// --- playback watchdog -----------------------------------------------------
+
+const tick = (at: number, over: Partial<Sample> = {}): Sample => ({
+  at,
+  position: at / 1000,
+  duration: 600,
+  buffered: 30,
+  playing: true,
+  paused: false,
+  ended: false,
+  audio: 2,
+  subs: 0,
+  speed: 1,
+  volume: 100,
+  ...over,
+});
+
+/** Feed a run of ticks a second apart and collect the rules that fired. */
+function run(ticks: Sample[], armed?: { kind: string; to?: number }): string[] {
+  const watch = createWatch(ticks[0]?.at ?? 0);
+  if (armed) action(watch, armed.kind, ticks[0], armed.to);
+  const fired: string[] = [];
+  for (const item of ticks) {
+    for (const issue of sample(watch, item)) fired.push(issue.rule);
+  }
+  return fired;
+}
+
+check("a frozen playhead is a stall, a moving one is not", () => {
+  const bad: string[] = [];
+  const frozen = run(Array.from({ length: 14 }, (_, i) => tick(i * 1000, { position: 100 })));
+  if (!frozen.includes("stall")) bad.push("a frozen position was not reported");
+  if (frozen.filter((rule) => rule === "stall").length !== 1) bad.push("the stall repeated");
+  const moving = run(Array.from({ length: 14 }, (_, i) => tick(i * 1000, { position: 100 + i })));
+  if (moving.includes("stall")) bad.push("a playing position was called a stall");
+  return bad;
+});
+
+check("an early end is reported, a real one is not", () => {
+  const bad: string[] = [];
+  const early = run([tick(0), tick(1000, { position: 100, ended: true })]);
+  if (!early.includes("premature-end")) bad.push("an end at 100/600 was missed");
+  const real = run([tick(0), tick(1000, { position: 599, ended: true })]);
+  if (real.includes("premature-end")) bad.push("a real end was called early");
+  return bad;
+});
+
+check("a dropped pause request is caught", () => {
+  const bad: string[] = [];
+  const dropped = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { paused: false })),
+    { kind: "pause" },
+  );
+  if (!dropped.includes("control-pause")) bad.push("an ignored pause was missed");
+  const honoured = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { paused: i > 0 })),
+    { kind: "pause" },
+  );
+  if (honoured.includes("control-pause")) bad.push("a pause that took effect was flagged");
+  return bad;
+});
+
+check("a seek that never lands is caught", () => {
+  const bad: string[] = [];
+  const dropped = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { position: 100 })),
+    { kind: "seek", to: 300 },
+  );
+  if (!dropped.includes("control-seek")) bad.push("a seek that never moved was missed");
+  const honoured = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { position: i > 1 ? 300 : 100 })),
+    { kind: "seek", to: 300 },
+  );
+  if (honoured.includes("control-seek")) bad.push("a seek that landed was flagged");
+  return bad;
+});
+
+check("silent audio is caught, a track present is not", () => {
+  const bad: string[] = [];
+  if (!run([tick(0), tick(6000, { position: 40, audio: 0 })]).includes("no-audio")) {
+    bad.push("zero audio tracks was missed");
+  }
+  if (run([tick(0), tick(6000, { position: 40, audio: 2 })]).includes("no-audio")) {
+    bad.push("a normal audio track was flagged");
+  }
+  return bad;
+});
+
+check("a rewind without a seek is caught", () => {
+  const bad: string[] = [];
+  const jumped = run([tick(0, { position: 100 }), tick(1000, { position: 50 })]);
+  if (!jumped.includes("position-jump")) bad.push("a backwards jump was missed");
+  const seeking = run([tick(0, { position: 100 }), tick(1000, { position: 50 })], {
+    kind: "seek",
+    to: 50,
+  });
+  if (seeking.includes("position-jump")) bad.push("a deliberate seek was flagged");
+  return bad;
+});
+
+check("a container that never reports a duration is caught", () => {
+  const bad: string[] = [];
+  const missing = run(Array.from({ length: 26 }, (_, i) => tick(i * 1000, { duration: 0 })));
+  if (!missing.includes("no-duration")) bad.push("a missing duration went unnoticed");
+  const fine = run(Array.from({ length: 26 }, (_, i) => tick(i * 1000)));
+  if (fine.includes("no-duration")) bad.push("a known duration was flagged");
   return bad;
 });
 
