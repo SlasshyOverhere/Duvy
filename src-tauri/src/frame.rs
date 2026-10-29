@@ -4,7 +4,7 @@
 //! `--vo=image` that writes a single jpg into its own temp folder and exits.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -134,6 +134,16 @@ fn inflight() -> &'static tokio::sync::Mutex<HashMap<u64, Job>> {
     INFLIGHT.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
 }
 
+/// Removes the folder even when the hover is cancelled mid-decode, where the
+/// cleanup line after the await never runs.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {
     // One folder per call: concurrent previews cannot read each other's jpg.
     let dir = std::env::temp_dir().join(format!(
@@ -143,9 +153,8 @@ async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {
     ));
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Could not create the preview folder: {e}"))?;
-    let result = decode(mpv, source, at, &dir).await;
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    let _cleanup = Cleanup(dir.clone());
+    decode(mpv, source, at, &dir).await
 }
 
 async fn decode(mpv: &str, source: &str, at: f64, dir: &Path) -> Result<String, String> {

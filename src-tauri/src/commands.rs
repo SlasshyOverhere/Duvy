@@ -13,7 +13,7 @@ use crate::settings::Settings;
 use crate::streams::{self as stream_utils, StreamOption};
 use crate::{tmdb, AppState};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::task::JoinSet;
 
@@ -368,11 +368,12 @@ fn addon_info(addon: &StoredAddon) -> AddonInfo {
         logo: manifest.logo.clone(),
         enabled: addon.enabled,
         types: manifest.types.clone(),
+        // Sorted, so the tag row keeps its order between refreshes.
         resources: manifest
             .resources
             .iter()
             .map(|r| r.name().to_string())
-            .collect::<HashSet<_>>()
+            .collect::<BTreeSet<_>>()
             .into_iter()
             .collect(),
         catalogs: manifest.catalogs.clone(),
@@ -628,34 +629,40 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     }
 
     let mut addon_rows: Vec<(usize, HomeRow)> = Vec::new();
-    while let Some(joined) = set.join_next().await {
-        let Ok((order, task, result)) = joined else {
-            continue;
-        };
-        match result {
-            Ok(response) => {
-                if response.metas.is_empty() {
-                    continue;
+    // Whatever landed inside the budget still shows: one addon whose upstream
+    // never answers must not hold the whole home screen.
+    const ADDON_ROW_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+    let drain = async {
+        while let Some(joined) = set.join_next().await {
+            let Ok((order, task, result)) = joined else {
+                continue;
+            };
+            match result {
+                Ok(response) => {
+                    if response.metas.is_empty() {
+                        continue;
+                    }
+                    addon_rows.push((
+                        order,
+                        HomeRow {
+                            id: task.row_id,
+                            title: task.title,
+                            addon: Some(task.addon_name),
+                            media_type: task.media_type,
+                            catalog_id: task.catalog_id,
+                            items: response
+                                .metas
+                                .into_iter()
+                                .take(MAX_ITEMS_PER_ROW)
+                                .collect(),
+                        },
+                    ));
                 }
-                addon_rows.push((
-                    order,
-                    HomeRow {
-                        id: task.row_id,
-                        title: task.title,
-                        addon: Some(task.addon_name),
-                        media_type: task.media_type,
-                        catalog_id: task.catalog_id,
-                        items: response
-                            .metas
-                            .into_iter()
-                            .take(MAX_ITEMS_PER_ROW)
-                            .collect(),
-                    },
-                ));
+                Err(e) => errors.push(format!("{}: {e}", task.addon_name)),
             }
-            Err(e) => errors.push(format!("{}: {e}", task.addon_name)),
         }
-    }
+    };
+    let _ = tokio::time::timeout(ADDON_ROW_BUDGET, drain).await;
     addon_rows.sort_by_key(|(order, _)| *order);
     // Disambiguate repeated catalog names (for example two "Popular" rows).
     let mut title_counts: HashMap<String, usize> = HashMap::new();
@@ -1028,6 +1035,14 @@ pub async fn meta_details(
         let mut parts = rest.splitn(2, ':');
         let kind = parts.next().unwrap_or("movie");
         let tmdb_id = parts.next().ok_or("Malformed TMDB id")?;
+        // Ids are numeric. Anything else would let the web layer steer the TMDB
+        // path (and the account key on it) somewhere else.
+        if tmdb_id.is_empty()
+            || tmdb_id.len() > 12
+            || !tmdb_id.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err("Malformed TMDB id".into());
+        }
         let mut details = tmdb::details(&state.http, &key, kind, tmdb_id).await?;
 
         // Only a series can gain anything here: TMDB already sent the movie's
@@ -1314,22 +1329,26 @@ pub async fn subtitles(
     }
 
     let mut tracks = Vec::new();
-    while let Some(joined) = set.join_next().await {
-        if let Ok((addon, Ok(response))) = joined {
-            for subtitle in response.subtitles {
-                // mpv plays these directly, so only hand it http(s) targets.
-                if !is_http_url(&subtitle.url) {
-                    continue;
+    let drain = async {
+        while let Some(joined) = set.join_next().await {
+            if let Ok((addon, Ok(response))) = joined {
+                for subtitle in response.subtitles {
+                    // mpv plays these directly, so only hand it http(s) targets.
+                    if !is_http_url(&subtitle.url) {
+                        continue;
+                    }
+                    tracks.push(SubtitleTrack {
+                        id: subtitle.id,
+                        url: subtitle.url,
+                        lang: subtitle.lang,
+                        addon: addon.clone(),
+                    });
                 }
-                tracks.push(SubtitleTrack {
-                    id: subtitle.id,
-                    url: subtitle.url,
-                    lang: subtitle.lang,
-                    addon: addon.clone(),
-                });
             }
         }
-    }
+    };
+    // Same budget as the home rows: a dead addon cannot hold the picker open.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), drain).await;
     Ok(tracks)
 }
 
@@ -1500,6 +1519,11 @@ pub async fn player_frame(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // A NaN never compares equal in the frame cache, so every call would spawn
+    // another decoder; a negative one has no frame to give.
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err("That seek time is not valid".into());
+    }
     let source = {
         let guard = state.player.lock().map_err(|_| "player is busy")?;
         let player = guard.as_ref().ok_or("Nothing is playing")?;

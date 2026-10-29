@@ -357,7 +357,8 @@ fn is_video(name: &str) -> bool {
 
 /// Chooses the file to stream.
 ///
-/// A numeric hint is a Stremio `fileIdx` and wins outright. A text hint is
+/// A numeric hint is a Stremio `fileIdx` and wins when it lands on a video (an
+/// index pointing at a `.nfo` must not be handed to the player). A text hint is
 /// matched against the file name (exact, then suffix, then substring, preferring
 /// the largest). Without a usable hint the largest video wins, falling back to
 /// the largest file of any kind so an unusual container still plays.
@@ -367,7 +368,7 @@ fn pick_file(files: &[(String, u64)], hint: Option<&str>) -> Option<usize> {
     }
     if let Some(hint) = hint.map(str::trim).filter(|h| !h.is_empty()) {
         if let Ok(index) = hint.parse::<usize>() {
-            if index < files.len() {
+            if files.get(index).is_some_and(|(name, _)| is_video(name)) {
                 return Some(index);
             }
         } else if let Some(index) = best_name_match(files, hint) {
@@ -513,6 +514,12 @@ mod tests {
         assert_eq!(pick_file(&files, Some("1")), Some(1));
         // Out of range falls back to the largest video.
         assert_eq!(pick_file(&files, Some("9")), Some(2));
+    }
+
+    #[test]
+    fn numeric_hint_never_selects_a_non_video() {
+        let files = vec![file("film.nfo", 40), file("film.mkv", 9_000)];
+        assert_eq!(pick_file(&files, Some("0")), Some(1));
     }
 
     #[test]

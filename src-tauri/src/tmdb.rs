@@ -101,14 +101,15 @@ async fn fetch(client: &reqwest::Client, url: &str) -> Result<Value, String> {
         .timeout(Duration::from_secs(8))
         .send()
         .await
-        .map_err(|e| format!("metadata request failed: {e}"))?;
+        // The TMDB key rides in the query string, so the URL never goes into an error.
+        .map_err(|e| format!("metadata request failed: {}", e.without_url()))?;
     if !response.status().is_success() {
         return Err(format!("metadata source returned HTTP {}", response.status()));
     }
     response
         .json::<Value>()
         .await
-        .map_err(|e| format!("metadata response was not JSON: {e}"))
+        .map_err(|e| format!("metadata response was not JSON: {}", e.without_url()))
 }
 
 fn items_of(value: &Value) -> Vec<MetaPreview> {

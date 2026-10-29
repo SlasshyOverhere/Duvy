@@ -80,6 +80,8 @@ pub fn mark(label: impl AsRef<str>) {
 
 /// Start a fresh session: the next line begins a new timing run.
 pub fn begin(label: impl AsRef<str>) {
+    // Each playback measures from its own request, not from app start.
+    *lock(&START) = Some(Instant::now());
     *lock(&LAST) = None;
     mark(label);
 }

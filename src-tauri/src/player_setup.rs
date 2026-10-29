@@ -169,7 +169,10 @@ async fn install_release(
             let mut parts = line.split_whitespace();
             let hash = parts.next()?;
             let name = parts.next()?.trim_start_matches('*');
-            (hash.len() == 64 && !name.is_empty()).then(|| (hash.to_string(), name.to_string()))
+            let ok = hash.len() == 64
+                && hash.bytes().all(|b| b.is_ascii_hexdigit())
+                && safe_name(name);
+            ok.then(|| (hash.to_string(), name.to_string()))
         })
         .collect();
     if files.is_empty() {
@@ -193,6 +196,17 @@ const PINNED: &str =
     "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-20261021-git-e471496c56.7z";
 const PINNED_SHA256: &str = "4a355f3e89c83fabc730d33fb4e759dfec747806ed2287b61a90d1681b83e8d3";
 const PLAYER_FILES: [&str; 2] = ["mpv.exe", "d3dcompiler_43.dll"];
+
+/// A manifest name has to be one plain file in the player folder. The list comes
+/// off the network, and `dir.join("../..")` would write outside app data.
+fn safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
 
 async fn install_pinned(
     app: &AppHandle,

@@ -74,7 +74,10 @@ pub fn raise_webview(host: isize) {
         if len <= 0 {
             continue;
         }
-        let class = String::from_utf16_lossy(&name[..len as usize]);
+        // GetClassNameW can report more than the buffer holds when the class
+        // name is long, and slicing past it aborts the app from a window event.
+        let len = (len as usize).min(name.len());
+        let class = String::from_utf16_lossy(&name[..len]);
         if class.starts_with("Chrome_WidgetWin") {
             unsafe {
                 SetWindowPos(

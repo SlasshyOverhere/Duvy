@@ -689,3 +689,90 @@ fn settings_patch_merges_and_resets() {
 
     cleanup(conn, path);
 }
+
+#[test]
+fn connection_waits_for_a_locked_database_instead_of_failing() {
+    let (conn, path) = temp_database();
+    let timeout: i64 = conn
+        .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+        .unwrap();
+    assert!(timeout > 0, "a second writer must wait, not error");
+    cleanup(conn, path);
+}
+
+#[test]
+fn settings_load_clamps_numbers_and_tolerates_unknown_fields() {
+    let (conn, path) = temp_database();
+    // A row written by an older build or edited by hand: a field that no longer
+    // exists, a skip step of zero and a buffer large enough to overflow the
+    // player's megabyte maths.
+    db::write_kv(
+        &conn,
+        "app",
+        &json!({
+            "accent": "violet",
+            "seekStep": 0,
+            "homeRowsLimit": -3,
+            "bufferForwardValue": i64::MAX,
+            "removedInAnEarlierVersion": true
+        }),
+    )
+    .expect("write");
+
+    let settings = Settings::load(&conn);
+    assert_eq!(settings.accent, "violet", "a neighbour is not reset");
+    assert_eq!(settings.seek_step, 1, "zero would make the skip buttons dead");
+    assert_eq!(settings.home_rows_limit, 1);
+    assert_eq!(settings.buffer_forward_value, 65_536);
+    assert_eq!(
+        settings.buffer_backward_value,
+        Settings::default().buffer_backward_value
+    );
+
+    // The same clamp applies to a patch that arrives from the frontend.
+    let mut patched = Settings::default();
+    patched.apply_patch(json!({ "p2pCacheMb": -1 })).unwrap();
+    assert_eq!(patched.p2p_cache_mb, 64);
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn pruning_drops_stale_playheads_but_keeps_finished_titles() {
+    let path = temp_path();
+    let conn = db::open(&path).expect("first open");
+    let item = |key: &str, name: &str, position: f64| db::ProgressItem {
+        key: key.into(),
+        meta_id: key.into(),
+        media_type: "movie".into(),
+        name: name.into(),
+        poster: None,
+        background: None,
+        season: None,
+        episode: None,
+        episode_title: None,
+        position,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_progress(&conn, &item("tt1", "Abandoned Show", 100.0)).expect("unfinished");
+    db::save_progress(&conn, &item("tt2", "Old Film", 1000.0)).expect("finished");
+    db::set_watched(&conn, "tt2", "tt2", true).expect("mark");
+    conn.execute("UPDATE progress SET updated_at = 1", [])
+        .expect("age past a year");
+    drop(conn);
+
+    let conn = db::open(&path).expect("reopen prunes");
+    assert!(
+        db::get_progress(&conn, "tt1").unwrap().is_none(),
+        "a stale playhead is noise"
+    );
+    let watched = db::list_watched_items(&conn).unwrap();
+    assert_eq!(watched.len(), 1);
+    assert_eq!(
+        watched[0].name, "Old Film",
+        "the finished row carries the title the Watched list shows"
+    );
+
+    cleanup(conn, path);
+}

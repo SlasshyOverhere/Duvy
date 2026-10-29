@@ -17,7 +17,9 @@ pub struct Db(pub Mutex<Connection>);
 /// Share of a title's duration after which it counts as finished.
 pub const FINISHED_AT: f64 = 0.9;
 
+// A second instance holding the file must wait for the lock, not fail.
 const PRAGMAS: &str = r#"
+PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
@@ -104,11 +106,15 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 /// Playheads older than a year are noise; watched history is the user's, kept.
+/// A finished row stays because the Watched list reads its name and artwork
+/// from it, and losing that would leave a bare id on screen.
 fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
     const YEAR_MS: i64 = 365 * 24 * 60 * 60 * 1000;
     conn.execute(
-        "DELETE FROM progress WHERE updated_at < ?1",
-        params![now() - YEAR_MS],
+        "DELETE FROM progress
+          WHERE updated_at < ?1
+            AND NOT (duration > 0 AND position >= duration * ?2)",
+        params![now() - YEAR_MS, FINISHED_AT],
     )?;
     Ok(())
 }
@@ -196,11 +202,11 @@ pub fn upsert_addon(
     name: &str,
     manifest: &Value,
 ) -> rusqlite::Result<()> {
-    let position: i64 = conn
-        .query_row("SELECT COALESCE(MAX(position), 0) + 1 FROM addons", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(1);
+    let position: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM addons",
+        [],
+        |r| r.get(0),
+    )?;
     conn.execute(
         "INSERT INTO addons (url, addon_id, name, manifest, enabled, position, installed_at)
          VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)
@@ -427,6 +433,7 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
     .optional()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     write_progress(&tx, p)?;

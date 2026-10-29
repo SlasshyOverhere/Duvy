@@ -288,17 +288,21 @@ fn probe_mpv(path: &str) -> Option<MpvInfo> {
 // ---------------------------------------------------------------------------
 
 fn pipe_name() -> String {
+    // Two opens in the same millisecond must not land on one socket: the second
+    // mpv would fail to bind, or worse, talk over the first one's pipe.
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     #[cfg(windows)]
     {
-        format!(r"\\.\pipe\duvy-{}-{stamp}", std::process::id())
+        format!(r"\\.\pipe\duvy-{}-{stamp}-{seq}", std::process::id())
     }
     #[cfg(unix)]
     {
-        format!("/tmp/duvy-{}-{stamp}.sock", std::process::id())
+        format!("/tmp/duvy-{}-{stamp}-{seq}.sock", std::process::id())
     }
 }
 
@@ -856,6 +860,7 @@ impl Player {
         // mpv creates the IPC server asynchronously; give it a moment.
         let mut connected = None;
         let mut attempts = 0u32;
+        let mut exited = false;
         for _ in 0..60 {
             attempts += 1;
             match connect_pipe(&pipe) {
@@ -863,7 +868,15 @@ impl Player {
                     connected = Some(pair);
                     break;
                 }
-                Err(_) => thread::sleep(Duration::from_millis(50)),
+                Err(_) => {
+                    // A process that died on a bad argument never opens its
+                    // socket; waiting out the full three seconds only hides why.
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        exited = true;
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
             }
         }
         let (reader, mut writer) = match connected {
@@ -872,6 +885,9 @@ impl Player {
                     "control pipe ready after {attempts} attempt(s)"
                 ));
                 pair
+            }
+            None if exited => {
+                give_up!("mpv exited before it accepted a command.".to_string())
             }
             None => give_up!("mpv started but its IPC socket never became available.".to_string()),
         };
@@ -1461,10 +1477,12 @@ fn spawn_ticker(
                 }
             }
         }
-        // Final save when the window closes.
-        if let Ok(snap) = snapshot.lock() {
+        // Final save when the window closes. The snapshot lock is released first:
+        // persist writes to the database, and the reader thread waits on it.
+        let last = snapshot.lock().map(|snap| snap.clone());
+        if let Ok(snap) = last {
             let session = session.lock().ok().and_then(|guard| guard.clone());
-            persist(&app, &snap.clone(), session.as_ref());
+            persist(&app, &snap, session.as_ref());
         }
     });
 }

@@ -100,6 +100,15 @@ const QUALITY_TOKENS: &[(&str, &str, i64)] = &[
 /// Detect a display quality label from arbitrary addon text.
 pub fn detect_quality(text: &str) -> (String, i64) {
     let upper = text.to_uppercase();
+    // Rips are matched as whole words: "Scam 1992" is not a cam rip.
+    let ripped = upper
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|token| {
+            matches!(
+                token,
+                "CAM" | "CAMRIP" | "HQCAM" | "HDCAM" | "TELESYNC" | "TS" | "HDTS"
+            )
+        });
     let (label, weight) = if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
         ("4K".to_string(), 50)
     } else if upper.contains("1080P") {
@@ -108,7 +117,7 @@ pub fn detect_quality(text: &str) -> (String, i64) {
         ("720p".to_string(), 26)
     } else if upper.contains("480P") || upper.contains("360P") {
         ("480p".to_string(), 12)
-    } else if upper.contains("CAM") || upper.contains(" HDCAM") || upper.contains("TELESYNC") || upper.contains(" TS ") {
+    } else if ripped {
         ("CAM".to_string(), -40)
     } else {
         ("Auto".to_string(), 20)
@@ -413,5 +422,15 @@ mod tests {
         assert_eq!(super::find_seeders("👤 1234"), Some(1234));
         assert_eq!(super::find_seeders("★★★★ 720p seeders: 88"), Some(88));
         assert_eq!(super::find_seeders("日本語のタイトル"), None);
+    }
+
+    // A title that merely contains "cam" is not a cam rip.
+    #[test]
+    fn cam_detection_needs_the_whole_word() {
+        assert_eq!(detect_quality("Scam 1992 WEB-DL").0, "Auto");
+        assert_eq!(detect_quality("Camelot 2011").0, "Auto");
+        assert_eq!(detect_quality("Movie.2024.CAM.x264").0, "CAM");
+        assert_eq!(detect_quality("Movie.2024.HDCAM").0, "CAM");
+        assert_eq!(detect_quality("Movie 2024 TS").0, "CAM");
     }
 }

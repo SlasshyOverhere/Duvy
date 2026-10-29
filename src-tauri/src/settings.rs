@@ -113,7 +113,19 @@ impl Settings {
         if !known && settings.defaults_seeded {
             settings.onboarded = true;
         }
+        settings.sanitize();
         settings
+    }
+
+    /// Stored values can come from an older build or a hand-edited row, and a
+    /// patch can carry anything. Clamp here so nothing downstream has to.
+    fn sanitize(&mut self) {
+        self.seek_step = self.seek_step.clamp(1, 600);
+        self.home_rows_limit = self.home_rows_limit.clamp(1, 24);
+        self.p2p_cache_mb = self.p2p_cache_mb.clamp(64, 1_048_576);
+        // Megabyte maths in the player multiplies these by up to 1024.
+        self.buffer_forward_value = self.buffer_forward_value.clamp(1, 65_536);
+        self.buffer_backward_value = self.buffer_backward_value.clamp(1, 65_536);
     }
 
     pub fn save(&self, conn: &Connection) -> Result<(), String> {
@@ -124,6 +136,7 @@ impl Settings {
     pub fn apply_patch(&mut self, patch: Value) -> Result<(), String> {
         let merged = merge(serde_json::to_value(&self).map_err(|e| e.to_string())?, patch);
         *self = serde_json::from_value(merged).map_err(|e| e.to_string())?;
+        self.sanitize();
         Ok(())
     }
 }

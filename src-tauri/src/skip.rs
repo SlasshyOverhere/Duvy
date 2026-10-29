@@ -57,7 +57,12 @@ pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String,
 
     if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end) {
         let end = end.min(duration);
-        if end - start > 2.0 && position >= start - 0.5 && position <= end - 2.0 {
+        // A stale marker near the end of the file would skip to the credits.
+        if end < duration - 2.0
+            && end - start > 2.0
+            && position >= start - 0.5
+            && position <= end - 2.0
+        {
             return Some(("intro".to_string(), end));
         }
     }
@@ -221,6 +226,12 @@ mod tests {
             Some(("outro".to_string(), 1440.0))
         );
         assert_eq!(apply(&skip, 1439.0, 1440.0), None);
+    }
+
+    #[test]
+    fn an_intro_past_the_end_of_the_file_does_nothing() {
+        // Community markers are not validated against the real runtime.
+        assert_eq!(apply(&entry((10.0, 70.0), None), 12.0, 60.0), None);
     }
 
     #[test]

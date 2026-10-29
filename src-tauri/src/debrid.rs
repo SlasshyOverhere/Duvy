@@ -236,9 +236,7 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
     })
 }
 
-/// Cheap cache probe across every connected account. Not wired into
-/// `generate_handler!` yet, so add it there before calling it from the UI.
-#[allow(dead_code)]
+/// Cheap cache probe across every connected account.
 #[tauri::command]
 pub async fn check_cache(source: String, state: State<'_, AppState>) -> Result<bool, String> {
     let source = source.trim();
@@ -652,8 +650,10 @@ fn session_ok(provider: &str, value: &Value) -> bool {
 // HTTP
 // ---------------------------------------------------------------------------
 
+/// `reqwest`'s error text carries the request URL, and Premiumize and TorBox take
+/// the key as a query parameter, so the URL is dropped before it reaches the UI.
 fn offline(error: reqwest::Error) -> String {
-    format!("Could not reach the debrid service: {error}")
+    format!("Could not reach the debrid service: {}", error.without_url())
 }
 
 fn request(
@@ -694,7 +694,7 @@ async fn reply(response: reqwest::Response) -> Result<Value, String> {
     let body = response
         .text()
         .await
-        .map_err(|error| format!("Could not read the debrid reply: {error}"))?;
+        .map_err(|error| format!("Could not read the debrid reply: {}", error.without_url()))?;
     let value: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     if status.is_success() {
         if let Some(message) = api_error(&value) {
