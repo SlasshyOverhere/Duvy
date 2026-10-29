@@ -24,6 +24,7 @@ import type {
   Video,
 } from "../lib/types";
 import { Icon, Spinner, type IconName } from "../components/ui";
+import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
 import "../components/player/player.css";
@@ -282,6 +283,22 @@ function sameSource(a: StreamOption | null, b: StreamOption): boolean {
   );
 }
 
+/** Hands focus back to the control that opened a dialog when it goes away. */
+function useReturnFocus() {
+  // Read during render: autofocus has already moved focus by effect time.
+  const previous = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  useEffect(
+    () => () => {
+      // Another panel replaced this one and already holds focus.
+      if (document.activeElement?.closest("[role='dialog']")) return;
+      if (previous.current?.isConnected) previous.current.focus();
+    },
+    [],
+  );
+}
+
 /** Floating panel anchored bottom-right, above the transport. */
 function Overlay({
   label,
@@ -292,6 +309,7 @@ function Overlay({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useReturnFocus();
   return (
     <div
       className="pv-overlay"
@@ -316,6 +334,7 @@ function Overlay({
             onClick={onClose}
             aria-label="Close"
             title="Close"
+            autoFocus
           >
             <Icon name="x" size={18} />
           </button>
@@ -338,6 +357,7 @@ function SidePanel({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useReturnFocus();
   return (
     <div
       className="pv-side-scrim"
@@ -354,6 +374,7 @@ function SidePanel({
             onClick={onClose}
             aria-label="Close"
             title="Close"
+            autoFocus
           >
             <Icon name="x" size={18} />
           </button>
@@ -451,6 +472,8 @@ const SeekTrack = memo(function SeekTrack({
 
   const ratioAt = (clientX: number, element: HTMLDivElement) => {
     const box = rect.current ?? element.getBoundingClientRect();
+    // A zero-width bar would divide to NaN and poison the held position.
+    if (!box.width) return 0;
     return Math.min(1, Math.max(0, (clientX - box.left) / box.width));
   };
 
@@ -529,6 +552,8 @@ const SeekTrack = memo(function SeekTrack({
         queue(event);
       }}
       onPointerLeave={() => {
+        // A queued move must not bring the tip back after the pointer left.
+        queued.current = null;
         if (!dragging.current) setHover(null);
       }}
       onPointerUp={(event) => {
@@ -613,6 +638,7 @@ const SourcesPanel = memo(function SourcesPanel({
         <button
           type="button"
           className={`pv-filter${sourceFilter === null ? " is-on" : ""}`}
+          aria-pressed={sourceFilter === null}
           onClick={() => onFilter(null)}
         >
           All
@@ -622,6 +648,7 @@ const SourcesPanel = memo(function SourcesPanel({
             key={addon}
             type="button"
             className={`pv-filter${sourceFilter === addon ? " is-on" : ""}`}
+            aria-pressed={sourceFilter === addon}
             onClick={() => onFilter(addon)}
           >
             {addon}
@@ -727,6 +754,7 @@ const EpisodesPanel = memo(function EpisodesPanel({
               key={value}
               type="button"
               className={`pv-filter${(season ?? 0) === value ? " is-on" : ""}`}
+              aria-pressed={(season ?? 0) === value}
               onClick={() => onSeason(value)}
             >
               {value === 0 ? "Specials" : `Season ${value}`}
@@ -1137,6 +1165,9 @@ export function PlayerView() {
   const livePct = useRef(0);
   // False once the screen closes, so a slow open cannot navigate back into it.
   const alive = useRef(true);
+  // A slow reply must not land its track list on the next episode.
+  const subsSeq = useRef(0);
+  const sourceSeq = useRef(0);
 
   useEffect(() => {
     alive.current = true;
@@ -1610,7 +1641,13 @@ export function PlayerView() {
 
   const loadSubtitles = useCallback(
     async (force = false) => {
-      if (!session || (subs && !force)) return;
+      // Without a session the panel would spin forever on a null list.
+      if (!session) {
+        setSubs([]);
+        return;
+      }
+      if (subs && !force) return;
+      const seq = ++subsSeq.current;
       setSubs(null);
       try {
         const result = await api.subtitles({
@@ -1619,9 +1656,9 @@ export function PlayerView() {
           season: session.season,
           episode: session.episode,
         });
-        setSubs(result);
+        if (seq === subsSeq.current) setSubs(result);
       } catch {
-        setSubs([]);
+        if (seq === subsSeq.current) setSubs([]);
       }
     },
     [session?.metaId, session?.type, session?.season, session?.episode, subs],
@@ -1630,6 +1667,7 @@ export function PlayerView() {
   const loadSources = useCallback(
     async (force = false) => {
       if (!session || (sources && !force)) return;
+      const seq = ++sourceSeq.current;
       setSourceBusy(true);
       try {
         const result = await api.streams({
@@ -1639,11 +1677,13 @@ export function PlayerView() {
           episode: session.episode,
           imdbId: details?.imdbId,
         });
-        setSources(result);
+        if (seq === sourceSeq.current) setSources(result);
       } catch (e) {
-        notify(e instanceof Error ? e.message : String(e), "error");
+        if (seq === sourceSeq.current) {
+          notify(e instanceof Error ? e.message : String(e), "error");
+        }
       } finally {
-        setSourceBusy(false);
+        if (seq === sourceSeq.current) setSourceBusy(false);
       }
     },
     [details?.id, details?.imdbId, notify, session?.metaId, session?.type, session?.season, session?.episode, sources],
@@ -1714,7 +1754,7 @@ export function PlayerView() {
         if (opened) rememberSource(session.key, stream);
         if (!alive.current) return;
         // The same session object is reused, so nothing else re-applies the
-        // settings to the new mpv.
+        // settings to the new mpv, which also has no addon subtitle track.
         setLoadedSub(null);
         setSelectedLang(null);
         frameCache.current.clear();
@@ -1807,6 +1847,9 @@ export function PlayerView() {
   // previous one, including a dismissed next-episode card.
   useEffect(() => {
     advanced.current = false;
+    // Anything still loading for the old episode must not write here.
+    subsSeq.current += 1;
+    sourceSeq.current += 1;
     setSubs(null);
     setSources(null);
     setSourceFilter(null);
@@ -1980,7 +2023,7 @@ export function PlayerView() {
     // Only on a new session: the cycle button already pushes its own change.
   }, [send, session?.key]);
 
-  // Local storage is the persistence layer, except delay which is session-only.
+  // Local storage is the persistence layer for the whole style, delay included.
   useEffect(() => {
     try {
       window.localStorage.setItem(SUB_STYLE_KEY, JSON.stringify(subStyle));
@@ -2056,6 +2099,17 @@ export function PlayerView() {
             !(target instanceof HTMLInputElement && target.type === "range")));
       if (typing) return;
       const key = event.key;
+      // A focused range input owns its arrows; seeking from here would fight it.
+      if (target instanceof HTMLInputElement && target.type === "range") {
+        const up = key === "ArrowUp" || key === "ArrowRight";
+        const down = key === "ArrowDown" || key === "ArrowLeft";
+        if (up || down) {
+          event.preventDefault();
+          changeVolume(up ? 5 : -5);
+          bump();
+          return;
+        }
+      }
       if (locked && key !== "Escape") return;
       // A panel owns the keyboard; Escape still closes it.
       if (surface && key !== "Escape") return;
@@ -2133,6 +2187,7 @@ export function PlayerView() {
             setLocked(false);
             setChrome(true);
           } else if (surface) setSurface(null);
+          else if (btnMenu) setBtnMenu(false);
           else if (showNext) dismissNext();
           else if (fsNow.current) leaveFullscreen();
           // Escape never ends playback; leaving is the explicit Close.
@@ -2148,6 +2203,7 @@ export function PlayerView() {
   }, [
     bump,
     busy,
+    btnMenu,
     changeSpeed,
     changeVolume,
     cycleAudio,
@@ -2209,7 +2265,8 @@ export function PlayerView() {
   const refreshSources = useCallback(() => void loadSources(true), [loadSources]);
   const retrySource = useCallback(() => {
     setSurface("sources");
-    void loadSources();
+    // The list that failed may be stale links, so this pass refetches.
+    void loadSources(true);
   }, [loadSources]);
   const reloadSubs = useCallback(() => void loadSubtitles(true), [loadSubtitles]);
   const resetSubStyle = useCallback(() => setSubStyle(DEFAULT_SUB_STYLE), []);
@@ -2465,6 +2522,7 @@ export function PlayerView() {
         const target = event.target as Element;
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
+        if (btnMenu) setBtnMenu(false);
         if (surface) return;
         if (!chrome) {
           bump();
@@ -2475,14 +2533,14 @@ export function PlayerView() {
     >
       <div className="pv-shade" aria-hidden="true" />
 
-      {/* The player covers the titlebar; this is the window's handle while windowed. */}
+      {/* The player owns the window's top edge while windowed. */}
       {!fullscreen ? <div className="pv-drag" data-tauri-drag-region aria-hidden="true" /> : null}
 
       {!locked ? (
         <header className="pv-top">
           <button
             type="button"
-            className="pv-top-btn pv-top-back"
+            className="win-btn pv-top-btn pv-top-back"
             onClick={() => void stop()}
             aria-label="Close player"
             title="Close player"
@@ -2503,7 +2561,7 @@ export function PlayerView() {
           <div className="pv-top-right">
             <button
               type="button"
-              className="pv-top-btn"
+              className="win-btn pv-top-btn"
               onClick={() => void toggleFullscreen()}
               aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -2512,13 +2570,14 @@ export function PlayerView() {
             </button>
             <button
               type="button"
-              className="pv-top-btn"
+              className="win-btn pv-top-btn"
               onClick={cycleLock}
               aria-label="Lock controls"
               title="Lock controls"
             >
               <Icon name="lock" size={24} />
             </button>
+            <WindowControls variant="player" />
           </div>
         </header>
       ) : null}

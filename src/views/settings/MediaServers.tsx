@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Badge, Button, Icon, Loading } from "../../components/ui";
+import { useApp } from "../../lib/store";
 
 type Server = {
   id: string;
@@ -108,6 +109,7 @@ function Poster({
  * only the account shape crosses the bridge.
  */
 export function MediaServers() {
+  const { playRequest } = useApp();
   const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +119,7 @@ export function MediaServers() {
   const [url, setUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
 
   const [browseId, setBrowseId] = useState<string | null>(null);
   const [trail, setTrail] = useState<ServerItem[]>([]);
@@ -124,6 +127,8 @@ export function MediaServers() {
   const [browsing, setBrowsing] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
+  // A slow folder from one server must not land in another server's grid.
+  const request = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -141,33 +146,36 @@ export function MediaServers() {
   }, [load]);
 
   const closeBrowse = () => {
+    request.current += 1;
     setBrowseId(null);
     setTrail([]);
     setItems([]);
     setBrowseError(null);
+    setBrowsing(false);
   };
 
   const loadItems = async (serverId: string, parent?: ServerItem) => {
+    const token = (request.current += 1);
     setBrowsing(true);
     setBrowseError(null);
     setItems([]);
     try {
-      setItems(
-        await invoke<ServerItem[]>(
-          "srv_items",
-          parent ? { id: serverId, parentId: parent.id } : { id: serverId },
-        ),
+      const next = await invoke<ServerItem[]>(
+        "srv_items",
+        parent ? { id: serverId, parentId: parent.id } : { id: serverId },
       );
+      if (token !== request.current) return;
+      setItems(next);
     } catch (e) {
-      setBrowseError(message(e));
+      if (token === request.current) setBrowseError(message(e));
     } finally {
-      setBrowsing(false);
+      if (token === request.current) setBrowsing(false);
     }
   };
 
   const add = async () => {
     setBusy("add");
-    setError(null);
+    setAddError(null);
     try {
       setServers(await invoke<Server[]>("srv_add", { kind, url, username, password }));
       setUrl("");
@@ -175,7 +183,7 @@ export function MediaServers() {
       setPassword("");
       closeBrowse();
     } catch (e) {
-      setError(message(e));
+      setAddError(message(e));
     } finally {
       setBusy(null);
     }
@@ -226,7 +234,8 @@ export function MediaServers() {
         id: serverId,
         itemId: item.id,
       });
-      await invoke("player_open", { request: { url: streamUrl, title: playTitle(item) } });
+      // The store owns the player screen and its one-at-a-time guard.
+      await playRequest({ url: streamUrl, title: playTitle(item) });
     } catch (e) {
       setError(message(e));
     } finally {
@@ -236,7 +245,11 @@ export function MediaServers() {
 
   return (
     <>
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <section className="settings-group">
         <h2>Media servers</h2>
@@ -247,7 +260,7 @@ export function MediaServers() {
 
         {loading ? <Loading variant="list" label="Reading media servers" count={2} /> : null}
 
-        {!loading && servers.length === 0 ? (
+        {!loading && servers.length === 0 && !error ? (
           <p className="settings-hint" style={{ marginBottom: 0 }}>
             No servers yet. Add one below.
           </p>
@@ -299,7 +312,9 @@ export function MediaServers() {
 
                 {browseError ? (
                   <div style={{ marginTop: 12 }}>
-                    <p className="form-error">{browseError}</p>
+                    <p className="form-error" role="alert">
+                      {browseError}
+                    </p>
                     <Button
                       icon="refresh"
                       onClick={() => void loadItems(server.id, trail[trail.length - 1])}
@@ -343,13 +358,14 @@ export function MediaServers() {
 
         <div className="field">
           <span>Kind</span>
-          <div className="field-row" style={{ marginTop: 0 }}>
+          <div className="field-row" style={{ marginTop: 0 }} role="group" aria-label="Server type">
             {(["jellyfin", "emby"] as Kind[]).map((value) => (
               <button
                 key={value}
                 type="button"
                 className={`chip${kind === value ? " is-active" : ""}`}
                 onClick={() => setKind(value)}
+                aria-pressed={kind === value}
               >
                 {kindLabel(value)}
               </button>
@@ -366,6 +382,7 @@ export function MediaServers() {
               placeholder="http://192.168.1.10:8096"
               autoComplete="off"
               spellCheck={false}
+              aria-describedby={addError ? "srv-add-error" : undefined}
             />
           </label>
           <label className="field">
@@ -373,8 +390,9 @@ export function MediaServers() {
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              autoComplete="username"
+              autoComplete="off"
               spellCheck={false}
+              aria-describedby={addError ? "srv-add-error" : undefined}
             />
           </label>
           <label className="field">
@@ -384,10 +402,17 @@ export function MediaServers() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Never stored"
-              autoComplete="current-password"
+              autoComplete="off"
+              aria-describedby={addError ? "srv-add-error" : undefined}
             />
           </label>
         </div>
+
+        {addError ? (
+          <p className="form-error" id="srv-add-error" role="alert">
+            {addError}
+          </p>
+        ) : null}
 
         <div className="field-row">
           <Button

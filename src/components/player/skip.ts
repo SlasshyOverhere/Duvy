@@ -23,7 +23,15 @@ export function findSkip(
   position: number,
   duration: number,
 ): SkipSegment | null {
-  if (!entry || !Number.isFinite(position) || !(duration > 0)) return null;
+  // Guards mirror `skip::apply`: a live or broken duration has no markers.
+  if (
+    !entry ||
+    !Number.isFinite(position) ||
+    !Number.isFinite(duration) ||
+    !(duration > 0)
+  ) {
+    return null;
+  }
 
   const { introStart, introEnd, outroStart } = entry;
   if (introStart != null && introEnd != null) {

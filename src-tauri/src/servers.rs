@@ -133,10 +133,16 @@ fn parse_auth(value: &Value) -> Option<(String, String)> {
         .then(|| (token.to_string(), user_id.to_string()))
 }
 
+/// Ids and tokens from a server reply are escaped before they go into a URL; an
+/// id carrying `&` or `?` would otherwise rewrite the request.
+fn esc(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
 /// Posters are fetched without a token, so only servers that allow anonymous
 /// image access show artwork. Streams carry their own `api_key` instead.
 fn item_image(base: &str, item_id: &str) -> String {
-    format!("{base}/Items/{item_id}/Images/Primary?maxWidth=400")
+    format!("{base}/Items/{}/Images/Primary?maxWidth=400", esc(item_id))
 }
 
 fn parse_items(base: &str, value: &Value) -> Vec<ServerItem> {
@@ -208,13 +214,13 @@ fn media_source(value: &Value) -> Option<String> {
 }
 
 fn stream_url(base: &str, item_id: &str, source: Option<&str>, token: &str) -> String {
-    let mut url = format!("{base}/Videos/{item_id}/stream?static=true");
+    let mut url = format!("{base}/Videos/{}/stream?static=true", esc(item_id));
     if let Some(source) = source {
         url.push_str("&MediaSourceId=");
-        url.push_str(source);
+        url.push_str(&esc(source));
     }
     url.push_str("&api_key=");
-    url.push_str(token);
+    url.push_str(&esc(token));
     url
 }
 
@@ -351,8 +357,10 @@ pub async fn srv_items(
     let url = if let Some(parent) = parent_id {
         // Children of a show are seasons, children of a season are episodes.
         format!(
-            "{}/Users/{}/Items?ParentId={parent}&IncludeItemTypes=Season,Episode&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
-            server.url, server.user_id
+            "{}/Users/{}/Items?ParentId={}&IncludeItemTypes=Season,Episode&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
+            server.url,
+            esc(&server.user_id),
+            esc(&parent)
         )
     } else {
         let types = match kind.as_deref().map(str::trim) {
@@ -362,7 +370,8 @@ pub async fn srv_items(
         };
         format!(
             "{}/Users/{}/Items?Recursive=true&IncludeItemTypes={types}&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
-            server.url, server.user_id
+            server.url,
+            esc(&server.user_id)
         )
     };
     let request = token_request(
@@ -410,8 +419,10 @@ pub async fn srv_stream(
     // Episodes and movies both resolve through PlaybackInfo; the reply names
     // the media source the static stream needs, or the item id when it does not.
     let info_url = format!(
-        "{}/Items/{item_id}/PlaybackInfo?UserId={}",
-        server.url, server.user_id
+        "{}/Items/{}/PlaybackInfo?UserId={}",
+        server.url,
+        esc(item_id),
+        esc(&server.user_id)
     );
     let request = token_request(
         &server.kind,

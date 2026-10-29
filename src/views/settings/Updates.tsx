@@ -60,7 +60,8 @@ export function Updates() {
     setProgress(null);
     try {
       await api.updates.install();
-      setNote("Installing. Duvy restarts when it finishes.");
+      setNote("Installed. Restart Duvy to finish.");
+      setInstalling(false);
     } catch (error) {
       setNote(errorMessage(error));
       setInstalling(false);
@@ -82,7 +83,11 @@ export function Updates() {
         </div>
         <Toggle
           checked={settings.autoUpdateCheck}
-          onChange={(value) => void saveSettings({ autoUpdateCheck: value })}
+          onChange={(value) =>
+            void saveSettings({ autoUpdateCheck: value }).catch((error) =>
+              notify(errorMessage(error), "error"),
+            )
+          }
           label="Automatic update checks"
         />
       </div>
@@ -90,7 +95,7 @@ export function Updates() {
       <div className="settings-row">
         <div>
           <h3>{update ? `Version ${update.version} is available` : "Check for updates"}</h3>
-          <p>
+          <p role="status">
             {note ??
               (update
                 ? `${update.date ? `Released ${update.date}. ` : ""}Downloads, verifies the signature, then reinstalls.`
@@ -136,7 +141,14 @@ export function Updates() {
             >
               {installing ? "Installing" : "Install and restart"}
             </Button>
-            <Button disabled={installing} onClick={() => void skipUpdate(update.version)}>
+            <Button
+              disabled={installing}
+              onClick={() =>
+                void skipUpdate(update.version).catch((error) =>
+                  notify(errorMessage(error), "error"),
+                )
+              }
+            >
               Skip this version
             </Button>
             <Button

@@ -23,7 +23,10 @@ function errorText(error: unknown): string {
 function normalizeUrl(raw: string): string {
   const value = raw.trim();
   if (!value) throw new Error("Enter an addon URL");
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  // The backend accepts the stremio:// shorthand, so the field must too.
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+    ? value.replace(/^stremio:\/\//i, "https://")
+    : `https://${value}`;
   let parsed: URL;
   try {
     parsed = new URL(withScheme);
@@ -36,7 +39,8 @@ function normalizeUrl(raw: string): string {
   if (!parsed.hostname.includes(".") && parsed.hostname !== "localhost") {
     throw new Error(`"${parsed.hostname}" is not a valid host`);
   }
-  return withScheme;
+  // The parsed form is the one that survives spaces and odd characters intact.
+  return parsed.href;
 }
 
 function catalogCount(addon: AddonInfo): string {
@@ -82,13 +86,18 @@ export function AddonsPanel() {
   const [confirmUrl, setConfirmUrl] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<{ url: string; message: string } | null>(null);
 
+  // A failed list reload must not read as a failed action, and must not reject
+  // into a `void`ed call.
+  const reload = () =>
+    refreshAddons().catch(() => notify("Could not reload the addon list", "error"));
+
   const install = async (raw: string) => {
     setBusy(true);
     setError(null);
     try {
       const target = normalizeUrl(raw);
       const installed = await api.addons.install(target);
-      await refreshAddons();
+      await reload();
       setUrl("");
       notify(`${installed.name} installed`, "success");
     } catch (e) {
@@ -104,10 +113,10 @@ export function AddonsPanel() {
     setPendingUrl(addon.url);
     try {
       await api.addons.setEnabled(addon.url, enabled);
-      await refreshAddons();
+      await reload();
     } catch (e) {
       notify(errorText(e), "error");
-      await refreshAddons();
+      await reload();
     } finally {
       setPendingUrl(null);
     }
@@ -117,7 +126,7 @@ export function AddonsPanel() {
     setPendingUrl(addon.url);
     try {
       await api.addons.remove(addon.url);
-      await refreshAddons();
+      await reload();
       setConfirmUrl(null);
       notify(`${addon.name} removed`);
     } catch (e) {
@@ -131,7 +140,7 @@ export function AddonsPanel() {
     setPendingUrl(addon.url);
     try {
       await api.addons.move(addon.url, delta);
-      await refreshAddons();
+      await reload();
     } catch (e) {
       notify(errorText(e), "error");
     } finally {
@@ -144,7 +153,7 @@ export function AddonsPanel() {
     setRefreshError(null);
     try {
       await api.addons.refresh(addon.url);
-      await refreshAddons();
+      await reload();
     } catch (e) {
       setRefreshError({ url: addon.url, message: errorText(e) });
     } finally {
@@ -159,7 +168,7 @@ export function AddonsPanel() {
       <section className="install-card">
         <div className="install-copy">
           <h2>Install from URL</h2>
-          <p>Paste an addon manifest or transport URL. `manifest.json` is resolved automatically.</p>
+          <p>Paste an addon link. A trailing manifest.json is resolved automatically.</p>
         </div>
         <form
           className="install-form"
@@ -215,8 +224,19 @@ export function AddonsPanel() {
           const pending = pendingUrl === addon.url;
           const pendingAny = pendingUrl !== null;
           const confirming = confirmUrl === addon.url;
-          const catalogs = catalogCount(addon);
-          const configureUrl = addon.configureUrl;
+          const tags = [
+            ...addon.resources
+              .filter((resource) => RESOURCE_LABELS[resource])
+              .map((resource) => RESOURCE_LABELS[resource]),
+            catalogCount(addon),
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          // A manifest is remote input: only an http(s) link goes to the OS.
+          const configureUrl =
+            addon.configureUrl && /^https?:\/\//i.test(addon.configureUrl)
+              ? addon.configureUrl
+              : null;
 
           return (
             <article className={`addon-card${addon.enabled ? "" : " is-off"}`} key={addon.url}>
@@ -234,18 +254,15 @@ export function AddonsPanel() {
                   {addon.configurationRequired ? <Badge tone="warn">Setup required</Badge> : null}
                   {addon.enabled ? null : <Badge tone="warn">Disabled</Badge>}
                 </div>
-                <p className="addon-url">{addon.url}</p>
+                <p className="addon-url" title={addon.url}>
+                  {addon.url}
+                </p>
                 {addon.description ? <p className="addon-desc">{addon.description}</p> : null}
-                <div className="addon-tags">
-                  {addon.resources
-                    .filter((resource) => RESOURCE_LABELS[resource])
-                    .map((resource) => (
-                      <Badge key={resource} tone={resource === "stream" ? "accent" : "neutral"}>
-                        {RESOURCE_LABELS[resource]}
-                      </Badge>
-                    ))}
-                  {catalogs ? <span className="addon-count">{catalogs}</span> : null}
-                </div>
+                {tags ? (
+                  <div className="addon-tags">
+                    <span className="addon-count">{tags}</span>
+                  </div>
+                ) : null}
                 {refreshError && refreshError.url === addon.url ? (
                   <p className="form-error" role="alert">
                     {refreshError.message}
@@ -258,12 +275,12 @@ export function AddonsPanel() {
                     <Button
                       variant="danger"
                       icon="trash"
-                      disabled={pending}
+                      disabled={pendingAny}
                       onClick={() => void remove(addon)}
                     >
                       {pending ? "Removing…" : "Remove"}
                     </Button>
-                    <Button disabled={pending} onClick={() => setConfirmUrl(null)}>
+                    <Button disabled={pendingAny} onClick={() => setConfirmUrl(null)}>
                       Cancel
                     </Button>
                   </>
@@ -304,14 +321,14 @@ export function AddonsPanel() {
                     <Toggle
                       checked={addon.enabled}
                       label={`${addon.enabled ? "Disable" : "Enable"} ${addon.name}`}
-                      disabled={pending}
+                      disabled={pendingAny}
                       onChange={(value) => void setEnabled(addon, value)}
                     />
                     <button
                       type="button"
                       className="icon-btn danger"
                       aria-label={`Remove ${addon.name}`}
-                      disabled={pending}
+                      disabled={pendingAny}
                       onClick={() => setConfirmUrl(addon.url)}
                     >
                       <Icon name="trash" size={17} />
@@ -327,8 +344,8 @@ export function AddonsPanel() {
       <footer className="page-note">
         <Icon name="info" size={15} />
         <span>
-          P2P/torrent streaming, debrid and media-server support are on the roadmap. This build plays direct
-          HTTP sources and local files.
+          Stream addons supply the sources. P2P torrents, Debrid keys and media servers are set up in
+          Settings.
         </span>
       </footer>
     </>

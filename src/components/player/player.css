@@ -6,8 +6,30 @@
    --------------------------------------------------------------------------- */
 
 .pv {
-  /* Height of the bottom column, so floating cards sit above it, not in it. */
-  --pv-deck: 236px;
+  /* Glass over a live picture: translucent fills and drawn rims, never a blur.
+     The fill stays dark enough for white text over any frame. */
+  --pv-panel: rgba(18, 18, 21, 0.82);
+  --pv-panel-2: rgba(14, 14, 17, 0.86);
+  --pv-glass-press: rgba(8, 8, 10, 0.9);
+  --pv-well: rgba(255, 255, 255, 0.045);
+  --pv-control: rgba(255, 255, 255, 0.055);
+  --pv-control-2: rgba(255, 255, 255, 0.07);
+  --pv-control-hover: rgba(255, 255, 255, 0.12);
+  --pv-wash: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.035) 46%,
+    rgba(255, 255, 255, 0.015) 100%
+  );
+  --pv-edge: rgba(255, 255, 255, 0.14);
+  --pv-edge-soft: rgba(255, 255, 255, 0.07);
+  --pv-spec: rgba(255, 255, 255, 0.2);
+  --pv-disp: color-mix(in srgb, var(--accent) 20%, transparent);
+  --pv-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.4),
+    0 16px 36px -24px rgba(0, 0, 0, 0.9);
+  --pv-muted: rgba(255, 255, 255, 0.62);
+  --pv-faint: rgba(255, 255, 255, 0.5);
 }
 
 .pv .pv-shade {
@@ -19,23 +41,18 @@
 
 /* ---- top strip ---------------------------------------------------------- */
 
-.pv .pv-top {
-  align-items: center;
-  justify-content: flex-end;
-  padding: 14px 22px 0;
-}
-
-.pv .pv-top-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
 .pv:not(.pv--awake) .pv-timeline {
   opacity: 0;
   transform: translateY(10px);
+  /* Hidden chrome leaves the tab order too, not just the eye. */
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s var(--ease), visibility 0s linear 0.2s;
+}
+
+.pv--awake .pv-timeline {
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 /* A panel owns the screen: the chrome hides from the eye and from the keyboard. */
@@ -60,7 +77,7 @@
   aspect-ratio: 16 / 9;
   border-radius: 4px;
   overflow: hidden;
-  background: #1a1a1d;
+  background: var(--pv-control);
 }
 
 .pv .pv-tip-shot img {
@@ -88,16 +105,18 @@
   display: flex;
   flex-direction: column;
   width: fit-content;
-  min-width: 320px;
+  min-width: min(320px, 100%);
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
   min-height: 0;
   padding: 16px 18px 18px;
   border-radius: 12px;
-  background: #101012;
+  background: var(--pv-wash), var(--pv-panel);
   box-shadow:
-    0 18px 38px -12px rgba(0, 0, 0, 0.7),
-    0 2px 8px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
 }
 
 /* Only the contents scroll, so the header stays reachable on a short screen. */
@@ -132,7 +151,7 @@
 }
 
 .pv .pv-overlay-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -224,7 +243,10 @@
   gap: 2px;
   padding: 6px;
   border-radius: 12px;
-  background: #141416;
+  background: var(--pv-well);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
 }
 
 .pv .pv-rail-list--menu .pv-rail-row {
@@ -244,11 +266,11 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
   text-align: left;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .pv .pv-rail-row:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--pv-control-2);
   color: #fff;
 }
 
@@ -289,7 +311,7 @@
 .pv .pv-rail-row-meta {
   font-size: 11.5px;
   line-height: 1.3;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -306,7 +328,7 @@
 .pv .pv-source-tag {
   font-size: 11px;
   line-height: 1.3;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,7 +394,7 @@
   margin: 0 0 6px;
   font-size: 11.5px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--pv-faint);
 }
 
 .pv .pv-stepper {
@@ -381,7 +403,10 @@
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: #1c1c1f;
+  background: var(--pv-control-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
 }
 
 .pv .pv-stepper button {
@@ -395,11 +420,11 @@
   border-radius: 6px;
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .pv .pv-stepper button:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -419,14 +444,17 @@
   padding: 0 14px;
   border: 0;
   border-radius: 8px;
-  background: #1c1c1f;
+  background: var(--pv-control-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-edge-soft),
+    inset 0 0 0 1px var(--pv-edge-soft);
   color: rgba(255, 255, 255, 0.82);
   font-size: 12.5px;
   font-weight: 600;
 }
 
 .pv .pv-toggle:hover {
-  background: #26262a;
+  background-color: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -450,11 +478,16 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
+  cursor: pointer;
+}
+
+.pv .pv-swatch:hover {
+  box-shadow: 0 0 0 2px var(--pv-glass-press), 0 0 0 3px rgba(255, 255, 255, 0.55);
 }
 
 .pv .pv-swatch.is-on {
   box-shadow:
-    0 0 0 2px #141416,
+    0 0 0 2px var(--pv-glass-press),
     0 0 0 3px rgba(255, 255, 255, 0.92);
 }
 
@@ -475,7 +508,7 @@
   margin: 0 0 8px;
   font-size: 12.5px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 .pv .pv-info-lead {
@@ -498,7 +531,7 @@
   margin: 0 0 8px;
   font-size: 12px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 .pv .pv-info dl {
@@ -576,7 +609,12 @@
   height: 100%;
   padding: 24px;
   border-radius: 16px 0 0 16px;
-  background: #111113;
+  background: var(--pv-wash), var(--pv-panel-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
 }
 
 .pv .pv-side-head {
@@ -596,23 +634,6 @@
   color: #fff;
 }
 
-.pv .pv-side-close {
-  flex: none;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.pv .pv-side-close:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-
 .pv .pv-side-body {
   flex: 1;
   min-height: 0;
@@ -627,7 +648,7 @@
   margin: 0;
   font-size: 12.5px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 .pv .pv-side-list {
@@ -640,7 +661,7 @@
   margin: 0;
   padding: 10px 2px;
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--pv-faint);
 }
 
 .pv .pv-filters {
@@ -658,24 +679,20 @@
   padding: 0 12px;
   border: 0;
   border-radius: 8px;
-  background: #1a1a1d;
+  background: var(--pv-control);
   color: rgba(255, 255, 255, 0.74);
   font-size: 12.5px;
   font-weight: 500;
 }
 
 .pv .pv-filter:hover {
-  background: #232327;
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
 .pv .pv-filter.is-on {
   background: var(--accent);
   color: var(--accent-ink);
-}
-
-.pv .pv-filter:disabled {
-  opacity: 0.5;
 }
 
 .pv .pv-filter--action {
@@ -695,15 +712,11 @@
 }
 
 .pv .pv-source-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-source-row.is-on {
-  background: color-mix(in srgb, var(--accent) 14%, #111113);
-}
-
-.pv .pv-source-row:disabled {
-  opacity: 0.45;
+  background: color-mix(in srgb, var(--accent) 14%, var(--pv-panel-2));
 }
 
 .pv .pv-source-text {
@@ -737,7 +750,7 @@
 .pv .pv-source-meta {
   font-size: 11.5px;
   line-height: 1.35;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -751,7 +764,7 @@
   overflow: hidden;
   font-size: 11.5px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 /* ---- chapters ----------------------------------------------------------- */
@@ -771,12 +784,12 @@
 }
 
 .pv .pv-chapter-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
   color: #fff;
 }
 
 .pv .pv-chapter-row.is-on {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pv-control-hover);
   color: #fff;
 }
 
@@ -788,7 +801,7 @@
   font-size: 11.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(255, 255, 255, 0.56);
 }
 
 .pv .pv-chapter-row.is-on .pv-chapter-mark {
@@ -830,7 +843,7 @@
   flex: none;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--pv-faint);
 }
 
 /* ---- episodes ----------------------------------------------------------- */
@@ -850,15 +863,11 @@
 }
 
 .pv .pv-episode-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-episode-row.is-on {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.pv .pv-episode-row:disabled {
-  opacity: 0.55;
+  background: var(--pv-control-hover);
 }
 
 .pv .pv-episode-row img,
@@ -911,7 +920,7 @@
   overflow: hidden;
   font-size: 11.5px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 .pv .pv-episode-progress {
@@ -944,7 +953,7 @@
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
 }
 
 .pv .pv-more-marks {
@@ -984,12 +993,16 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.44);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   color: #fff;
 }
 
 .pv .pv-locked-btn:hover {
-  background: rgba(0, 0, 0, 0.64);
+  background-color: var(--pv-glass-press);
 }
 
 .pv .pv-locked-hint {
@@ -1044,7 +1057,12 @@
   width: min(380px, calc(100vw - 52px));
   padding: 20px 22px;
   border-radius: 16px;
-  background: #111113;
+  background: var(--pv-wash), var(--pv-panel-2);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    inset 0 -1px 0 var(--pv-disp),
+    var(--pv-shadow);
   cursor: default;
 }
 
@@ -1061,7 +1079,10 @@
   margin: 0;
   font-size: 13.5px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--pv-muted);
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .pv .pv-failed-actions {
@@ -1079,43 +1100,26 @@
   color: #fff;
 }
 
-/* ---- focus -------------------------------------------------------------- */
+/* ---- focus and press ---------------------------------------------------- */
 
-.pv .pv-rail-row:focus-visible,
-.pv .pv-toggle:focus-visible,
-.pv .pv-filter:focus-visible,
-.pv .pv-text-action:focus-visible,
-.pv .pv-stepper button:focus-visible,
-.pv .pv-side-close:focus-visible,
-.pv .pv-source-row:focus-visible,
-.pv .pv-chapter-row:focus-visible,
-.pv .pv-episode-row:focus-visible,
-.pv .pv-upnext-play:focus-visible,
-.pv .pv-upnext-close:focus-visible {
+/* Every control in the layer, including the seek slider and the volume input. */
+.pv :is(button, input, [role="slider"]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  /* A dark ring keeps the outline readable over a bright frame. */
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.62);
+}
+
+/* One press state and one disabled state, so every control answers the same way. */
+.pv :is(button, [role="slider"]):not(:disabled):active {
+  opacity: 0.72;
+}
+
+.pv :is(button, [role="slider"]):disabled {
+  opacity: 0.45;
 }
 
 /* ---- narrow windows ----------------------------------------------------- */
-
-@media (max-width: 900px) {
-  .pv {
-    --pv-deck: 220px;
-  }
-
-  .pv .pv-timeline {
-    padding: 0 24px 20px;
-  }
-
-  .pv .pv-overlay {
-    padding: 24px 24px 24px;
-  }
-
-  .pv-upnext {
-    left: 24px;
-    width: min(400px, calc(100vw - 48px));
-  }
-}
 
 /* Three 808px columns plus the gutters stop fitting below ~856px. */
 @media (max-width: 860px) {
@@ -1141,10 +1145,6 @@
 }
 
 @media (max-width: 640px) {
-  .pv {
-    --pv-deck: 208px;
-  }
-
   .pv .pv-overlay {
     padding: 16px 16px 24px;
   }
@@ -1171,12 +1171,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pv .pv-timeline {
-    transition: none;
-  }
-}
-
 @keyframes pv-rise {
   from {
     opacity: 0.7;
@@ -1188,7 +1182,8 @@
   }
 }
 
-@keyframes pv-slide {
+/* Named apart from styles.css's own pv-slide so the two files cannot collide. */
+@keyframes pv-sheet {
   from {
     opacity: 0.7;
     transform: translateX(16px);
@@ -1204,14 +1199,7 @@
 }
 
 .pv .pv-side {
-  animation: pv-slide 0.18s var(--ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pv .pv-overlay-body,
-  .pv .pv-side {
-    animation: none;
-  }
+  animation: pv-sheet 0.18s var(--ease);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1228,8 +1216,9 @@
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  height: 72px;
-  padding: 0 16px 0 4px;
+  /* The 20px drag strip owns the window's top edge, so the row starts below it. */
+  height: 92px;
+  padding: 20px 16px 0 4px;
   transition: opacity 0.2s ease;
 }
 
@@ -1281,39 +1270,7 @@
   flex: none;
 }
 
-.pv .pv-top-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.72);
-  opacity: 0.84;
-  transition: background-color 0.15s ease, opacity 0.15s ease, color 0.15s ease;
-}
-
-.pv .pv-top-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-  opacity: 1;
-}
-
-.pv .pv-top-btn--win {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-}
-
-.pv .pv-top-btn--close:hover {
-  background: #a52f27;
-  color: #fff;
-}
-
+/* Geometry and hover come from the shared .win-btn, same as the header. */
 
 /* ---- seek row ----------------------------------------------------------- */
 
@@ -1323,7 +1280,7 @@
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  padding: 0 32px 14px;
+  padding: 0 32px calc(14px + env(safe-area-inset-bottom, 0px));
   transition: opacity 0.2s ease, transform 0.2s var(--ease);
 }
 
@@ -1361,6 +1318,11 @@
 
 .pv .pv-seek-time--end {
   direction: ltr;
+  cursor: pointer;
+}
+
+.pv .pv-seek-time--end:hover {
+  color: #fff;
 }
 
 .pv .pv-seek .pv-track {
@@ -1412,12 +1374,12 @@
   background: var(--accent);
   box-shadow: none;
   pointer-events: none;
-  transition: transform 0.15s ease;
 }
 
+/* Armed for grabbing: a value change, not a size jump. */
 .pv .pv-track:hover .pv-knob,
 .pv .pv-track.is-dragging .pv-knob {
-  transform: scale(1.2);
+  background: #fff;
 }
 
 .pv .pv-tip {
@@ -1430,8 +1392,11 @@
   gap: 4px;
   padding: 6px;
   border-radius: 8px;
-  background: rgba(16, 16, 18, 0.96);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   pointer-events: none;
 }
 
@@ -1469,17 +1434,13 @@
 }
 
 .pv .pv-cbtn:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--pv-control-hover);
   color: #fff;
-}
-
-.pv .pv-cbtn:disabled {
-  opacity: 0.4;
 }
 
 .pv .pv-cbtn.is-on {
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pv-control-2);
 }
 
 .pv .pv-spacer {
@@ -1511,13 +1472,18 @@
   width: 100%;
   height: 0.35rem;
   margin: 0;
+  border: 0;
   border-radius: 999px;
+  /* Without this the UA slider ignores the thumb below. */
+  appearance: none;
   background-color: rgba(255, 255, 255, 0.2);
   background-repeat: no-repeat;
   background-size: 100% 100%;
+  cursor: pointer;
 }
 
 .pv .pv-vslider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
   width: 1rem;
   height: 1rem;
   border-radius: 50%;
@@ -1539,7 +1505,10 @@
   height: 2.6rem;
   padding: 0 1.4rem;
   border-radius: 999px;
-  background: rgba(16, 16, 18, 0.82);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge);
   color: #fff;
   font-size: 0.95rem;
   font-weight: 700;
@@ -1564,7 +1533,10 @@
   gap: 1rem;
   padding: 1.6rem 2rem;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge);
   color: #fff;
   pointer-events: none;
 }
@@ -1619,7 +1591,6 @@
   text-align: center;
   color: #fff;
   text-shadow: 0 2px 22px rgba(0, 0, 0, 0.65);
-  animation: pv-pulse 2s ease-in-out infinite;
 }
 
 .pv .pv-wait-label {
@@ -1631,18 +1602,14 @@
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
+/* Opacity only: scaling the art blurred it and read as a heartbeat. */
 @keyframes pv-pulse {
-  0% {
-    opacity: 0.45;
-    transform: scale(1);
+  0%,
+  100% {
+    opacity: 0.6;
   }
   50% {
     opacity: 1;
-    transform: scale(1.05);
-  }
-  100% {
-    opacity: 0.45;
-    transform: scale(1);
   }
 }
 
@@ -1658,13 +1625,17 @@
   min-height: 10rem;
   padding: 0;
   border-radius: 10px;
-  background: #101012;
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
   display: flex;
   flex-direction: row;
   align-items: stretch;
   gap: 0;
   overflow: hidden;
-  animation: pv-slide 0.4s var(--ease);
+  animation: pv-sheet 0.4s var(--ease);
 }
 
 .pv .pv-upnext-poster {
@@ -1672,7 +1643,7 @@
   min-width: 0;
   display: flex;
   align-items: stretch;
-  background: #1a1a1d;
+  background: var(--pv-control);
 }
 
 .pv .pv-upnext-thumb {
@@ -1742,6 +1713,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  min-width: 0;
   height: 2.6rem;
   padding: 0 0.8rem;
   border: 0;
@@ -1750,15 +1722,14 @@
   color: rgba(255, 255, 255, 0.92);
   font-size: 0.85rem;
   font-weight: 600;
+  /* A short label must stay one line inside a fixed-height button. */
+  white-space: nowrap;
+  overflow: hidden;
   transition: background-color 0.15s ease;
 }
 
 .pv .pv-upnext-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.pv .pv-upnext-btn:disabled {
-  opacity: 0.5;
+  background: var(--pv-control-hover);
 }
 
 .pv .pv-upnext-btn--play {
@@ -1782,7 +1753,7 @@
 
 @media (max-width: 1000px) {
   .pv .pv-timeline {
-    padding: 0 12px 10px;
+    padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   .pv .pv-seek-time {
@@ -1804,8 +1775,11 @@
     max-width: calc(100vw - 16px);
     padding: 6px;
     border-radius: 10px;
-    background: #101012;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+    background: var(--pv-wash), var(--pv-panel);
+    box-shadow:
+      inset 0 1px 0 var(--pv-spec),
+      inset 0 0 0 1px var(--pv-edge),
+      var(--pv-shadow);
   }
 
   .pv .pv-cluster.is-open {
@@ -1820,6 +1794,16 @@
     right: 12px;
     bottom: 116px;
     width: calc(100vw - 24px);
+  }
+}
+
+/* One switch turns off every transition and loop in this layer. */
+@media (prefers-reduced-motion: reduce) {
+  .pv *,
+  .pv *::before,
+  .pv *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }
 

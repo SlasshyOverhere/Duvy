@@ -4,6 +4,12 @@
 const ART_KEY = "duvy:logos";
 const ART_LIMIT = 300;
 
+/** Remote art is only ever an image URL; anything else is dropped on the way in. */
+function usableLogo(logo: string | null | undefined): logo is string {
+  if (!logo) return false;
+  return /^(https?:\/\/|data:image\/)/i.test(logo);
+}
+
 function readArt(): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(ART_KEY);
@@ -25,8 +31,9 @@ function writeArt(all: Record<string, string>) {
 }
 
 export function rememberLogo(metaId: string | null | undefined, logo: string | null | undefined) {
-  if (!metaId || !logo) return;
+  if (!metaId || !usableLogo(logo)) return;
   const all = readArt();
+  if (all[metaId] === logo) return;
   all[metaId] = logo;
   writeArt(all);
 }
@@ -38,7 +45,8 @@ export function rememberLogos(
   const all = readArt();
   let changed = false;
   for (const entry of entries) {
-    if (!entry.id || !entry.logo) continue;
+    if (!entry.id || !usableLogo(entry.logo)) continue;
+    if (all[entry.id] === entry.logo) continue;
     all[entry.id] = entry.logo;
     changed = true;
   }
@@ -47,5 +55,6 @@ export function rememberLogos(
 
 export function rememberedLogo(metaId: string | null | undefined): string | null {
   if (!metaId) return null;
-  return readArt()[metaId] ?? null;
+  const hit: unknown = readArt()[metaId];
+  return typeof hit === "string" && usableLogo(hit) ? hit : null;
 }

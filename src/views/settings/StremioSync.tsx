@@ -28,6 +28,7 @@ export function StremioSync() {
     try {
       const next = await api.stremio.status();
       setStatus(next);
+      setError(null);
       setEmail((current) => current || next.email);
     } catch (e) {
       setError(message(e));
@@ -45,7 +46,9 @@ export function StremioSync() {
     try {
       setStatus(await api.stremio.signIn(email.trim(), password));
       setPassword("");
-      setNote("Signed in. First sync finished.");
+      // The backend starts the first sync but does not fail sign-in when it
+      // trips, so the sync timestamp, not this note, says whether it landed.
+      setNote("Signed in.");
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
@@ -88,11 +91,30 @@ export function StremioSync() {
     }
   };
 
-  if (!status && !error) return <Loading variant="list" label="Reading Stremio account" count={2} />;
+  if (!status) {
+    if (!error) return <Loading variant="list" label="Reading Stremio account" count={2} />;
+    return (
+      <>
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+        <section className="settings-group">
+          <h2>Stremio</h2>
+          <Button icon="refresh" onClick={() => void refresh()}>
+            Try again
+          </Button>
+        </section>
+      </>
+    );
+  }
 
   return (
     <>
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {status && !status.signedIn ? (
         <section className="settings-group">
@@ -120,7 +142,7 @@ export function StremioSync() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="Never stored on this machine"
-                autoComplete="current-password"
+                autoComplete="off"
               />
             </label>
           </div>
@@ -166,13 +188,19 @@ export function StremioSync() {
             </div>
             <Toggle
               checked={settings?.stremioAutoSync ?? false}
-              onChange={(value) => void saveSettings({ stremioAutoSync: value })}
+              onChange={(value) =>
+                void saveSettings({ stremioAutoSync: value }).catch((e) => setError(message(e)))
+              }
               label="Sync automatically"
             />
           </div>
 
           {note ? (
-            <p className="settings-hint" style={{ marginTop: 14, marginBottom: 0 }}>
+            <p
+              className="settings-hint"
+              role="status"
+              style={{ marginTop: 14, marginBottom: 0 }}
+            >
               {note}
             </p>
           ) : null}

@@ -574,8 +574,11 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       return null;
     case "player_subtitle":
       return null;
+    // The preview lives in a browser tab, so the window is already the tab.
+    case "window_fullscreen":
+      return null;
 
     default:
-      throw new Error(`Mock backend has no handler for ${command}`);
+      throw new Error("That needs the desktop app");
   }
 }

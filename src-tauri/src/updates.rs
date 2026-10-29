@@ -46,6 +46,9 @@ const RETRIES: [u64; 3] = [60, 300, 900];
 /// The release the last check found, so install starts downloading at once.
 static CHECKED: Mutex<Option<Update>> = Mutex::new(None);
 
+/// The version the background check already announced.
+static ANNOUNCED: Mutex<String> = Mutex::new(String::new());
+
 fn retry_after(failures: u32) -> Duration {
     let step = RETRIES
         .get(failures.saturating_sub(1) as usize)
@@ -180,6 +183,16 @@ pub fn watch(app: AppHandle) {
 /// In-app toast plus a desktop notification, so an update is noticed even when
 /// the window is behind something else.
 fn announce(app: &AppHandle, info: &UpdateInfo) {
+    // One announcement per version: the hourly re-check must not nag.
+    match ANNOUNCED.lock() {
+        Ok(mut seen) => {
+            if *seen == info.version {
+                return;
+            }
+            seen.clone_from(&info.version);
+        }
+        Err(_) => return,
+    }
     let _ = app.emit("update:available", info.clone());
     let _ = app
         .notification()

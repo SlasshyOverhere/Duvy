@@ -49,8 +49,29 @@ function withRecent(list: string[], raw: string): string[] {
 /// Addon rows arrive after the first paint; keep the first copy of each title.
 function mergeResults(base: MetaPreview[], extra: MetaPreview[]): MetaPreview[] {
   const seen = new Set(base.map((item) => `${item.id}-${item.type}`));
-  return [...base, ...extra.filter((item) => !seen.has(`${item.id}-${item.type}`))];
+  const merged = [...base];
+  for (const item of extra) {
+    if (!item.name?.trim()) continue;
+    const key = `${item.id}-${item.type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
 }
+
+// Screen-reader only: announces results without adding a visual row.
+const srOnly: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  border: 0,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+};
 
 export function SearchView({ query }: { query?: string }) {
   const { navigate, playItem } = useApp();
@@ -62,6 +83,8 @@ export function SearchView({ query }: { query?: string }) {
   // Typing searches on its own; the route only changes on submit.
   const [activeQuery, setActiveQuery] = useState(query ?? "");
   const [waiting, setWaiting] = useState(false);
+  // An IME composition is mid-word; searching it would fire on partial input.
+  const [ime, setIme] = useState(false);
   const activeRef = useRef(activeQuery);
   activeRef.current = activeQuery;
   const [recos, setRecos] = useState<HomeRow[]>(cachedRecos);
@@ -77,7 +100,9 @@ export function SearchView({ query }: { query?: string }) {
     setRecent(list);
     storeRecent(list);
     setValue(next);
-    setActiveQuery(next);
+    // Submitting the query already on screen reruns it instead of doing nothing.
+    if (next === activeQuery) setAttempt((count) => count + 1);
+    else setActiveQuery(next);
     navigate({ name: "search", query: next });
   };
 
@@ -94,11 +119,12 @@ export function SearchView({ query }: { query?: string }) {
 
   // Stremio searches as you type; the debounce keeps it to one request.
   useEffect(() => {
+    if (ime) return;
     const next = value.trim();
     if (next === activeQuery) return;
     const timer = window.setTimeout(() => setActiveQuery(next), 250);
     return () => window.clearTimeout(timer);
-  }, [value, activeQuery]);
+  }, [value, activeQuery, ime]);
 
   useEffect(() => {
     input.current?.focus();
@@ -107,17 +133,22 @@ export function SearchView({ query }: { query?: string }) {
   useEffect(() => {
     if (!activeQuery) {
       setResults([]);
+      setError(null);
+      setLoading(false);
       setWaiting(false);
       return;
     }
     let alive = true;
+    // Results always belong to the query being asked; never merge across.
+    setResults([]);
     setLoading(true);
     setError(null);
     setWaiting(true);
     api
       .search(activeQuery)
       .then((items) => {
-        if (alive) setResults(items);
+        // Addon chunks can land first; append instead of replacing them.
+        if (alive) setResults((prev) => mergeResults(items, prev));
       })
       .catch((e: unknown) => {
         if (!alive) return;
@@ -125,7 +156,11 @@ export function SearchView({ query }: { query?: string }) {
         setWaiting(false);
       })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (!alive) return;
+        setLoading(false);
+        // The addon fan-out only streams in the desktop shell; in the browser
+        // nothing else is coming, so close the wait here.
+        if (!isTauri()) setWaiting(false);
       });
     return () => {
       alive = false;
@@ -204,8 +239,10 @@ export function SearchView({ query }: { query?: string }) {
 
       <form
         className="search-page-form"
+        role="search"
         onSubmit={(event) => {
           event.preventDefault();
+          if (ime) return;
           remember(value);
         }}
       >
@@ -214,6 +251,9 @@ export function SearchView({ query }: { query?: string }) {
           ref={input}
           value={value}
           onChange={(event) => setValue(event.target.value)}
+          onCompositionStart={() => setIme(true)}
+          onCompositionEnd={() => setIme(false)}
+          onBlur={() => setIme(false)}
           placeholder="Search movies, shows…"
           aria-label="Search movies and shows"
           spellCheck={false}
@@ -233,6 +273,16 @@ export function SearchView({ query }: { query?: string }) {
           </button>
         ) : null}
       </form>
+
+      <p style={srOnly} role="status" aria-live="polite">
+        {!activeQuery
+          ? ""
+          : error && results.length === 0
+            ? `Search failed for ${activeQuery}`
+            : loading || waiting
+              ? `Searching for ${activeQuery}`
+              : `${results.length} ${results.length === 1 ? "result" : "results"} for ${activeQuery}`}
+      </p>
 
       {!query && !value && recent.length > 0 ? (
         <div
@@ -269,7 +319,7 @@ export function SearchView({ query }: { query?: string }) {
 
       {activeQuery ? (
         <div className="search-results">
-          {error ? (
+          {error && results.length === 0 ? (
             <EmptyState
               icon="info"
               title="Search failed"

@@ -56,7 +56,7 @@ export type IconName =
   | "cloud"
   | "minus";
 
-const STROKE: Partial<Record<IconName, ReactNode>> = {
+const STROKE: Record<IconName, ReactNode> = {
   replay10: (
     <>
       <path d="M4.6 12a7.4 7.4 0 1 0 2.3-5.3" />
@@ -349,7 +349,7 @@ export function Icon({
       aria-hidden="true"
       focusable="false"
     >
-      {STROKE[name] ?? STROKE.info}
+      {STROKE[name]}
     </svg>
   );
 }
@@ -408,6 +408,7 @@ export function IconButton({
       className={`icon-btn${active ? " is-active" : ""}`}
       onClick={onClick}
       aria-label={label}
+      aria-pressed={active === undefined ? undefined : active}
       title={label}
       disabled={disabled}
     >
@@ -451,7 +452,10 @@ export function ContextMenu({
       left: Math.max(8, Math.min(x, window.innerWidth - box.width - 8)),
       top: Math.max(8, Math.min(y, window.innerHeight - box.height - 8)),
     });
-    node.querySelector<HTMLButtonElement>(".ctx-item:not(:disabled)")?.focus();
+    // preventScroll: focusing must not fire the scroll listener that closes the menu.
+    node
+      .querySelector<HTMLButtonElement>(".ctx-item:not(:disabled)")
+      ?.focus({ preventScroll: true });
   }, [x, y]);
 
   useEffect(
@@ -494,6 +498,10 @@ export function ContextMenu({
       // the card that opened the menu and start playing.
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
+        if (event.key === "Tab") {
+          onClose();
+          return;
+        }
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
         event.preventDefault();
         const items = Array.from(
@@ -593,10 +601,10 @@ export function ImdbMark({ height = 12 }: { height?: number }) {
 
 export function Spinner({ label }: { label?: string }) {
   return (
-    <div className="spinner-wrap" role="status" aria-live="polite">
+    <span className="spinner-wrap" role="status" aria-live="polite">
       <span className="spinner" />
       {label ? <span className="spinner-label">{label}</span> : null}
-    </div>
+    </span>
   );
 }
 
@@ -705,11 +713,7 @@ export function EmptyState({
 }) {
   return (
     <div className="empty-state">
-      {icon ? (
-        <div className="empty-icon">
-          <Icon name={icon} size={26} />
-        </div>
-      ) : null}
+      {icon ? <Icon name={icon} size={26} className="empty-icon" /> : null}
       <h3>{title}</h3>
       {body ? <p>{body}</p> : null}
       {action}

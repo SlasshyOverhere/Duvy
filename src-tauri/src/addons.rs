@@ -48,7 +48,9 @@ pub enum ResourceRef {
         name: String,
         #[serde(default)]
         types: Vec<String>,
-        #[serde(default)]
+        // The protocol spells this `idPrefixes`; without the rename the field is
+        // silently dropped and every addon looks like it supports every id.
+        #[serde(default, rename = "idPrefixes")]
         id_prefixes: Option<Vec<String>>,
     },
 }
@@ -364,6 +366,10 @@ pub fn catalog_url(
     catalog_id: &str,
     extra: &BTreeMap<String, String>,
 ) -> String {
+    // Catalog ids come from the addon's own manifest, so they are encoded like
+    // any other untrusted segment instead of being pasted into the path.
+    let media_type = encode_segment(media_type);
+    let catalog_id = encode_segment(catalog_id);
     let segment = extra_segment(extra);
     if segment.is_empty() {
         format!("{base}/catalog/{media_type}/{catalog_id}.json")
@@ -389,6 +395,8 @@ pub fn stream_url(base: &str, media_type: &str, id: &str) -> String {
 }
 
 pub fn subtitle_url(base: &str, media_type: &str, id: &str, extra: &BTreeMap<String, String>) -> String {
+    let media_type = encode_segment(media_type);
+    let id = encode_segment(id);
     let segment = extra_segment(extra);
     if segment.is_empty() {
         format!("{base}/subtitles/{media_type}/{id}.json")
@@ -463,5 +471,25 @@ mod tests {
     fn builds_episode_ids() {
         assert_eq!(episode_id("tt123", Some(2), Some(5)), "tt123:2:5");
         assert_eq!(episode_id("tt123", None, None), "tt123");
+    }
+
+    #[test]
+    fn manifest_reads_resource_id_prefixes() {
+        let manifest: Manifest = serde_json::from_value(serde_json::json!({
+            "id": "org.example",
+            "resources": [{ "name": "stream", "types": ["movie"], "idPrefixes": ["tt"] }]
+        }))
+        .expect("manifest");
+        assert!(manifest.resource_for("stream", "movie", "tt123"));
+        assert!(!manifest.resource_for("stream", "movie", "kitsu:5"));
+        assert!(!manifest.resource_for("stream", "series", "tt123"));
+    }
+
+    #[test]
+    fn catalog_ids_from_a_manifest_are_escaped() {
+        assert_eq!(
+            catalog_url("https://x", "series", "top/extra?x=1", &BTreeMap::new()),
+            "https://x/catalog/series/top%2Fextra%3Fx%3D1.json"
+        );
     }
 }

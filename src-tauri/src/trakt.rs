@@ -69,6 +69,18 @@ fn save(state: &AppState, store: &Store) -> Result<(), String> {
     db::write_kv(&conn, KV, &value).map_err(|e| e.to_string())
 }
 
+/// One refresh at a time: Trakt rotates the refresh token on use, so a second
+/// concurrent attempt would spend the one the first just replaced.
+static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Records that a sync finished without rewriting the tokens this call started
+/// with: another command may have rotated them while the sync ran.
+fn mark_synced(state: &AppState) -> Result<(), String> {
+    let mut store = load(state)?;
+    store.last_sync = db::now();
+    save(state, &store)
+}
+
 fn status_of(store: &Store) -> TraktStatus {
     let pending = !store.device_code.is_empty() && store.access_token.is_empty();
     TraktStatus {
@@ -233,7 +245,14 @@ async fn get_all(
         if !success(status) {
             return Err(http_error(status, &value));
         }
-        all.extend(rows(value));
+        match value {
+            Value::Array(rows) => all.extend(rows),
+            // A successful empty body is an empty page, but any other shape is a
+            // broken answer: reading it as "nothing on Trakt" would re-push and
+            // duplicate history on the next step.
+            Value::Null => {}
+            _ => return Err("Trakt returned a response the sync cannot read.".into()),
+        }
         if pages.map_or(true, |total| page >= total) || page >= 50 {
             break;
         }
@@ -275,7 +294,14 @@ fn expiry_from(now_secs: i64, expires_in: i64) -> i64 {
     now_secs + expires_in.max(60)
 }
 
-async fn ensure_token(http: &reqwest::Client, store: &mut Store) -> Result<String, String> {
+async fn ensure_token(state: &AppState, store: &mut Store) -> Result<String, String> {
+    let now = db::now() / 1000;
+    if !needs_refresh(store.expires_at, now) {
+        return Ok(store.access_token.clone());
+    }
+    let _guard = REFRESH.lock().await;
+    // Whoever held the lock may have refreshed already.
+    *store = load(state)?;
     let now = db::now() / 1000;
     if !needs_refresh(store.expires_at, now) {
         return Ok(store.access_token.clone());
@@ -290,11 +316,21 @@ async fn ensure_token(http: &reqwest::Client, store: &mut Store) -> Result<Strin
         "redirect_uri": REDIRECT,
         "grant_type": "refresh_token",
     });
-    let (status, value) = call(http, Method::POST, "/oauth/token", &store.client_id, None, Some(&body)).await?;
+    let (status, value) = call(&state.http, Method::POST, "/oauth/token", &store.client_id, None, Some(&body)).await?;
     if !success(status) {
+        // A refused refresh token is dead for good; drop the session so the UI
+        // offers a reconnect instead of failing every sync from now on.
+        if matches!(status, 400 | 401 | 403) {
+            store.access_token.clear();
+            store.refresh_token.clear();
+            store.expires_at = 0;
+            let _ = save(state, store);
+        }
         return Err(http_error(status, &value));
     }
     apply_tokens(store, &value, now)?;
+    // Persist at once: the token just spent is invalid server-side.
+    save(state, store)?;
     Ok(store.access_token.clone())
 }
 
@@ -316,6 +352,8 @@ pub async fn begin(
             return Err("Both the Trakt client id and client secret are required.".into());
         }
         apply_client(&mut store, id, secret);
+        // Keep the pasted pair even if the device-code request below fails.
+        save(&state, &store)?;
     }
     if store.client_id.is_empty() || store.client_secret.is_empty() {
         return Err("Paste the client id and secret of a free Trakt API app first.".into());
@@ -415,8 +453,25 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
 }
 
 #[tauri::command]
-pub fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     let mut store = load(&state)?;
+    if !store.access_token.is_empty() {
+        // Best effort: forgetting a token here does not invalidate it at Trakt.
+        let body = json!({
+            "token": store.access_token,
+            "client_id": store.client_id,
+            "client_secret": store.client_secret,
+        });
+        let _ = call(
+            &state.http,
+            Method::POST,
+            "/oauth/revoke",
+            &store.client_id,
+            None,
+            Some(&body),
+        )
+        .await;
+    }
     // Keep the API app credentials: reconnecting should not need a re-paste.
     store.access_token.clear();
     store.refresh_token.clear();
@@ -660,13 +715,6 @@ fn parse_iso(raw: &str) -> Option<i64> {
 // Sync
 // ---------------------------------------------------------------------------
 
-fn rows(value: Value) -> Vec<Value> {
-    match value {
-        Value::Array(rows) => rows,
-        _ => Vec::new(),
-    }
-}
-
 /// Newest write wins; a tie goes to the remote row so both sides converge.
 fn should_apply(local_updated: Option<i64>, remote_updated: i64) -> bool {
     local_updated.map_or(true, |local| remote_updated >= local)
@@ -856,10 +904,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
     if store.access_token.is_empty() {
         return Err("Connect Trakt to sync.".into());
     }
-    let token = ensure_token(&state.http, &mut store).await?;
-    // Persist a refreshed token before the network round trips below so a
-    // failure here does not strand the old (already invalidated) refresh token.
-    save(&state, &store)?;
+    let token = ensure_token(&state, &mut store).await?;
 
     let movies = get_all(
         &state.http,
@@ -913,8 +958,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
         )?;
     }
 
-    store.last_sync = db::now();
-    save(&state, &store)?;
+    mark_synced(&state)?;
     Ok(json!({ "pulled": pulled, "pushed": pushed }))
 }
 
@@ -953,8 +997,7 @@ pub async fn scrobble(
     if store.access_token.is_empty() {
         return Err("Connect Trakt to scrobble.".into());
     }
-    let token = ensure_token(&state.http, &mut store).await?;
-    save(&state, &store)?;
+    let token = ensure_token(&state, &mut store).await?;
 
     let (meta_id, season, episode) = split_key(&key);
     let ids = {

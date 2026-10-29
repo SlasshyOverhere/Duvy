@@ -134,6 +134,15 @@ fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
     db::write_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
 }
 
+/// Records that a sync finished without writing back the tokens this call
+/// started with: another command may have rotated them while the sync ran.
+fn mark_synced(state: &AppState) -> Result<(), String> {
+    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let mut session = load_session(&conn);
+    session.last_sync = db::now();
+    save_session(&conn, &session)
+}
+
 pub fn status(conn: &Connection, settings: &Settings) -> Status {
     let s = load_session(conn);
     Status {
@@ -187,8 +196,8 @@ fn error_from(status: u16, body: &str) -> String {
     }
 }
 
-/// Generic request that falls back to the secondary endpoint on transient
-/// failures.
+/// Generic request. A transient host failure is retried against the mirror, but
+/// only for reads: writes are never replayed.
 async fn request(
     http: &reqwest::Client,
     settings: &Settings,
@@ -199,11 +208,14 @@ async fn request(
 ) -> Result<Value, String> {
     let key = api_key(settings);
     let mut hosts = vec![base_url(settings)];
-    for extra in [DEFAULT_BASE.to_string(), DEFAULT_FALLBACK.to_string()] {
-        if !hosts.contains(&extra) {
-            hosts.push(extra);
-        }
+    // Only the official endpoint has a mirror. A self-hosted base must not have
+    // the account's bearer token handed to Nuvio's hosts.
+    if settings.nuvio_base_url.trim().is_empty() {
+        hosts.push(DEFAULT_FALLBACK.to_string());
     }
+    // A write that already reached a server must not be replayed: a spent
+    // refresh token cannot be presented again, and an RPC may have committed.
+    let retry_safe = method == reqwest::Method::GET;
     let mut last_error = String::from("no endpoint tried");
     for host in hosts {
         let mut req = http
@@ -222,6 +234,9 @@ async fn request(
             Ok(r) => r,
             Err(e) => {
                 last_error = format!("{host}: {e}");
+                if !retry_safe {
+                    break;
+                }
                 continue;
             }
         };
@@ -235,7 +250,8 @@ async fn request(
         }
         // Only an unavailable backend is worth retrying elsewhere; auth and
         // validation errors are ours to fix.
-        let transient = matches!(status.as_u16(), 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524);
+        let transient =
+            retry_safe && matches!(status.as_u16(), 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524);
         last_error = error_from(status.as_u16(), &text);
         if !transient {
             break;
@@ -273,21 +289,36 @@ async fn rpc(
     post(http, settings, &format!("/rest/v1/rpc/{name}"), Some(token), &body).await
 }
 
+/// One refresh at a time: GoTrue rotates the refresh token on use, so a second
+/// concurrent attempt would present one that no longer exists.
+static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Returns a usable access token, refreshing it when it is close to expiring.
 async fn ensure_token(
-    http: &reqwest::Client,
+    state: &AppState,
     settings: &Settings,
     session: &mut Session,
 ) -> Result<String, String> {
-    let now = db::now() / 1000;
-    if !session.access_token.is_empty() && session.expires_at > now + 60 {
+    let usable = |session: &Session| {
+        !session.access_token.is_empty() && session.expires_at > db::now() / 1000 + 60
+    };
+    if usable(session) {
+        return Ok(session.access_token.clone());
+    }
+    let _guard = REFRESH.lock().await;
+    // Whoever held the lock may have refreshed already.
+    *session = {
+        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        load_session(&conn)
+    };
+    if usable(session) {
         return Ok(session.access_token.clone());
     }
     if session.refresh_token.is_empty() {
         return Err("Sign in to Nuvio to sync.".into());
     }
     let value = post(
-        http,
+        &state.http,
         settings,
         "/auth/v1/token?grant_type=refresh_token",
         None,
@@ -295,6 +326,10 @@ async fn ensure_token(
     )
     .await?;
     apply_session(session, &value)?;
+    // Persist at once: the token just spent is invalid server-side, so losing
+    // this to a later failure would sign the user out.
+    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    save_session(&conn, session)?;
     Ok(session.access_token.clone())
 }
 
@@ -423,40 +458,29 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     }
 
     let from = session.profile;
-    let token = ensure_token(&state.http, &settings, &mut session)
+    let token = ensure_token(state, &settings, &mut session)
         .await
         .map_err(|e| format!("Could not reach Nuvio to save profile {from}: {e}"))?;
-    // Keep a rotated refresh token even if the push below fails.
-    {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        save_session(&conn, &session)?;
-    }
     push_watching(&state.http, &settings, &token, from, local_history(state)?)
         .await
         .map_err(|e| format!("Could not save profile {from} before switching: {e}"))?;
 
+    // Load the target's history before dropping local rows: a failed pull must
+    // leave the current profile's history where it is.
+    let pulled = pull(&state.http, &settings, &token, target)
+        .await
+        .map_err(|e| format!("Could not load profile {target}: {e}"))?;
+
     session.profile = target;
+    session.last_sync = db::now();
     {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         db::clear_history(&conn).map_err(|e| e.to_string())?;
+        merge_pulled(&conn, &pulled)?;
         save_session(&conn, &session)?;
     }
-
-    let pulled = pull(&state.http, &settings, &token, target)
-        .await
-        .map_err(|e| {
-            format!("Switched to profile {target}, but loading its history failed: {e}")
-        })?;
-    {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        merge_pulled(&conn, &pulled)?;
-    }
     merge_addons(state, &pulled.addons).await?;
-    enrich(state).await?;
-
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-    session.last_sync = db::now();
-    save_session(&conn, &session)
+    enrich(state).await
 }
 
 pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
@@ -464,12 +488,8 @@ pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         (Settings::load(&conn), load_session(&conn))
     };
-    let token = ensure_token(&state.http, &settings, &mut session).await?;
+    let token = ensure_token(state, &settings, &mut session).await?;
     let value = rpc(&state.http, &settings, &token, "sync_pull_profiles", json!({})).await?;
-    {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        save_session(&conn, &session)?;
-    }
     let mut list: Vec<NuvioProfile> = serde_json::from_value(value).unwrap_or_default();
     list.sort_by_key(|p| p.profile_index);
     Ok(list)
@@ -502,6 +522,15 @@ fn text(value: &Value, key: &str) -> String {
         .to_string()
 }
 
+/// Some Nuvio rows store their timestamps in seconds; the local clock is ms.
+fn to_ms(at: i64) -> i64 {
+    if at > 0 && at < 1_000_000_000_000 {
+        at * 1000
+    } else {
+        at
+    }
+}
+
 fn content_type(value: &Value) -> String {
     match text(value, "content_type").as_str() {
         "series" => "series".into(),
@@ -528,7 +557,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     if !session.signed_in() {
         return Err("Sign in to Nuvio to sync.".into());
     }
-    let token = ensure_token(&state.http, &settings, &mut session).await?;
+    let token = ensure_token(state, &settings, &mut session).await?;
     let pid = session.profile;
 
     let pulled = pull(&state.http, &settings, &token, pid).await?;
@@ -543,7 +572,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
-    push_watching(&state.http, &settings, &token, pid, history).await?;
+    let mut pushed = push_watching(&state.http, &settings, &token, pid, history).await?;
     let library = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
         local_library(&conn)?
@@ -557,14 +586,13 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
             json!({ "p_profile_id": pid, "p_items": library }),
         )
         .await?;
+        pushed += library.len() as i64;
     }
-    report.pushed = (report.progress + report.watched + report.library) as i64;
+    report.pushed = pushed + report.addons_pushed;
 
     enrich(state).await?;
 
-    session.last_sync = db::now();
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-    save_session(&conn, &session)?;
+    mark_synced(state)?;
     Ok(report)
 }
 
@@ -799,8 +827,9 @@ async fn push_watching(
     token: &str,
     pid: i64,
     history: (Vec<Value>, Vec<Value>),
-) -> Result<(), String> {
+) -> Result<i64, String> {
     let (progress, watched) = history;
+    let sent = (progress.len() + watched.len()) as i64;
     if !progress.is_empty() {
         rpc(
             http,
@@ -821,7 +850,7 @@ async fn push_watching(
         )
         .await?;
     }
-    Ok(())
+    Ok(sent)
 }
 
 /// Pulled rows carry ids only, so resolve titles and artwork.
@@ -874,16 +903,14 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let season = int(row, "season");
         let episode = int(row, "episode");
         let key = local_key(&content_id, season, episode);
-        // Some Nuvio rows store last_watched in seconds; the local clock is ms.
-        let updated = match int(row, "last_watched") {
-            at if at > 0 && at < 1_000_000_000_000 => at * 1000,
-            at => at,
-        };
+        let updated = to_ms(int(row, "last_watched"));
         let position = int(row, "position") as f64 / 1000.0;
         let duration = int(row, "duration") as f64 / 1000.0;
         if duration <= 0.0 {
             continue;
         }
+        // A remote position past the end would resume beyond the file.
+        let position = position.clamp(0.0, duration);
         let existing: Option<(String, i64)> = conn
             .query_row(
                 "SELECT name, updated_at FROM progress WHERE key = ?1",
@@ -931,7 +958,7 @@ fn merge_watched(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let season = int(row, "season");
         let episode = int(row, "episode");
         let key = local_key(&content_id, season, episode);
-        let watched_at = int(row, "watched_at");
+        let watched_at = to_ms(int(row, "watched_at"));
         let existing: Option<i64> = conn
             .query_row("SELECT updated_at FROM watched WHERE key = ?1", params![key], |r| {
                 r.get(0)
@@ -961,7 +988,7 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         if content_id.is_empty() {
             continue;
         }
-        let added_at = int(row, "added_at");
+        let added_at = to_ms(int(row, "added_at"));
         let existing: Option<i64> = conn
             .query_row("SELECT added_at FROM library WHERE id = ?1", params![content_id], |r| {
                 r.get(0)
@@ -1103,6 +1130,13 @@ mod tests {
     fn keys_round_trip_to_nuvio_shape() {
         assert_eq!(local_key("tt1", 0, 0), "tt1");
         assert_eq!(local_key("tt1", 2, 5), "tt1:2:5");
+    }
+
+    #[test]
+    fn remote_timestamps_normalise_to_milliseconds() {
+        assert_eq!(to_ms(1_763_000_000), 1_763_000_000_000);
+        assert_eq!(to_ms(1_763_000_000_123), 1_763_000_000_123);
+        assert_eq!(to_ms(0), 0);
     }
 
     #[test]

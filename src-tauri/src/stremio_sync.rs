@@ -337,8 +337,10 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
         }
 
         let Some(state) = row.get("state") else { continue };
-        let offset = int(state, "timeOffset");
+        let offset = int(state, "timeOffset").max(0);
         let duration = int(state, "duration");
+        // A stored playhead past the end would resume beyond the file.
+        let offset = if duration > 0 { offset.min(duration) } else { offset };
         let video_id = text(state, "video_id");
         let (key, season, episode) = episode_key(&id, &video_id);
         let last_watched = time_ms(state.get("lastWatched").unwrap_or(&Value::Null));
@@ -462,7 +464,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         )
     };
     let mut pushed =
-        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await.unwrap_or(0);
+        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
     pushed += push_library(
         &state.http,
         &session.auth_key,
@@ -470,8 +472,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         &progress,
         &pulled.library,
     )
-    .await
-    .unwrap_or(0);
+    .await?;
     report.pushed = pushed;
 
     let mut session = session;
@@ -501,7 +502,7 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
         )
     };
     let mut pushed =
-        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await.unwrap_or(0);
+        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
     pushed += push_library(
         &state.http,
         &session.auth_key,
@@ -509,8 +510,7 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
         &progress,
         &pulled.library,
     )
-    .await
-    .unwrap_or(0);
+    .await?;
     Ok(pushed)
 }
 
@@ -705,6 +705,11 @@ fn library_record(
     let Some(progress) = progress else { return record };
     let updated = iso8601(progress.updated_at);
     if let Some(object) = record.as_object_mut() {
+        if in_library {
+            // A locally kept title must not stay tombstoned on Stremio.
+            object.insert("removed".into(), Value::Bool(false));
+            object.insert("temp".into(), Value::Bool(false));
+        }
         object.insert("_mtime".into(), Value::String(updated.clone()));
         if !progress.name.is_empty() {
             object.insert("name".into(), Value::String(progress.name.clone()));

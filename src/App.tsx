@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
-import { ResizeEdges, TitleBar } from "./components/TitleBar";
+import { ResizeEdges, WindowControls } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { Icon } from "./components/ui";
 import { HomeView } from "./views/Home";
@@ -19,7 +19,7 @@ const SettingsView = lazy(() =>
 );
 
 // Idle-prewarm the player chunk so clicking play never waits on the network.
-const prewarmPlayer = () => void import("./views/Player");
+const prewarmPlayer = () => void import("./views/Player").catch(() => {});
 if (typeof requestIdleCallback === "function") {
   requestIdleCallback(prewarmPlayer, { timeout: 4000 });
 } else {
@@ -31,9 +31,17 @@ if (typeof requestIdleCallback === "function") {
 // the library and playback history keep working while one view recovers.
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
+  private chunk = false;
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    // React caches a rejected chunk, so only a reload can retry a failed import.
+    this.chunk =
+      error instanceof Error &&
+      /dynamically imported module|Importing a module script|ChunkLoadError/i.test(error.message);
   }
 
   render() {
@@ -49,7 +57,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => this.setState({ failed: false })}
+            onClick={() => (this.chunk ? window.location.reload() : this.setState({ failed: false }))}
           >
             Try again
           </button>
@@ -64,7 +72,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 
 function Toasts() {
   const { toasts, dismissToast } = useApp();
-  if (toasts.length === 0) return null;
+  // The live region stays mounted so a toast that arrives is announced.
   return (
     <div className="toasts" role="status" aria-live="polite">
       <AnimatePresence initial={false}>
@@ -115,7 +123,8 @@ function Screen() {
   // While something is playing the window shows the native video surface, so
   // the document itself has to stop painting its background.
   useEffect(() => {
-    document.documentElement.dataset.video = route.name === "player" ? "true" : "false";
+    if (route.name === "player") document.documentElement.dataset.video = "true";
+    else delete document.documentElement.dataset.video;
   }, [route.name]);
 
   if (booting) {
@@ -155,26 +164,18 @@ function Screen() {
 
   if (route.name === "player") {
     return (
-      <>
-        <ErrorBoundary>
-          <Suspense fallback={null}>
-            <PlayerView />
-          </Suspense>
-        </ErrorBoundary>
-        {/* The player covers the window, so it carries its own resize grips. */}
-        <ResizeEdges />
-        <Toasts />
-      </>
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <PlayerView />
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
-  const viewKey = `${route.name}-${"id" in route ? route.id : ""}${
-    "mediaType" in route ? route.mediaType ?? "" : ""
-  }`;
+  const viewKey = `${route.name}-${"id" in route ? `${route.id}-${route.type}` : ""}`;
 
   return (
     <div className="app">
-      <TitleBar />
       <div className="shell">
         <div className="main">
           <TopBar />
@@ -191,7 +192,6 @@ function Screen() {
             </ErrorBoundary>
           </main>
         </div>
-        <Toasts />
       </div>
       {preview ? (
         <div className="ob-preview">
@@ -202,10 +202,28 @@ function Screen() {
   );
 }
 
+// The header carries the window buttons once the shell is up; boot, a failed
+// boot and first run have no header, so they get the same strip in the corner.
+function WindowChrome() {
+  const { route, booting, bootError, settings } = useApp();
+  const shell = !booting && !bootError && !(settings && !settings.onboarded);
+  if (shell || route.name === "player") return null;
+  return (
+    <div className="chrome-fixed">
+      <WindowControls />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <StoreProvider>
       <Screen />
+      <WindowChrome />
+      {/* One set of grips for the whole window, player included. */}
+      <ResizeEdges />
+      {/* Outside the shell so boot and onboarding can report failures too. */}
+      <Toasts />
     </StoreProvider>
   );
 }

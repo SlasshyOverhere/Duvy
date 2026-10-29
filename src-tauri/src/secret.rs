@@ -57,9 +57,25 @@ fn from_hex(text: &str) -> Result<Vec<u8>, String> {
         .map_err(|e: &str| e.to_string())
 }
 
+/// Copies the C buffer out and frees it. DPAPI leaves `pbData` null when it
+/// returns an empty blob, and `from_raw_parts` on a null pointer is UB.
+#[cfg(windows)]
+fn take_blob(output: windows_sys::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB) -> Vec<u8> {
+    use windows_sys::Win32::Foundation::{LocalFree, HLOCAL};
+
+    if output.pbData.is_null() {
+        return Vec::new();
+    }
+    unsafe {
+        let bytes = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+        LocalFree(output.pbData as HLOCAL);
+        bytes
+    }
+}
+
 #[cfg(windows)]
 pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
-    use windows_sys::Win32::Foundation::{GetLastError, LocalFree, HLOCAL};
+    use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
         CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
@@ -83,17 +99,13 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     if ok == 0 {
         return Err(format!("CryptProtectData failed ({})", unsafe { GetLastError() }));
     }
-    let bytes = unsafe {
-        let bytes = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        LocalFree(output.pbData as HLOCAL);
-        bytes
-    };
+    let bytes = take_blob(output);
     Ok(bytes)
 }
 
 #[cfg(windows)]
 pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
-    use windows_sys::Win32::Foundation::{GetLastError, LocalFree, HLOCAL};
+    use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
@@ -117,11 +129,7 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     if ok == 0 {
         return Err(format!("CryptUnprotectData failed ({})", unsafe { GetLastError() }));
     }
-    let bytes = unsafe {
-        let bytes = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-        LocalFree(output.pbData as HLOCAL);
-        bytes
-    };
+    let bytes = take_blob(output);
     Ok(bytes)
 }
 

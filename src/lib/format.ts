@@ -2,6 +2,11 @@
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error) return error;
+  // Tauri rejects with whatever the command serialized, which may be an object.
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+  }
   return fallback;
 }
 
@@ -31,7 +36,9 @@ export function timeAgo(timestamp: number): string {
 
 /** "1h 12m left" style label from the seconds still to play. */
 export function remainingLabel(seconds: number): string {
-  const total = Math.max(1, Math.floor(seconds / 60));
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  // Rounded up: 90s left is "2m left", never the minute it already passed.
+  const total = Math.ceil(seconds / 60);
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   if (!hours) return `${total}m left`;
@@ -39,7 +46,7 @@ export function remainingLabel(seconds: number): string {
 }
 
 export function progressPercent(position: number, duration: number): number {
-  if (!duration) return 0;
+  if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0;
   return Math.min(100, Math.max(0, (position / duration) * 100));
 }
 
