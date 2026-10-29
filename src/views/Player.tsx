@@ -1083,6 +1083,7 @@ export function PlayerView() {
     progressFor,
     progressByKey,
     leavePlayer,
+    stopPlayer,
     starting,
     cancelStart,
   } = useApp();
@@ -1435,8 +1436,8 @@ export function PlayerView() {
     leaveFullscreen();
     // Leave the screen first: a stuck IPC call must not trap the user.
     leavePlayer();
-    void api.player.stop().catch(() => undefined);
-  }, [leaveFullscreen, leavePlayer]);
+    stopPlayer();
+  }, [leaveFullscreen, leavePlayer, stopPlayer]);
 
   // Never leave the window frameless after the overlay goes away.
   useEffect(() => () => leaveFullscreen(), [leaveFullscreen]);

@@ -46,11 +46,12 @@ export function CrashReporting() {
         <h2 id="consent-title">Send crash reports?</h2>
         <p>
           When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A
-          report carries the error, the screen it happened on and the app version.
+          report carries the error, the screen it happened on, the app version and the last few
+          playback steps: title, episode, position.
         </p>
         <p className="consent-fine">
-          No watch history, account details, file paths or media links. Off until you say yes, and
-          you can change it anytime in Settings, Privacy.
+          No accounts, tokens or file paths, and links are cut down to the host. Off until you say
+          yes, and you can change it anytime in Settings, Privacy.
         </p>
         <div className="consent-actions">
           <button

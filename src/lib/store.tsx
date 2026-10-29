@@ -12,7 +12,8 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
-import { report } from "./telemetry";
+import { wentBackwards } from "./errors";
+import { note, report } from "./telemetry";
 import type {
   AddonInfo,
   AppInfo,
@@ -72,6 +73,10 @@ interface Store {
   refreshLibrary: () => Promise<void>;
   refreshProgress: () => Promise<void>;
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
+  /** Mark a key watched or unwatched, then refresh the rows it affects. */
+  markWatched: (key: string, metaId: string, watched: boolean) => Promise<void>;
+  /** Intentional stop, so the close it causes is not reported as a crash. */
+  stopPlayer: () => void;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
   /** The release the last check found, if any. */
@@ -343,6 +348,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
+  // Watchdog for an open that never paints, which is otherwise invisible.
+  const openStartedAt = useRef(0);
+  const openedAt = useRef(0);
+  const firstFrame = useRef(false);
+  const stopRequested = useRef(false);
+  const frameErrorReported = useRef(0);
+  const frameTimer = useRef<number | null>(null);
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -370,6 +382,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       timers.clear();
     };
   }, []);
+
+  const clearFrameWatchdog = useCallback(() => {
+    if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
+    frameTimer.current = null;
+  }, []);
+
+  /** An open that never shows a picture is a bug, not a slow source. */
+  const armFrameWatchdog = useCallback(
+    (title: string, sessionKey: string | null) => {
+      clearFrameWatchdog();
+      if (!isTauri()) return;
+      frameTimer.current = window.setTimeout(() => {
+        if (firstFrame.current || stopRequested.current) return;
+        const waitedMs = Date.now() - openedAt.current;
+        note("no first frame", { waitedMs });
+        report(new Error("Player opened but never showed a frame"), {
+          area: "playback",
+          withLog: true,
+          extra: { title, session: sessionKey, waitedMs },
+        });
+      }, 12000);
+    },
+    [clearFrameWatchdog],
+  );
 
   const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
     const current = routeRef.current;
@@ -626,6 +662,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (generation !== 0 && generation < playerGen.current) return;
             playerGen.current = Math.max(playerGen.current, generation);
             setPlayer(event.payload);
+            const snap = event.payload;
+            if (!firstFrame.current && (snap.started === true || snap.position > 0)) {
+              firstFrame.current = true;
+              clearFrameWatchdog();
+              note("first frame", {
+                generation,
+                position: Math.round(snap.position),
+                duration: Math.round(snap.duration),
+              });
+            }
+            // mpv reports a source it cannot open in the tick, so a failure to
+            // play can arrive without a single thrown error.
+            if (snap.error && generation !== frameErrorReported.current) {
+              frameErrorReported.current = generation;
+              note("mpv refused the source", { error: snap.error });
+              report(new Error(`mpv: ${snap.error}`), {
+                area: "playback",
+                withLog: true,
+                extra: {
+                  position: Math.round(snap.position),
+                  duration: Math.round(snap.duration),
+                  buffered: Math.round(snap.buffered ?? 0),
+                },
+              });
+            }
           }),
         );
         keep(
@@ -635,7 +696,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (generation !== 0 && generation < playerGen.current) return;
             // Any tick still in flight from this player is now stale.
             playerGen.current = Math.max(playerGen.current, generation + 1);
+            const afterMs = Date.now() - openedAt.current;
+            const diedEarly =
+              !firstFrame.current && !stopRequested.current && openedAt.current > 0 && afterMs < 15000;
+            clearFrameWatchdog();
             setPlayer(null);
+            if (diedEarly) {
+              note("closed before first frame", { afterMs, generation });
+              report(new Error("Player closed before the first frame"), {
+                area: "playback",
+                withLog: true,
+                extra: { afterMs, generation },
+              });
+            }
             leavePlayer();
             void refreshProgress();
           }),
@@ -655,7 +728,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [leavePlayer, refreshProgress]);
+  }, [clearFrameWatchdog, leavePlayer, refreshProgress]);
 
   const saveSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -713,6 +786,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [notify],
   );
+
+  // Marking a title watched, and noticing when that leaves a worse row behind.
+  const markWatched = useCallback(
+    async (key: string, metaId: string, watched: boolean) => {
+      note("mark watched", { key, metaId, watched });
+      await api.progress.setWatched(key, metaId, watched);
+      if (watched) {
+        const rows = progress.filter((row) => row.metaId === metaId);
+        const marked = rows.find((row) => row.key === key);
+        const newest = rows.reduce<ProgressItem | null>(
+          (best, row) => (best == null || row.updatedAt > best.updatedAt ? row : best),
+          null,
+        );
+        const older = rows
+          .filter((row) => row.key !== key && row.updatedAt < (marked?.updatedAt ?? 0))
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        // Finishing the newest episode used to leave an older one as the card
+        // to resume, so the show appeared to jump backwards.
+        if (marked && newest?.key === key && older && wentBackwards(older, marked)) {
+          report(new Error("Watched mark leaves an earlier episode as the resume target"), {
+            area: "progress",
+            extra: {
+              metaId,
+              marked: key,
+              markedAt: `${marked.season ?? "?"}x${marked.episode ?? "?"}`,
+              fallback: older.key,
+              fallbackAt: `${older.season ?? "?"}x${older.episode ?? "?"}`,
+            },
+          });
+        }
+      }
+      await refreshProgress();
+    },
+    [progress, refreshProgress],
+  );
+
+  /** The user asked to stop: a close that follows is not a failure. */
+  const stopPlayer = useCallback(() => {
+    stopRequested.current = true;
+    clearFrameWatchdog();
+    void api.player.stop().catch(() => undefined);
+  }, [clearFrameWatchdog]);
 
   const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);
   const progressByKey = useMemo(
@@ -810,23 +925,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (request: PlayRequest): Promise<boolean> => {
       // A double click used to start two players; the last one won, but both
       // sessions were spawned and both were pushed onto history.
-      if (opening.current) return false;
+      if (opening.current) {
+        // A second click within a moment is a double click. Long after that,
+        // an open that never settled is why nothing plays.
+        const waited = Date.now() - openStartedAt.current;
+        if (waited > 3000) {
+          note("open ignored, previous open pending", { waitedMs: waited, title: request.title });
+          report(new Error("Play request ignored: an earlier open never settled"), {
+            area: "playback",
+            withLog: true,
+            extra: { waitedMs: waited, title: request.title, session: request.session?.key ?? null },
+          });
+        }
+        return false;
+      }
       opening.current = true;
+      openStartedAt.current = Date.now();
+      note("open requested", {
+        title: request.title,
+        startAt: Math.round(request.startAt ?? 0),
+        session: request.session?.key ?? null,
+      });
       try {
         const snapshot = await api.player.open(request);
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
+        openedAt.current = Date.now();
+        firstFrame.current = false;
+        stopRequested.current = false;
+        frameErrorReported.current = 0;
+        armFrameWatchdog(request.title, request.session?.key ?? null);
+        note("open returned", { generation: snapshot.generation ?? 0 });
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
         return true;
       } catch (error) {
+        note("open failed", { error: errorMessage(error) });
         notify(errorMessage(error), "error");
         return false;
       } finally {
         opening.current = false;
       }
     },
-    [navigate, notify],
+    [armFrameWatchdog, navigate, notify],
   );
 
   const buildSession = useCallback((details: Details, video: Video | null) => {
@@ -980,7 +1121,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           url = await resolveStream(found);
           source = found;
         }
-        if (!url || !source) return;
+        if (!url || !source) {
+          note("hunt resolved nothing", { session: session.key });
+          report(new Error("A source hunt finished with nothing to play"), {
+            area: "playback",
+            extra: { session: session.key, name: details.name },
+          });
+          return;
+        }
         if (startToken.current !== token) return;
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
@@ -991,6 +1139,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         // The screen is already open, so a failed hunt returns to where it began.
         if (startToken.current === token) {
+          note("hunt failed", { error: errorMessage(error) });
           notify(errorMessage(error), "error");
           leaveStart();
         }
@@ -1083,7 +1232,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           url = await resolveStream(found);
           source = found;
         }
-        if (!url || !source) return;
+        if (!url || !source) {
+          note("resume resolved nothing", { session: session.key });
+          report(new Error("Resuming finished with nothing to play"), {
+            area: "playback",
+            extra: {
+              session: session.key,
+              season: entry.season ?? null,
+              episode: entry.episode ?? null,
+            },
+          });
+          return;
+        }
         if (startToken.current !== token) return;
         const opened = await playRequest({
           url,
@@ -1098,6 +1258,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
         if (startToken.current === token) {
+          note("resume failed", { error: errorMessage(error) });
           notify(errorMessage(error), "error");
           leaveStart();
         }
@@ -1142,6 +1303,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshLibrary,
       refreshProgress,
       saveSettings,
+      markWatched,
+      stopPlayer,
       toggleLibrary,
       inLibrary,
       update,
@@ -1179,6 +1342,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshLibrary,
       refreshProgress,
       saveSettings,
+      markWatched,
+      stopPlayer,
       toggleLibrary,
       inLibrary,
       update,

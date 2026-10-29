@@ -69,12 +69,50 @@ export function isNoise(message: string): boolean {
 const seen = new Set<string>();
 const MAX_REPORTS = 30;
 
+const TRACE_LIMIT = 40;
+const trace: string[] = [];
+
+/**
+ * The last few player decisions, in order. Silence is the bug that never
+ * throws, so the tail rides along with every report.
+ */
+export function note(event: string, data?: Record<string, unknown>): void {
+  let tail = "";
+  if (data) {
+    try {
+      tail = ` ${JSON.stringify(data)}`;
+    } catch {
+      tail = "";
+    }
+  }
+  const line = cleanText(
+    `${new Date().toISOString().slice(11, 23)} ${event}${tail}`,
+  ).slice(0, 600);
+  trace.push(line);
+  if (trace.length > TRACE_LIMIT) trace.shift();
+}
+
+export function traceTail(): string[] {
+  return [...trace];
+}
+
+
 export function fingerprintOf(error: unknown): string {
   if (error instanceof Error) {
     const frame = (error.stack ?? "").split("\n")[1] ?? "";
     return `${error.name}: ${error.message} @ ${frame.trim()}`.slice(0, 200);
   }
   return String(error).slice(0, 200);
+}
+
+/** `a` is an episode that comes before `b` in the same show. */
+export function wentBackwards(
+  a: { season?: number | null; episode?: number | null },
+  b: { season?: number | null; episode?: number | null },
+): boolean {
+  if (a.season == null || b.season == null || a.episode == null || b.episode == null) return false;
+  if (a.season !== b.season) return a.season < b.season;
+  return a.episode < b.episode;
 }
 
 export function shouldReport(fingerprint: string): boolean {

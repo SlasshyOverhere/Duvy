@@ -1,5 +1,14 @@
 // Crash-report rules. Run with: bun scripts/telemetry.check.ts
-import { cleanText, fingerprintOf, isNoise, scrubValue, shouldReport } from "../src/lib/errors.ts";
+import {
+  cleanText,
+  fingerprintOf,
+  isNoise,
+  note,
+  scrubValue,
+  shouldReport,
+  traceTail,
+  wentBackwards,
+} from "../src/lib/errors.ts";
 
 const checks: Array<{ name: string; fn: () => Promise<string[]> | string[] }> = [];
 
@@ -84,6 +93,46 @@ check("a flood is capped", () => {
   }
   // The cap counts every report this session, so it includes the ones above.
   return sent > 30 ? [`${sent} events escaped the cap`] : [];
+});
+
+check("the recorder keeps the last decisions, scrubbed", () => {
+  const bad: string[] = [];
+  for (let index = 0; index < 60; index += 1) {
+    note("open requested", {
+      index,
+      session: "tt1:1:2",
+      url: "https://cdn.example/s.mkv?token=leakme",
+      magnet: "magnet:?xt=urn:btih:abc&tr=https://tracker.example/announce?passkey=xyz",
+    });
+  }
+  const tail = traceTail();
+  if (tail.length !== 40) bad.push(`tail length ${tail.length}, want 40`);
+  if (!tail[tail.length - 1].includes("index\":59")) bad.push("the newest note is not last");
+  const joined = tail.join("\n");
+  if (joined.includes("leakme")) bad.push("a token survived in the trace");
+  if (joined.includes("passkey")) bad.push("a tracker passkey survived in the trace");
+  if (!joined.includes("tt1:1:2")) bad.push("session context was lost");
+  return bad;
+});
+
+check("an earlier episode is caught, a later one is not", () => {
+  const bad: string[] = [];
+  if (!wentBackwards({ season: 1, episode: 1 }, { season: 1, episode: 2 })) {
+    bad.push("E1 before E2 was missed");
+  }
+  if (wentBackwards({ season: 1, episode: 2 }, { season: 1, episode: 1 })) {
+    bad.push("a forward move was flagged");
+  }
+  if (!wentBackwards({ season: 1, episode: 9 }, { season: 2, episode: 1 })) {
+    bad.push("a season rollback was missed");
+  }
+  if (wentBackwards({ season: 2, episode: 1 }, { season: 1, episode: 9 })) {
+    bad.push("a season advance was flagged");
+  }
+  if (wentBackwards({ season: null, episode: null }, { season: 1, episode: 2 })) {
+    bad.push("a movie was compared as an episode");
+  }
+  return bad;
 });
 
 let failed = 0;

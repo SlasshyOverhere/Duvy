@@ -185,6 +185,22 @@ const progress: ProgressItem[] = [
     duration: 3120,
     updatedAt: now - 2 * 60 * MINUTE,
   },
+  // An earlier episode kept behind: finishing episode 3 is exactly when the
+  // card used to fall back to this row.
+  {
+    key: `${SERIES[0].id}:1:2`,
+    metaId: SERIES[0].id,
+    type: "series",
+    name: SERIES[0].name,
+    poster: SERIES[0].poster,
+    background: SERIES[0].background,
+    season: 1,
+    episode: 2,
+    episodeTitle: "The Cartographer's Apprentice",
+    position: 1200,
+    duration: 3120,
+    updatedAt: now - 3 * 60 * MINUTE,
+  },
   {
     key: MOVIES[2].id,
     metaId: MOVIES[2].id,

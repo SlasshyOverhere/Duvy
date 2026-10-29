@@ -1,5 +1,14 @@
 import * as Sentry from "@sentry/react";
-import { cleanText, fingerprintOf, isNoise, scrubValue, shouldReport } from "./errors";
+import { api, isTauri } from "./bridge";
+import {
+  cleanText,
+  fingerprintOf,
+  isNoise,
+  note,
+  scrubValue,
+  shouldReport,
+  traceTail,
+} from "./errors";
 
 /**
  * Crash reporting is opt-in and only exists in a release build that was built
@@ -38,9 +47,8 @@ function start(release?: string) {
 }
 
 /**
- * Point the reporter at the user's choice. The SDK is only started once the
- * user agrees, and the flag is what silences it again afterwards. Safe to call
- * on every render.
+ * Point the reporter at the user's choice. Safe to call on every render: the
+ * SDK is started once, and the flag is what turns sending on or off.
  */
 export function applyTelemetry(enabled: boolean, release?: string): void {
   if (!telemetryAvailable) return;
@@ -50,27 +58,49 @@ export function applyTelemetry(enabled: boolean, release?: string): void {
   if (client) client.getOptions().enabled = active;
 }
 
+/**
+ * Record a decision that failed silently. Kept next to the reporting rules so
+ * the buffer itself can be checked without the SDK.
+ */
+export { note };
+
 export type ReportLevel = "error" | "fatal" | "warning" | "info";
 
 /**
  * Record a failure for the next fix session. A no-op unless the user opted in,
  * unless the build has no endpoint, or unless this exact failure was reported
- * already.
+ * already. `withLog` attaches the player's own timing log, which is the only
+ * record when mpv fails without throwing.
  */
 export function report(
   error: unknown,
-  options?: { area?: string; level?: ReportLevel; extra?: Record<string, unknown> },
+  options?: { area?: string; level?: ReportLevel; extra?: Record<string, unknown>; withLog?: boolean },
 ): void {
   if (!active) return;
   const message = error instanceof Error ? error.message : String(error);
   if (isNoise(message) || !shouldReport(fingerprintOf(error))) return;
-  Sentry.withScope((scope) => {
-    if (options?.area) scope.setTag("area", options.area);
-    if (options?.level) scope.setLevel(options.level);
-    if (options?.extra) {
-      scope.setExtras(scrubValue(options.extra) as Record<string, unknown>);
-    }
-    if (error instanceof Error) Sentry.captureException(error);
-    else Sentry.captureMessage(cleanText(message), options?.level ?? "error");
-  });
+
+  const extra: Record<string, unknown> = {
+    ...(scrubValue(options?.extra ?? {}) as Record<string, unknown>),
+    trace: traceTail(),
+  };
+  const level = options?.level ?? "error";
+
+  const send = (log?: string[]) => {
+    Sentry.withScope((scope) => {
+      if (options?.area) scope.setTag("area", options.area);
+      scope.setLevel(level);
+      scope.setExtras(log ? { ...extra, player: log } : extra);
+      if (error instanceof Error) Sentry.captureException(error);
+      else Sentry.captureMessage(cleanText(message), level);
+    });
+  };
+
+  if (options?.withLog && isTauri()) {
+    // The log read is local and fast; a failure to read is not worth losing
+    // the report over.
+    void api.playbackLog(40).then(send, () => send());
+    return;
+  }
+  send();
 }
