@@ -15,6 +15,7 @@
   --bg-2: #080808;
   --surface: #0e0e0e;
   --surface-2: #161616;
+  --surface-3: #131313;
   --panel: #0a0a0a;
   --line: rgba(255, 255, 255, 0.09);
   --line-strong: rgba(255, 255, 255, 0.18);
@@ -31,7 +32,6 @@
   --radius: 12px;
   --radius-sm: 8px;
   --pill: 999px;
-  --shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
   --ease: cubic-bezier(0.22, 0.68, 0.32, 1);
   --sans: "Instrument Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --display: var(--sans);
@@ -99,6 +99,13 @@ body {
   user-select: none;
 }
 
+/* The shell never scrolls sideways; clip rather than hide so no stray track
+   can be scrolled into view. */
+html,
+body {
+  overflow-x: clip;
+}
+
 input,
 textarea,
 [contenteditable] {
@@ -116,6 +123,8 @@ h4 {
   letter-spacing: -0.022em;
   line-height: 1.14;
   text-wrap: balance;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 h1 {
@@ -176,7 +185,7 @@ select {
 
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar {
@@ -579,7 +588,7 @@ button.pill:hover {
 .view {
   height: 100%;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: clip;
   padding: 0;
   scroll-behavior: smooth;
 }
@@ -608,6 +617,7 @@ button.pill:hover {
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--muted);
+  white-space: nowrap;
   transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
 
@@ -671,7 +681,7 @@ button.pill:hover {
   margin: 0 0 24px;
   padding: 11px 14px;
   border-radius: var(--radius);
-  background: rgba(240, 165, 58, 0.09);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
   color: var(--muted);
   font-size: 12.5px;
 }
@@ -855,6 +865,12 @@ button.pill:hover {
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
+/* Neutral badges are metadata, not a state: plain tonal text, no capsule. */
+.badge-neutral {
+  padding: 0;
+  border-color: transparent;
+}
+
 .badge-good {
   color: var(--good);
   border-color: color-mix(in srgb, var(--good) 42%, transparent);
@@ -867,6 +883,8 @@ button.pill:hover {
 
 .badge:has(.imdb-mark) {
   gap: 5px;
+  padding: 0;
+  border-color: transparent;
   color: var(--text);
 }
 
@@ -1059,7 +1077,7 @@ button.pill:hover {
 
 /* Hover is tonal: the artwork brightens and the play mark arrives. The accent
    ring belongs to keyboard focus only. */
-.poster-frame:focus-visible {
+.poster-frame:focus-within {
   outline-color: var(--accent);
 }
 
@@ -1071,8 +1089,12 @@ button.pill:hover {
 }
 
 .poster-frame:hover img,
-.poster-frame:focus-visible img {
+.poster-frame:focus-within img {
   filter: brightness(1.06);
+}
+
+.poster-frame:active img {
+  filter: brightness(0.96);
 }
 
 .poster-fallback {
@@ -1082,7 +1104,7 @@ button.pill:hover {
   place-items: center;
   font-size: 2rem;
   font-weight: 800;
-  color: rgba(0, 0, 0, 0.72);
+  color: rgba(255, 255, 255, 0.9);
   letter-spacing: 0.02em;
 }
 
@@ -1100,7 +1122,7 @@ button.pill:hover {
 }
 
 .poster-frame:hover .poster-hover,
-.poster-frame:focus-visible .poster-hover {
+.poster-frame:focus-within .poster-hover {
   opacity: 1;
 }
 
@@ -1109,6 +1131,11 @@ button.pill:hover {
   font-weight: 700;
   color: var(--text);
   line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .poster-hover-meta {
@@ -1209,6 +1236,10 @@ button.pill:hover {
   filter: brightness(1.06);
 }
 
+.continue-card:active img {
+  filter: brightness(0.96);
+}
+
 .continue-scrim {
   position: absolute;
   inset: 0;
@@ -1228,6 +1259,11 @@ button.pill:hover {
   font-weight: 700;
   color: var(--text);
   line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .continue-sub {
@@ -1419,7 +1455,7 @@ button.pill:hover {
 
 .hero-overview {
   margin: 16px auto 0;
-  color: #bdbdbd;
+  color: var(--muted);
   font-size: 15px;
   line-height: 1.62;
   max-width: 54ch;
@@ -1530,7 +1566,7 @@ button.pill:hover {
 }
 
 .hero-dot:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
   border-radius: 999px;
 }
@@ -1581,6 +1617,11 @@ button.pill:hover {
 
 .library-remove:hover {
   color: var(--danger);
+}
+
+.library-remove:active {
+  color: var(--danger);
+  background: rgba(10, 9, 8, 0.94);
 }
 
 .watched-cell {
@@ -1752,6 +1793,7 @@ button.pill:hover {
   color: var(--muted);
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
   transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
 }
 
@@ -1786,6 +1828,7 @@ button.pill:hover {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--faint);
+  white-space: nowrap;
   transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
 
@@ -1896,7 +1939,7 @@ button.pill:hover {
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 24px 48px -28px rgba(0, 0, 0, 0.95),
+  box-shadow: 0 10px 22px -16px rgba(0, 0, 0, 0.95),
     inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
@@ -2054,12 +2097,14 @@ button.pill:hover {
 .detail-fact dd {
   margin: 0;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .detail-source {
   margin: 0;
   font-size: 11.5px;
   color: var(--faint);
+  overflow-wrap: anywhere;
 }
 
 .detail-section {
@@ -2114,6 +2159,10 @@ button.pill:hover {
 
 .episode:hover {
   background: rgba(255, 255, 255, 0.035);
+}
+
+.episode:active {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .episode-thumb {
@@ -2177,6 +2226,7 @@ button.pill:hover {
   font-size: 14px;
   font-weight: 700;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .episode-seen {
@@ -2444,6 +2494,11 @@ button.pill:hover {
   color: var(--text);
 }
 
+/* The filter row clips at 1px, so its chips ring inwards. */
+.drawer-filters .chip:focus-visible {
+  outline-offset: -2px;
+}
+
 .drawer-filters .chip.is-active,
 .drawer-filters .chip.is-active:hover {
   border-color: transparent;
@@ -2503,6 +2558,10 @@ button.pill:hover {
 
 .stream-card:hover {
   background: rgba(255, 255, 255, 0.085);
+}
+
+.stream-card:active {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .stream-play {
@@ -2634,29 +2693,29 @@ button.pill:hover {
 }
 
 .skeleton-line {
+  position: relative;
+  overflow: hidden;
   height: 8px;
   border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Composited sweep: the highlight travels on its own layer. */
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.06) 0%,
-    rgba(255, 255, 255, 0.13) 50%,
-    rgba(255, 255, 255, 0.06) 100%
+    transparent 24%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 76%
   );
-  background-size: 220% 100%;
-  animation: skeleton-sweep 1.5s linear infinite;
+  animation: sk-shimmer 1.5s linear infinite;
 }
 
 .skeleton-line.is-label {
   height: 11px;
-}
-
-@keyframes skeleton-sweep {
-  from {
-    background-position: 120% 0;
-  }
-  to {
-    background-position: -120% 0;
-  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -2713,7 +2772,7 @@ button.pill:hover {
 
 .settings-search:focus-within {
   color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .settings-search svg {
@@ -2780,6 +2839,11 @@ button.pill:hover {
   color: var(--text);
   font-weight: 600;
   background: rgba(255, 255, 255, 0.075);
+}
+
+/* The narrow rail scrolls, so keep its focus ring inside the row. */
+.settings-nav button:focus-visible {
+  outline-offset: -2px;
 }
 
 .settings-nav-icon {
@@ -2958,6 +3022,7 @@ button.pill:hover {
   color: var(--muted);
   font-size: 12.5px;
   font-weight: 500;
+  white-space: nowrap;
   transition: color 0.14s var(--ease), border-color 0.14s var(--ease),
     background-color 0.14s var(--ease);
 }
@@ -3163,6 +3228,7 @@ input[type="range"]::-webkit-slider-thumb {
 .field-row input,
 .install-form input {
   width: 100%;
+  min-width: 0;
   border: 0;
   border-bottom: 1px solid var(--line-strong);
   border-radius: 0;
@@ -3204,7 +3270,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .buffer-field:focus-within {
   background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .buffer-field input,
@@ -3273,27 +3339,20 @@ input[type="range"]::-webkit-slider-thumb {
   border-bottom-color: var(--accent);
 }
 
-/* The underline is the focus indicator; the global ring would double it and clip. */
-.field input:focus-visible,
-.field select:focus-visible,
-.field-row input:focus-visible,
-.install-form input:focus-visible {
-  outline: none;
-}
-
 .field-row {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 16px;
 }
 
 .field-row .field {
-  flex: 1;
+  flex: 1 1 220px;
 }
 
 .field-row input {
-  flex: 1;
+  flex: 1 1 220px;
 }
 
 .settings-path {
@@ -3414,7 +3473,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 40%;
   border-radius: inherit;
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width 0.2s linear;
 }
 
 /* Trakt, Debrid and Torrent ship as standalone pages; inside a settings card
@@ -3509,7 +3568,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .settings-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 12px;
   }
@@ -3578,12 +3637,13 @@ input[type="range"]::-webkit-slider-thumb {
 .install-form {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
   max-width: 640px;
 }
 
 .install-form input {
-  flex: 1;
+  flex: 1 1 240px;
 }
 
 .install-quick {
@@ -3630,8 +3690,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-bottom: 0;
 }
 
+/* Dim the content, not the controls the user needs to re-enable it. */
 .addon-card.is-off {
-  opacity: 0.42;
+  opacity: 1;
+}
+
+.addon-card.is-off .addon-main,
+.addon-card.is-off .addon-logo {
+  opacity: 0.55;
 }
 
 .addon-logo {
@@ -3758,16 +3824,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius);
   border: 1px solid var(--line-strong);
   background: #17140f;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.7);
   font-size: 12.5px;
-  animation: toast-in 0.2s var(--ease);
-}
-
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
 }
 
 .toast span {
@@ -3874,7 +3932,10 @@ input[type="range"]::-webkit-slider-thumb {
 .pv:not(.pv--awake) .pv-top {
   opacity: 0;
   transform: translateY(-8px);
+  visibility: hidden;
   pointer-events: none;
+  /* Stay visible through the fade, then leave the tab order. */
+  transition: opacity 0.2s ease, transform 0.2s var(--ease), visibility 0s linear 0.2s;
 }
 
 .pv-id {
@@ -3987,7 +4048,9 @@ input[type="range"]::-webkit-slider-thumb {
 .pv:not(.pv--awake) .pv-deck {
   opacity: 0;
   transform: translateY(10px);
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s var(--ease), visibility 0s linear 0.2s;
 }
 
 .pv-track {
@@ -4361,6 +4424,30 @@ input[type="range"]::-webkit-slider-thumb {
 .btn:active:not(:disabled),
 .icon-btn:active:not(:disabled) {
   filter: brightness(0.94);
+}
+
+/* Pressed states stay tonal: no movement, no scale. */
+.dock-item:active,
+.settings-nav button:active,
+.segmented button:active:not(.is-active),
+.chip:active:not(.is-active),
+.accent-option:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.toggle:active:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.calendar-item:active {
+  color: var(--text);
+}
+
+.drawer-close:active,
+.filter-step:active:not(:disabled),
+.toast button:active {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text);
 }
 
 /* First paint: a shimmer skeleton shaped like the screen it becomes. */
@@ -4769,6 +4856,10 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.search-clear:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* ---------------------------------------------------------------------------
    Narrow windows
    --------------------------------------------------------------------------- */
@@ -4956,7 +5047,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .episode {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -5098,6 +5189,7 @@ input[type="range"]::-webkit-slider-thumb {
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
@@ -5114,7 +5206,7 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 288px;
   padding: 6px;
   border-radius: 12px;
-  background: #131313;
+  background: var(--surface-3);
   transform-origin: top left;
   animation: ctx-in 0.14s var(--ease);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07),
@@ -5125,12 +5217,6 @@ input[type="range"]::-webkit-slider-thumb {
   from {
     opacity: 0;
     transform: scale(0.96) translateY(-4px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ctx {
-    animation: none;
   }
 }
 
@@ -5163,7 +5249,8 @@ input[type="range"]::-webkit-slider-thumb {
 .ctx-item:focus-visible {
   background: rgba(255, 255, 255, 0.07);
   color: var(--text);
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .ctx-item:disabled {

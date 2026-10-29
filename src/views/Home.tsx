@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api } from "../lib/bridge";
 import { cachedFeed, feedAge, loadFeed } from "../lib/feed";
 import { useApp } from "../lib/store";
@@ -10,6 +10,19 @@ import { progressPercent, seasonLabel } from "../lib/format";
 const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
 let feedSig = "";
+
+// Screen-reader only: the page keeps a level-one heading even without a hero.
+const srOnly: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  border: 0,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+};
 
 // First paint: the shape of the screen, so the wait reads as loading, not empty.
 function HomeSkeleton() {
@@ -89,6 +102,12 @@ export function HomeView() {
   const hero = featured[slide] ?? featured[0] ?? null;
   const nextBackdrop = featured[(slide + 1) % featured.length]?.background;
 
+  // A cached feed can predate this build; rows are the only field the screen needs.
+  const feedRows = useMemo(
+    () => (feed?.rows ?? []).filter((row) => (row.items?.length ?? 0) > 0),
+    [feed],
+  );
+
   // Warm the next backdrop so the rotation never flashes the placeholder.
   useEffect(() => {
     if (!nextBackdrop) return;
@@ -153,7 +172,9 @@ export function HomeView() {
 
       <div className="home-body">
 
-        {!loading && feed && feed.rows.length === 0 ? (
+        {hero ? null : <h1 style={srOnly}>Home</h1>}
+
+        {!loading && feed && feedRows.length === 0 ? (
           <EmptyState
             icon="puzzle"
             title="No catalog answered"
@@ -213,6 +234,13 @@ export function HomeView() {
           />
         ) : null}
 
+        {error && feed ? (
+          <div className="notice">
+            <Icon name="info" size={16} />
+            <span>Could not refresh your home feed: {error}</span>
+          </div>
+        ) : null}
+
         {feed?.addonErrors?.length ? (
           <div className="notice">
             <Icon name="info" size={16} />
@@ -220,7 +248,7 @@ export function HomeView() {
           </div>
         ) : null}
 
-        {feed?.rows.map((row) => (
+        {feedRows.map((row) => (
           <Row
             key={row.id}
             title={row.title}
@@ -228,7 +256,7 @@ export function HomeView() {
           >
             {row.items.map((item) => (
               <PosterCard
-                key={`${row.id}-${item.id}`}
+                key={`${row.id}-${item.id}-${item.type}`}
                 item={item}
                 entry={resumeProgress.get(item.id)}
                 onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}

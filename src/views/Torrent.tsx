@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
 import { Badge, Button, Icon, Loading } from "../components/ui";
 import type { TorrentStats } from "../lib/types";
@@ -52,14 +52,24 @@ export default function TorrentView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
+  const reading = useRef(false);
+  const generation = useRef(0);
+  const pendingStop = useRef(false);
 
   const read = useCallback(async () => {
+    if (reading.current) return;
+    reading.current = true;
+    const current = generation.current;
     try {
-      setStats(await api.torrent.stats());
+      const next = await api.torrent.stats();
+      if (current !== generation.current) return;
+      setStats(next);
       setError(null);
     } catch (reason) {
+      if (current !== generation.current) return;
       setError(message(reason));
     } finally {
+      reading.current = false;
       setLoading(false);
     }
   }, []);
@@ -95,9 +105,12 @@ export default function TorrentView() {
   }, [read]);
 
   const stop = async () => {
+    if (pendingStop.current) return;
     if (!window.confirm("Stop the torrent session? Downloaded files in the cache will be deleted.")) {
       return;
     }
+    pendingStop.current = true;
+    generation.current += 1;
     setStopping(true);
     try {
       await api.torrent.stop();
@@ -107,11 +120,14 @@ export default function TorrentView() {
     } catch (reason) {
       setError(message(reason));
     } finally {
+      pendingStop.current = false;
       setStopping(false);
     }
   };
 
-  const percent = Math.max(0, Math.min(1, stats.progress)) * 100;
+  const progress = Number.isFinite(stats.progress) ? stats.progress : 0;
+  const percent = Math.max(0, Math.min(1, progress)) * 100;
+  const peerCount = Number.isFinite(stats.peers) && stats.peers > 0 ? Math.round(stats.peers) : 0;
 
   return (
     <div className="page">
@@ -126,8 +142,8 @@ export default function TorrentView() {
                 <Badge tone="good">streaming</Badge>
               </div>
               <p>
-                {stats.peers === 1 ? "1 peer connected" : `${stats.peers} peers connected`} while the
-                player reads ahead of the playhead.
+                {peerCount === 1 ? "1 peer connected" : `${peerCount} peers connected`} while the player
+                reads ahead of the playhead.
               </p>
             </div>
             <Button
@@ -190,7 +206,7 @@ export default function TorrentView() {
           >
             <Metric label="Download" value={rate(stats.downloadBps)} />
             <Metric label="Upload" value={rate(stats.uploadBps)} />
-            <Metric label="Peers" value={String(stats.peers)} />
+            <Metric label="Peers" value={String(peerCount)} />
           </div>
 
           <p className="settings-hint">

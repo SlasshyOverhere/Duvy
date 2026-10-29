@@ -37,6 +37,8 @@ export function isBrowserPreview(): boolean {
 }
 
 export async function openExternal(url: string): Promise<void> {
+  // Addon manifests supply these links, so only web URLs may leave the app.
+  if (!/^https?:\/\//i.test(url)) throw new Error("That link is not a web address");
   if (isTauri()) {
     await openUrl(url);
     return;
@@ -46,8 +48,7 @@ export async function openExternal(url: string): Promise<void> {
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) {
-    // The browser preview is the only consumer, so its fixtures stay out of
-    // the desktop bundle.
+    // Loaded at runtime only: the desktop app never imports these fixtures.
     const { mock } = await import("./mock");
     return mock(command, args) as Promise<T>;
   }
@@ -90,7 +91,7 @@ export const api = {
     const feed = await call<HomeFeed>("home_feed");
     // Every card on the page knows its logo, so a later start has it at once.
     rememberLogos(
-      feed.rows.flatMap((row) => row.items.map((meta) => ({ id: meta.id, logo: meta.logo }))),
+      (feed.rows ?? []).flatMap((row) => row.items.map((meta) => ({ id: meta.id, logo: meta.logo }))),
     );
     return feed;
   },
@@ -151,14 +152,14 @@ export const api = {
   },
 
   window: {
-    fullscreen: (on: boolean) => call("window_fullscreen", { on }),
+    fullscreen: (on: boolean) => call<null>("window_fullscreen", { on }),
   },
 
   player: {
     open: (request: PlayRequest) => call<PlayerSnapshot>("player_open", { request }),
     state: () => call<PlayerSnapshot | null>("player_state"),
     control: (action: string, value?: number | string | boolean | null) =>
-      call<PlayerSnapshot | null>("player_control", { action, value }),
+      call<null>("player_control", { action, value }),
     stop: () => call<null>("player_stop"),
     subtitle: (url: string, label?: string) =>
       call<null>("player_subtitle", { url, label }),
@@ -199,7 +200,7 @@ export const api = {
   debrid: {
     providers: () => call<DebridProvider[]>("providers"),
     setKey: (provider: string, key: string) =>
-      call<DebridProvider[]>("set_key", { provider, key }),
+      call<null>("set_key", { provider, key }),
     resolve: (url: string) => call<string>("resolve", { url }),
     checkCache: (source: string) => call<boolean>("check_cache", { source }),
   },

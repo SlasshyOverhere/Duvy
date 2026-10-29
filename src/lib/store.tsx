@@ -127,6 +127,34 @@ export function sessionFor(details: Details, video: Video | null): PlaybackSessi
   };
 }
 
+const ROUTE_NAMES = new Set<Route["name"]>([
+  "home",
+  "search",
+  "library",
+  "watched",
+  "settings",
+  "details",
+  "player",
+]);
+
+/** History state can be missing or junk after a restore; never render a blank route. */
+function validRoute(value: unknown): value is Route {
+  if (!value || typeof value !== "object") return false;
+  const route = value as Route;
+  if (!ROUTE_NAMES.has(route.name)) return false;
+  return route.name !== "details" || (Boolean(route.id) && Boolean(route.type));
+}
+
+/** The same screen with the same params: a second visit is not a new stop. */
+function sameRoute(a: Route, b: Route): boolean {
+  if (a.name !== b.name) return false;
+  if (a.name === "search" && b.name === "search") return (a.query ?? "") === (b.query ?? "");
+  if (a.name === "settings" && b.name === "settings")
+    return (a.section ?? "") === (b.section ?? "");
+  if (a.name === "details" && b.name === "details") return a.id === b.id && a.type === b.type;
+  return true;
+}
+
 /** A stored position at or past this share of the runtime counts as finished. */
 const FINISHED_SHARE = 0.9;
 
@@ -194,7 +222,9 @@ function readSourceMemory(): Record<string, SourceMemory> {
   try {
     const raw = window.localStorage.getItem(SOURCE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, SourceMemory>) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, SourceMemory>)
+      : {};
   } catch {
     return {};
   }
@@ -239,7 +269,9 @@ function readSubtitleMemory(): Record<string, SubtitleMemory> {
   try {
     const raw = window.localStorage.getItem(SUBTITLE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, SubtitleMemory>) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, SubtitleMemory>)
+      : {};
   } catch {
     return {};
   }
@@ -294,6 +326,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const toastId = useRef(1);
+  const toastTimers = useRef(new Map<number, number>());
   const depth = useRef(0);
   const opening = useRef(false);
   // The newest player's generation; events from a killed one are ignored.
@@ -303,33 +336,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The item whose source is being found right now, so a different click can
   // say what it is waiting for instead of dying silently.
   const pending = useRef<{ id: string; name: string } | null>(null);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const toggling = useRef(new Set<string>());
   const progressFails = useRef(0);
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
 
-  const notify = useCallback((text: string, tone: ToastTone = "info") => {
-    const id = toastId.current++;
-    setToasts((current) => [...current.slice(-4), { id, text, tone }]);
-    window.setTimeout(() => {
-      setToasts((current) => current.filter((toast) => toast.id !== id));
-    }, 4200);
-  }, []);
-
   const dismissToast = useCallback((id: number) => {
+    const timer = toastTimers.current.get(id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    toastTimers.current.delete(id);
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
+  const notify = useCallback(
+    (text: string, tone: ToastTone = "info") => {
+      const id = toastId.current++;
+      setToasts((current) => [...current.slice(-4), { id, text, tone }]);
+      toastTimers.current.set(id, window.setTimeout(() => dismissToast(id), 4200));
+    },
+    [dismissToast],
+  );
+
+  // A pending dismiss must not outlive the provider (or fire into a new toast).
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
+    const current = routeRef.current;
+    // Re-clicking the screen already open used to push a duplicate entry, so
+    // back needed one press per click.
+    if (sameRoute(current, next)) return;
     // The player never stacks an entry: leaving it (or opening the next source)
-    // replaces the player entry, so back can not land on a dead screen.
-    const replace = Boolean(options?.replace) || routeRef.current.name === "player";
+    // replaces the player entry, so back can not land on a dead screen. A
+    // settings section is a tab of one screen, not a new stop.
+    const replace =
+      Boolean(options?.replace) ||
+      current.name === "player" ||
+      (current.name === "settings" && next.name === "settings");
     if (!replace) {
       depth.current += 1;
       // Remember the screen the player was opened from, so leaving can pop
       // straight back to it instead of stacking a second copy of the same page.
-      if (next.name === "player") playerBase.current = routeRef.current;
+      if (next.name === "player") playerBase.current = current;
     }
     const state = { route: next, depth: depth.current };
     if (replace) window.history.replaceState(state, "");
@@ -353,9 +408,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       (base.name !== "details" ||
         (target.name === "details" && base.id === target.id && base.type === target.type));
     if (sameScreen && depth.current > 0) {
-      // The entry underneath is already the right screen: pop to it.
+      // The entry underneath is already the right screen: pop to it. Show it
+      // now, so no screen navigates a second time while the pop lands.
       routeRef.current = target;
       depth.current -= 1;
+      setRoute(target);
       window.history.back();
       return;
     }
@@ -376,8 +433,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.history.replaceState({ route: { name: "home" }, depth: 0 }, "");
     const onPop = (event: PopStateEvent) => {
       const state = event.state as { route?: Route; depth?: number } | null;
-      const next = state?.route ?? { name: "home" };
-      depth.current = state?.depth ?? 0;
+      const saved = state?.route;
+      const next: Route = validRoute(saved) ? saved : { name: "home" };
+      depth.current =
+        typeof state?.depth === "number" && state.depth > 0 ? Math.floor(state.depth) : 0;
       routeRef.current = next;
       setRoute(next);
     };
@@ -447,6 +506,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ["addons", loadedAddons.status],
             ["library", loadedLibrary.status],
             ["progress", loadedProgress.status],
+            ["watched", loadedWatched.status],
           ] as const
         )
           .filter(([, status]) => status === "rejected")
@@ -474,13 +534,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!settings?.nuvioAutoSync && !settings?.stremioAutoSync) return;
     let alive = true;
+    let running = false;
     const run = async () => {
+      // A pass that outlives its interval must not stack a second one.
+      if (running) return;
+      running = true;
       try {
         await api.sync.all();
         if (!alive) return;
         await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       } catch {
         // Offline, or signed out elsewhere. The next tick tries again.
+      } finally {
+        running = false;
       }
     };
     void run();
@@ -520,7 +586,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen("addons:changed", () => void refreshAddons())
+    void listen("addons:changed", () => {
+      // The next launch lists them anyway; a failed refresh is not an error.
+      void refreshAddons().catch(() => {});
+    })
       .then((stop) => {
         if (disposed) stop();
         else unlisten = stop;
@@ -539,35 +608,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!isTauri()) return;
     const unlisteners: Array<() => void> = [];
     let disposed = false;
+    // Kept as each one attaches: a later listen failing must not strand it.
+    const keep = (stop: () => void) => {
+      if (disposed) stop();
+      else unlisteners.push(stop);
+    };
     const attach = async () => {
       try {
-        const tick = await listen<PlayerSnapshot>("player:tick", (event) => {
-          const generation = event.payload.generation ?? 0;
-          // A dead player's last tick can land after the next one is stored.
-          if (generation !== 0 && generation < playerGen.current) return;
-          playerGen.current = Math.max(playerGen.current, generation);
-          setPlayer(event.payload);
-        });
-        const closed = await listen<number>("player:closed", (event) => {
-          const generation = event.payload ?? 0;
-          // Stopping takes a moment to report; a player started in that gap wins.
-          if (generation !== 0 && generation < playerGen.current) return;
-          setPlayer(null);
-          leavePlayer();
-          void refreshProgress();
-        });
-        const ended = await listen("player:ended", () => {
-          void refreshProgress();
-        });
-        if (disposed) {
-          tick();
-          closed();
-          ended();
-          return;
-        }
-        unlisteners.push(tick, closed, ended);
+        keep(
+          await listen<PlayerSnapshot>("player:tick", (event) => {
+            if (!event.payload) return;
+            const generation = event.payload.generation ?? 0;
+            // A dead player's last tick can land after the next one is stored.
+            if (generation !== 0 && generation < playerGen.current) return;
+            playerGen.current = Math.max(playerGen.current, generation);
+            setPlayer(event.payload);
+          }),
+        );
+        keep(
+          await listen<number>("player:closed", (event) => {
+            const generation = event.payload ?? 0;
+            // Stopping takes a moment to report; a player started in that gap wins.
+            if (generation !== 0 && generation < playerGen.current) return;
+            // Any tick still in flight from this player is now stale.
+            playerGen.current = Math.max(playerGen.current, generation + 1);
+            setPlayer(null);
+            leavePlayer();
+            void refreshProgress();
+          }),
+        );
+        keep(
+          await listen("player:ended", () => {
+            void refreshProgress();
+          }),
+        );
       } catch {
         // Without the event bridge the player still works through polling.
+        unlisteners.splice(0).forEach((unlisten) => unlisten());
       }
     };
     void attach();
@@ -578,14 +655,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [leavePlayer, refreshProgress]);
 
   const saveSettings = useCallback(
-    async (patch: Partial<Settings>) => {
-      const next = await api.settings.set(patch);
-      setSettings(next);
-      // Only re-probe the player when the executable itself changed.
-      if ("mpvPath" in patch) {
-        const info = await api.appInfo();
-        setAppInfo(info);
-      }
+    (patch: Partial<Settings>) => {
+      // One write at a time: a slow earlier patch must not land after a newer
+      // one and put the old value back on screen.
+      const next = saveQueue.current.catch(() => {}).then(() => api.settings.set(patch));
+      saveQueue.current = next;
+      return next.then(async (saved) => {
+        setSettings(saved);
+        // Only re-probe the player when the executable itself changed.
+        if ("mpvPath" in patch) {
+          // The patch is saved; a failed probe must not report it as lost.
+          await api.appInfo().then(setAppInfo, () => {});
+        }
+      });
     },
     [],
   );
@@ -707,6 +789,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (base && depth.current > 0) {
       routeRef.current = base;
       depth.current -= 1;
+      setRoute(base);
       window.history.back();
       return;
     }

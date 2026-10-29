@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   AnimatePresence,
@@ -120,8 +120,12 @@ export function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [player, setPlayer] = useState<PlayerSetup | null>(null);
-  const stage = useRef<HTMLDivElement>(null);
   const still = useReducedMotion() ?? false;
+  // The old step is gone by the time this node mounts, so focus lands on the
+  // step that is actually on screen.
+  const attachStage = useCallback((node: HTMLDivElement | null) => {
+    node?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -134,18 +138,24 @@ export function Onboarding({
       if (status.state === "ready") return;
 
       if (isTauri()) {
-        unlisten = await listen<{ state: PlayerSetup["state"]; progress: number; error: string }>(
-          "player-setup",
-          (event) => {
-            setPlayer((current) =>
-              current
-                ? { ...current, state: event.payload.state, error: event.payload.error }
-                : current,
-            );
-          },
-        );
+        const stop = await listen<{
+          state: PlayerSetup["state"];
+          progress: number;
+          error: string;
+        }>("player-setup", (event) => {
+          setPlayer((current) =>
+            current
+              ? { ...current, state: event.payload.state, error: event.payload.error }
+              : current,
+          );
+        });
+        // The screen can unmount while the listener registers.
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlisten = stop;
       }
-      if (disposed) return;
       if (!preview) await api.playerSetup.start().catch(() => undefined);
     };
 
@@ -155,15 +165,6 @@ export function Onboarding({
       unlisten?.();
     };
   }, [preview]);
-
-  // The old step leaves first, so focus waits for the swap to finish.
-  useEffect(() => {
-    const id = window.setTimeout(
-      () => stage.current?.focus({ preventScroll: true }),
-      still ? 0 : 380,
-    );
-    return () => window.clearTimeout(id);
-  }, [step, still]);
 
   const finish = useCallback(async () => {
     if (preview) {
@@ -182,7 +183,7 @@ export function Onboarding({
   const pending = chosen.filter((id) => !signedIn.includes(id));
 
   const signIn = async () => {
-    if (!pending.length) return;
+    if (busy || !pending.length) return;
     // The preview must never reach a real backend.
     if (preview) {
       notify("Preview only. Nothing was sent.", "info");
@@ -205,12 +206,18 @@ export function Onboarding({
         failed.push(`${PROVIDERS.find((item) => item.id === id)?.name ?? id}: ${message(e)}`);
       }
     }
+    setError(failed.length ? failed.join("\n") : null);
     if (done.length) {
       setSignedIn((current) => [...current, ...done]);
-      await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
-      notify("Signed in. Your library and progress are syncing.", "success");
+      // The sign-in stands even if the follow-up refresh does not: losing the
+      // library fetch must not cost the account that just landed.
+      try {
+        await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
+        notify("Signed in. Your library and progress are syncing.", "success");
+      } catch (e) {
+        notify(`Signed in, but the library did not refresh. ${message(e)}`, "error");
+      }
     }
-    setError(failed.length ? failed.join("\n") : null);
     setBusy(false);
   };
 
@@ -228,14 +235,13 @@ export function Onboarding({
 
   const downloading = player?.state === "downloading";
   const ready = player?.state === "ready";
-  const canFinish = !downloading;
 
   const rise = (delay: number) =>
     still
       ? {}
       : {
-          initial: { opacity: 0, y: 14 },
-          animate: { opacity: 1, y: 0 },
+          initial: { y: 14 },
+          animate: { y: 0 },
           transition: { duration: 0.6, delay, ease: EASE },
         };
 
@@ -247,10 +253,10 @@ export function Onboarding({
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={step}
-            ref={stage}
+            ref={attachStage}
             tabIndex={-1}
             className="ob-stage"
-            initial={{ opacity: 0, y: still ? 0 : 18 }}
+            initial={{ y: still ? 0 : 18 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: still ? 0 : -16 }}
             transition={{ duration: still ? 0 : 0.34, ease: EASE }}
@@ -264,7 +270,7 @@ export function Onboarding({
                       <motion.span
                         key={`${letter}-${index}`}
                         aria-hidden="true"
-                        initial={still ? false : { opacity: 0, y: 26 }}
+                        initial={still ? false : { y: 26 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{
                           duration: still ? 0 : 0.72,
@@ -324,7 +330,7 @@ export function Onboarding({
                             data-signed-in={done || undefined}
                             disabled={busy || done}
                             onClick={() => toggle(item.id)}
-                            initial={still ? false : { opacity: 0, y: 12 }}
+                            initial={still ? false : { y: 12 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{
                               duration: still ? 0 : 0.5,
@@ -409,29 +415,20 @@ export function Onboarding({
                       </span>
                     ) : pending.length ? (
                       <>
-                        <Button type="submit" variant="primary" disabled={!canFinish}>
-                          {downloading
-                            ? "Preparing the player..."
-                            : pending.length > 1
-                              ? "Sign in to both"
-                              : "Sign in"}
+                        <Button type="submit" variant="primary">
+                          {pending.length > 1 ? "Sign in to both" : "Sign in"}
                         </Button>
                         <button
                           type="button"
                           className="ob-skip"
                           onClick={() => void finish()}
-                          disabled={!canFinish}
                         >
                           Skip for now
                         </button>
                       </>
                     ) : (
-                      <Button variant="primary" onClick={() => void finish()} disabled={!canFinish}>
-                        {downloading
-                          ? "Preparing the player..."
-                          : signedIn.length
-                            ? "Continue"
-                            : "Continue without an account"}
+                      <Button variant="primary" onClick={() => void finish()}>
+                        {signedIn.length ? "Continue" : "Continue without an account"}
                       </Button>
                     )}
                   </div>
@@ -439,8 +436,11 @@ export function Onboarding({
 
                 {ready ? null : (
                   <motion.p className="ob-foot" {...rise(0.3)}>
-                    You can change this later in Settings. Playback also works with an mpv you
-                    install yourself.
+                    {downloading
+                      ? "The player is still downloading in the background. You can finish setup now; playback works once it lands."
+                      : player?.state === "failed"
+                        ? "The player download did not finish. You can point Duvy at an mpv you install yourself in Settings."
+                        : "You can change this later in Settings. Playback also works with an mpv you install yourself."}
                   </motion.p>
                 )}
               </>

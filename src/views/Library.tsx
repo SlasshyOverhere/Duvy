@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 import type { LibraryItem, MetaPreview } from "../lib/types";
 import { PosterCard } from "../components/media";
-import { Button, EmptyState } from "../components/ui";
+import { Button, EmptyState, Icon, Loading } from "../components/ui";
 
 type Filter = "all" | "movie" | "series";
 type Sort = "recent" | "title";
@@ -34,11 +34,14 @@ const EMPTY: Record<Filter, { title: string; body: string }> = {
 };
 
 export function LibraryView() {
-  const { library, navigate, playItem, toggleLibrary } = useApp();
+  const { library, booting, navigate, playItem, toggleLibrary } = useApp();
   const [tab, setTab] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [confirming, setConfirming] = useState<string | null>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const openerRef = useRef<HTMLButtonElement | null>(null);
 
   const counts: Record<Filter, number> = {
     all: library.length,
@@ -55,13 +58,27 @@ export function LibraryView() {
     );
   }, [library, tab, sort]);
 
-  // Focus the confirmation so keyboard users land on the decision they opened.
+  // Focus the confirmation so keyboard users land on the decision they opened,
+  // then hand focus back to the control that opened it on cancel.
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
+    else openerRef.current?.focus();
   }, [confirming]);
+
+  const summary =
+    booting && library.length === 0
+      ? "Loading your collection"
+      : items.length === library.length
+        ? `${library.length} title${library.length === 1 ? "" : "s"} in your collection`
+        : `${items.length} of ${library.length} titles`;
 
   const remove = (item: LibraryItem) => {
     setConfirming(null);
+    // The card is about to disappear: land focus on the grid, or the heading
+    // when this was the last title in the active filter.
+    openerRef.current = null;
+    if (items.length === 1) headingRef.current?.focus();
+    else gridRef.current?.focus();
     void toggleLibrary({
       id: item.id,
       type: item.type,
@@ -101,12 +118,10 @@ export function LibraryView() {
               Watched
             </button>
           </nav>
-          <h1>Saved for later</h1>
-          <p className="page-sub">
-            {items.length === library.length
-              ? `${library.length} title${library.length === 1 ? "" : "s"} in your collection`
-              : `${items.length} of ${library.length} titles`}
-          </p>
+          <h1 ref={headingRef} tabIndex={-1}>
+            Saved for later
+          </h1>
+          <p className="page-sub">{summary}</p>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
           <div className="segmented" role="group" aria-label="Filter library by type">
@@ -138,7 +153,9 @@ export function LibraryView() {
         </div>
       </header>
 
-      {items.length === 0 ? (
+      {booting && library.length === 0 ? (
+        <Loading variant="grid" label="Loading your library" />
+      ) : items.length === 0 ? (
         <EmptyState
           icon="library"
           title={EMPTY[tab].title}
@@ -156,12 +173,18 @@ export function LibraryView() {
           }
         />
       ) : (
-        <div className="grid">
+        <div
+          className="grid"
+          ref={gridRef}
+          role="list"
+          aria-label="Saved titles"
+          tabIndex={-1}
+        >
           {cards.map((card) => {
             const item = card.item;
             const isConfirming = confirming === item.id;
             return (
-              <div className="library-cell" key={item.id}>
+              <div className="library-cell" role="listitem" key={item.id}>
                 <PosterCard item={card.preview} onOpen={card.onOpen} onPlay={card.onPlay} />
                 {isConfirming ? (
                   <div
@@ -189,9 +212,12 @@ export function LibraryView() {
                     type="button"
                     className="library-remove"
                     aria-label={`Remove ${item.name} from your library`}
-                    onClick={() => setConfirming(item.id)}
+                    onClick={(event) => {
+                      openerRef.current = event.currentTarget;
+                      setConfirming(item.id);
+                    }}
                   >
-                    ×
+                    <Icon name="x" size={14} />
                   </button>
                 )}
               </div>

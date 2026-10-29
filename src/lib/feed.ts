@@ -13,7 +13,10 @@ export function cachedFeed(): HomeFeed | null {
   if (memory) return memory;
   try {
     const raw = localStorage.getItem(FEED_CACHE);
-    return raw ? (JSON.parse(raw) as HomeFeed) : null;
+    if (!raw) return null;
+    // A store written by an older build or another tool must not crash the home.
+    const parsed = JSON.parse(raw) as HomeFeed | null;
+    return parsed && Array.isArray(parsed.rows) ? parsed : null;
   } catch {
     return null;
   }
@@ -58,7 +61,10 @@ export function loadFeed(fetchFeed: () => Promise<HomeFeed>): Promise<HomeFeed> 
 export function cachedRecos(): HomeRow[] {
   try {
     const raw = localStorage.getItem(RECO_CACHE);
-    return raw ? (JSON.parse(raw) as HomeRow[]) : [];
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    // Anything but a row list would reach `.map` on the search screen.
+    return Array.isArray(parsed) ? (parsed as HomeRow[]) : [];
   } catch {
     return [];
   }

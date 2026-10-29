@@ -10,12 +10,13 @@ import {
   episodeCode,
   placeholderGradient,
   progressPercent,
-  seasonLabel,
+  scoreLabel,
   timeAgo,
 } from "../lib/format";
 
 // Title pages are the most revisited screen, so the last payload paints first.
 const DETAILS_CACHE = new Map<string, Details>();
+const DETAILS_CACHE_LIMIT = 40;
 
 function firstSeason(details: Details): number | null {
   const seasons = [...new Set(details.videos.map((video) => video.season ?? 1))].sort(
@@ -25,9 +26,18 @@ function firstSeason(details: Details): number | null {
   return seasons.find((value) => value > 0) ?? seasons[0] ?? null;
 }
 
+/** The first episode of the default season, so Specials never lead. */
+function firstEpisode(details: Details): Video | null {
+  const season = firstSeason(details);
+  return (
+    details.videos
+      .filter((video) => (video.season ?? 1) === season)
+      .sort((a, b) => (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0))[0] ?? null
+  );
+}
+
 export function DetailsView({ id, type }: { id: string; type: string }) {
   const cacheKey = `${type}:${id}`;
-  const cached = DETAILS_CACHE.get(cacheKey);
   const {
     navigate,
     playRequest,
@@ -42,35 +52,41 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     settings,
   } = useApp();
 
-  const [details, setDetails] = useState<Details | null>(() => cached ?? null);
-  const [loading, setLoading] = useState(() => !cached);
+  // Keyed by cacheKey so a title swap can never paint the previous payload.
+  const [loaded, setLoaded] = useState<{ key: string; details: Details } | null>(() => {
+    const hit = DETAILS_CACHE.get(cacheKey);
+    return hit ? { key: cacheKey, details: hit } : null;
+  });
   const [error, setError] = useState<string | null>(null);
-  const [season, setSeason] = useState<number | null>(() => (cached ? firstSeason(cached) : null));
+  const [picked, setPicked] = useState<{ key: string; season: number } | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
+  const details = loaded?.key === cacheKey ? loaded.details : null;
 
   useEffect(() => {
     let alive = true;
     const hit = DETAILS_CACHE.get(cacheKey);
-    if (!hit) setLoading(true);
     setError(null);
     setImageFailed(false);
+    setPhotos({});
+    setBrokenPhotos({});
+    setSimilar([]);
     api
       .details(id, type)
       .then((result) => {
         if (!alive) return;
+        if (DETAILS_CACHE.size >= DETAILS_CACHE_LIMIT) {
+          const oldest = DETAILS_CACHE.keys().next();
+          if (!oldest.done) DETAILS_CACHE.delete(oldest.value);
+        }
         DETAILS_CACHE.set(cacheKey, result);
-        setDetails(result);
-        setSeason((current) => current ?? firstSeason(result));
+        setLoaded({ key: cacheKey, details: result });
       })
       .catch((e: unknown) => {
         if (alive && !hit) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
       });
     return () => {
       alive = false;
@@ -121,6 +137,15 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     [details],
   );
 
+  const defaultSeason = useMemo(() => (details ? firstSeason(details) : null), [details]);
+
+  // A pick only counts for the title it was made on, and only while that season
+  // still exists, so switching titles never leaves an empty episode list.
+  const season =
+    picked && picked.key === cacheKey && seasons.includes(picked.season)
+      ? picked.season
+      : defaultSeason;
+
   const episodes = useMemo(
     () =>
       (details?.videos ?? [])
@@ -139,20 +164,22 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       return {
         video: null,
         position: entry?.position ?? 0,
-        label: entry ? `Resume · ${timeAgo(entry.updatedAt)}` : "Play",
+        label: entry ? `Resume ${timeAgo(entry.updatedAt)}` : "Play",
       };
     }
-    const video =
+    const stored =
+      seriesProgress &&
       details.videos.find(
         (candidate) =>
-          candidate.season === seriesProgress?.season &&
-          (candidate.episode ?? candidate.number) === seriesProgress?.episode,
-      ) ?? details.videos[0] ?? null;
+          candidate.season === seriesProgress.season &&
+          (candidate.episode ?? candidate.number) === seriesProgress.episode,
+      );
+    const video = stored || firstEpisode(details);
     const entry = video ? progressFor(buildSession(details, video).key) : undefined;
     return {
       video,
       position: entry?.position ?? 0,
-      label: entry ? "Resume" : "Play",
+      label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
   }, [details, seriesProgress, progressFor, buildSession]);
 
@@ -175,10 +202,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   const openSources = (video: Video | null) => {
     if (!details) return;
-    let target = video;
-    if (details.type === "series" && !target) {
-      target = resumeTarget.video ?? details.videos[0] ?? null;
-    }
+    const target = video ?? (details.type === "series" ? resumeTarget.video : null);
     if (details.type === "series" && !target) {
       notify("This show has no episodes listed yet.", "error");
       return;
@@ -189,9 +213,12 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const startStream = async (stream: StreamOption) => {
     if (!details || !drawer) return;
     const session = buildSession(details, drawer.video);
-    const resume = settings?.autoResume ? progressFor(session.key)?.position ?? 0 : 0;
+    const stored = settings?.autoResume ? progressFor(session.key) : undefined;
+    // A finished session restarts instead of opening on its last seconds.
+    const resume =
+      stored && progressPercent(stored.position, stored.duration) < 90 ? stored.position : 0;
     const title = drawer.video
-      ? `${details.name} · ${seasonLabel(drawer.video.season, drawer.video.episode ?? drawer.video.number)}`
+      ? `${details.name} · ${episodeCode(drawer.video)}`
       : details.name;
     try {
       const url = await resolveStream(stream);
@@ -217,28 +244,25 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         }
       : null;
 
-  if (loading) {
+  if (!details) {
     return (
       <div className="page">
-        <Loading variant="detail" label="Loading title" />
-      </div>
-    );
-  }
-
-  if (error || !details) {
-    return (
-      <div className="page">
-        <EmptyState
-          icon="info"
-          title="Could not load this title"
-          body={error ?? "Unknown error"}
-          action={<Button onClick={() => navigate({ name: "home" })}>Back home</Button>}
-        />
+        {error ? (
+          <EmptyState
+            icon="info"
+            title="Could not load this title"
+            body={error}
+            action={<Button onClick={() => navigate({ name: "home" })}>Back home</Button>}
+          />
+        ) : (
+          <Loading variant="detail" label="Loading title" />
+        )}
       </div>
     );
   }
 
   const inWatchlist = inLibrary(details.id);
+  const rating = scoreLabel(details.rating);
   const trailer = details.trailer;
   const logo = details.logo ?? rememberedLogo(details.id);
 
@@ -274,9 +298,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                 <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
                 {details.year ? <span>{details.year}</span> : null}
                 {details.runtime ? <span>{details.runtime}</span> : null}
-                {details.rating ? (
+                {rating ? (
                   <span className="detail-rating">
-                    <span>{details.rating}</span>
+                    <span>{rating}</span>
                     <ImdbMark />
                   </span>
                 ) : null}
@@ -290,13 +314,16 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               <p className="detail-overview">{details.description || "No overview yet."}</p>
 
               <div className="detail-actions">
-                <Button
-                  variant="primary"
-                  icon="play"
+                <button
+                  type="button"
+                  className="btn btn-primary"
                   onClick={playOrResume}
                   disabled={details.type === "series" && details.videos.length === 0}
+                  aria-label={resumeTarget.label}
                   title={resumeTarget.label}
-                />
+                >
+                  <Icon name="play" size={17} />
+                </button>
                 <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
                   Sources
                 </Button>
@@ -310,7 +337,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                       poster: details.poster,
                       background: details.background,
                       releaseInfo: details.year,
-                      imdbRating: details.rating,
+                      imdbRating: rating,
                     })
                   }
                 >
@@ -364,13 +391,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <section className="detail-shell detail-section episodes">
           <div className="episodes-head">
             <h2>Episodes</h2>
-            <div className="season-tabs">
+            <div className="season-tabs" role="group" aria-label="Seasons">
               {seasons.map((value) => (
                 <button
                   key={value}
                   type="button"
                   className={`chip${season === value ? " is-active" : ""}`}
-                  onClick={() => setSeason(value)}
+                  aria-pressed={season === value}
+                  onClick={() => setPicked({ key: cacheKey, season: value })}
                 >
                   {value === 0 ? "Specials" : `Season ${value}`}
                 </button>
@@ -385,7 +413,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
               return (
                 <button
-                  key={video.id}
+                  key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
                   type="button"
                   className="episode"
                   onClick={() => openSources(video)}
@@ -400,7 +428,11 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                     <span className="episode-top">
                       <span className="episode-num">{episodeCode(video)}</span>
                       <span className="episode-title">{video.title ?? "Untitled episode"}</span>
-                      {entry ? <span className="episode-seen">Watched {timeAgo(entry.updatedAt)}</span> : null}
+                      {entry ? (
+                        <span className="episode-seen">
+                          {percent >= 90 ? `Watched ${timeAgo(entry.updatedAt)}` : "In progress"}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="episode-overview">{video.overview ?? ""}</span>
                     {percent > 0 ? (
@@ -420,12 +452,12 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <section className="detail-shell detail-section cast-section">
           <h2>Cast</h2>
           <div className="cast-grid">
-            {(details.cast ?? []).map((member) => {
+            {(details.cast ?? []).map((member, index) => {
               const photo = brokenPhotos[member.name]
                 ? undefined
                 : member.photo ?? photos[member.name];
               return (
-                <div className="cast-card" key={`${member.name}-${member.character}`}>
+                <div className="cast-card" key={`${member.name}:${index}`}>
                   <div className="cast-photo">
                     {photo ? (
                       <img

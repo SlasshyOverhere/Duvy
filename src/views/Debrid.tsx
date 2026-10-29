@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
 import type { DebridProvider } from "../lib/types";
 import { Badge, Button, Icon, Loading } from "../components/ui";
@@ -20,6 +20,7 @@ export function DebridView() {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const pending = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -54,35 +55,49 @@ export function DebridView() {
     setRevealed((current) => ({ ...current, [id]: false }));
   };
 
+  // set_key already confirmed the change, so the badge stays honest if the reload below fails.
+  const mark = (id: string, connected: boolean) =>
+    setProviders((current) =>
+      current.map((item) => (item.id === id ? { ...item, connected } : item)),
+    );
+
   const connect = async (provider: DebridProvider) => {
+    if (pending.current) return;
     const key = (drafts[provider.id] ?? "").trim();
     clearError(provider.id);
     if (!key) {
       fail(provider.id, `Enter your ${provider.name} key first.`);
       return;
     }
+    pending.current = true;
     setBusy(provider.id);
     try {
       await api.debrid.setKey(provider.id, key);
+      mark(provider.id, true);
       clearDraft(provider.id);
       await load();
     } catch (e) {
       fail(provider.id, message(e));
     } finally {
+      pending.current = false;
       setBusy(null);
     }
   };
 
   const disconnect = async (provider: DebridProvider) => {
+    if (pending.current) return;
     if (!window.confirm(`Disconnect ${provider.name}? The stored key is deleted.`)) return;
     clearError(provider.id);
+    pending.current = true;
     setBusy(provider.id);
     try {
       await api.debrid.setKey(provider.id, "");
+      mark(provider.id, false);
       await load();
     } catch (e) {
       fail(provider.id, message(e));
     } finally {
+      pending.current = false;
       setBusy(null);
     }
   };
@@ -110,6 +125,7 @@ export function DebridView() {
 
       {providers.map((provider) => {
         const working = busy === provider.id;
+        const locked = busy !== null;
         const draft = drafts[provider.id] ?? "";
         const shown = revealed[provider.id] ?? false;
         const error = errors[provider.id];
@@ -121,12 +137,12 @@ export function DebridView() {
                 <h3>{provider.name}</h3>
                 <p>{HINTS[provider.id] ?? "API key from the provider's account page."}</p>
               </div>
-              <div className="addon-actions">
+              <div className="addon-actions" aria-live="polite">
                 <Badge tone={provider.connected ? "good" : "neutral"}>
                   {provider.connected ? "Connected" : "Not connected"}
                 </Badge>
                 {provider.connected ? (
-                  <Button icon="x" disabled={working} onClick={() => void disconnect(provider)}>
+                  <Button icon="x" disabled={locked} onClick={() => void disconnect(provider)}>
                     {working ? "Working…" : "Disconnect"}
                   </Button>
                 ) : null}
@@ -137,7 +153,7 @@ export function DebridView() {
               className="field-row"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!working) void connect(provider);
+                if (!locked) void connect(provider);
               }}
             >
               <input
@@ -155,10 +171,10 @@ export function DebridView() {
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
-                disabled={working}
+                disabled={locked}
               />
               <Button
-                disabled={working}
+                disabled={locked}
                 title={shown ? "Hide the key" : "Show the key"}
                 onClick={() =>
                   setRevealed((current) => ({ ...current, [provider.id]: !shown }))
@@ -169,7 +185,7 @@ export function DebridView() {
               <Button
                 type="submit"
                 variant={provider.connected ? "soft" : "primary"}
-                disabled={working}
+                disabled={locked}
               >
                 {working ? "Checking…" : provider.connected ? "Replace" : "Connect"}
               </Button>

@@ -97,6 +97,8 @@ const SECTIONS: Section[] = [
 
 const NAV_GROUPS = ["App", "Playback", "Connections", "System"];
 
+const knownSection = (id?: string) => SECTIONS.some((item) => item.id === id);
+
 const ACCENTS = [
   { id: "ember", label: "Ember" },
   { id: "violet", label: "Violet" },
@@ -361,7 +363,9 @@ function Segmented<T extends string>({
 export function SettingsView({ section }: { section?: string }) {
   const { settings, saveSettings, notify, playRequest } = useApp();
   const mpv = useMpv();
-  const [tab, setTab] = useState(section ?? "general");
+  // A deep link can name a section this build does not have, so fall back
+  // instead of rendering a header with no panel under it.
+  const [tab, setTab] = useState(knownSection(section) ? (section as string) : "general");
   const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
   const [mpvPath, setMpvPath] = useState(settings?.mpvPath ?? "");
@@ -369,7 +373,7 @@ export function SettingsView({ section }: { section?: string }) {
   const [p2pAck, setP2pAck] = useState(false);
 
   useEffect(() => {
-    if (section) setTab(section);
+    if (knownSection(section)) setTab(section as string);
   }, [section]);
 
   useEffect(() => {
@@ -404,17 +408,21 @@ export function SettingsView({ section }: { section?: string }) {
       notify("The file picker is only available in the desktop app");
       return;
     }
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "mpv executable", extensions: ["exe", ""] }],
-    });
-    if (typeof selected !== "string") return;
-    await saveSettings({ mpvPath: selected });
-    const info = await api.mpvDetect(selected);
-    notify(
-      info ? `mpv detected: ${info.version}` : "That file did not answer --version",
-      info ? "success" : "error",
-    );
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "mpv executable", extensions: ["exe", ""] }],
+      });
+      if (typeof selected !== "string") return;
+      if (!(await update({ mpvPath: selected }))) return;
+      const info = await api.mpvDetect(selected);
+      notify(
+        info ? `mpv detected: ${info.version}` : "That file did not answer --version",
+        info ? "success" : "error",
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    }
   };
 
   const playLocalFile = async () => {
@@ -422,13 +430,17 @@ export function SettingsView({ section }: { section?: string }) {
       notify("Local file playback needs the desktop app");
       return;
     }
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "Video", extensions: ["mkv", "mp4", "webm", "avi", "mov", "m4v", "ts"] }],
-    });
-    if (typeof selected !== "string") return;
-    const name = selected.split(/[\\/]/).pop() ?? "Local file";
-    await playRequest({ url: selected, title: name });
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Video", extensions: ["mkv", "mp4", "webm", "avi", "mov", "m4v", "ts"] }],
+      });
+      if (typeof selected !== "string") return;
+      const name = selected.split(/[\\/]/).pop() ?? "Local file";
+      await playRequest({ url: selected, title: name });
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    }
   };
 
   const needle = query.trim().toLowerCase();
@@ -626,8 +638,8 @@ export function SettingsView({ section }: { section?: string }) {
                     />
                   </label>
                   <Button
+                    disabled={mpvPath.trim() === settings.mpvPath.trim()}
                     onClick={async () => {
-                      if (mpvPath.trim() === settings.mpvPath.trim()) return;
                       if (!(await update({ mpvPath: mpvPath.trim() }))) return;
                       notify("Player path saved", "success");
                     }}
@@ -780,7 +792,12 @@ export function SettingsView({ section }: { section?: string }) {
                       title="P2P playback is off"
                       description="Torrent sources stay out of search and detail pages."
                       control={
-                        <Button onClick={() => setP2pReview((open) => !open)}>
+                        <Button
+                          onClick={() => {
+                            setP2pReview((open) => !open);
+                            setP2pAck(false);
+                          }}
+                        >
                           {p2pReview ? "Close" : "Review and enable"}
                         </Button>
                       }
@@ -862,6 +879,7 @@ export function SettingsView({ section }: { section?: string }) {
                       onChange={(event) => setTmdbKey(event.target.value)}
                       placeholder="TMDB v3 API key"
                       aria-label="TMDB API key"
+                      autoComplete="off"
                       spellCheck={false}
                     />
                   </label>

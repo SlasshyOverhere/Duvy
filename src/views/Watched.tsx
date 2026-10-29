@@ -60,6 +60,8 @@ function errorText(error: unknown): string {
 
 function Thumb({ src, seed }: { src?: string | null; seed: string }) {
   const [failed, setFailed] = useState(false);
+  // A refreshed row can carry a new poster; retry the image with it.
+  useEffect(() => setFailed(false), [src]);
   return (
     <span className="calendar-thumb" style={{ background: placeholderGradient(seed) }}>
       {src && !failed ? (
@@ -129,8 +131,11 @@ export function WatchedView() {
   const isThisMonth =
     today.getFullYear() === month.getFullYear() && today.getMonth() === month.getMonth();
 
-  const step = (direction: number) =>
+  const step = (direction: number) => {
+    // A day expanded in one month must not stay open in the next.
+    setExpandedDay(null);
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  };
 
   const open = (item: WatchedItem) =>
     navigate({ name: "details", id: item.metaId, type: item.type });
@@ -149,7 +154,7 @@ export function WatchedView() {
       (items ?? []).map((item) => {
         const title = titleOf(item);
         return {
-          key: `${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`,
+          key: item.key,
           preview: {
             id: item.metaId,
             type: item.type,
@@ -177,26 +182,30 @@ export function WatchedView() {
             </button>
           </nav>
           <h1>Finished, not forgotten</h1>
-          <p className="page-sub">{status}</p>
+          <p className="page-sub" aria-live="polite">
+            {status}
+          </p>
         </div>
-        <div className="segmented" role="group" aria-label="Watched layout">
-          {(
-            [
-              ["calendar", "Calendar"],
-              ["posters", "Posters"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={mode === value}
-              className={mode === value ? "is-active" : ""}
-              onClick={() => setMode(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {items && items.length > 0 ? (
+          <div className="segmented" role="group" aria-label="Watched layout">
+            {(
+              [
+                ["calendar", "Calendar"],
+                ["posters", "Posters"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                className={mode === value ? "is-active" : ""}
+                onClick={() => setMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </header>
 
       {error ? (
@@ -272,7 +281,7 @@ export function WatchedView() {
                           <button
                             type="button"
                             className="calendar-item"
-                            key={`${item.metaId}-${item.season ?? 0}-${item.episode ?? item.watchedAt}`}
+                            key={item.key}
                             onClick={() => open(item)}
                             title={label}
                             aria-label={label}
@@ -303,9 +312,9 @@ export function WatchedView() {
           </div>
         </>
       ) : (
-        <div className="grid">
+        <div className="grid" role="list" aria-label="Finished titles">
           {cards.map((card) => (
-            <div className="watched-cell" key={card.key}>
+            <div className="watched-cell" role="listitem" key={card.key}>
               <PosterCard item={card.preview} caption onOpen={card.onOpen} />
               {card.meta ? <p className="watched-meta">{card.meta}</p> : null}
             </div>

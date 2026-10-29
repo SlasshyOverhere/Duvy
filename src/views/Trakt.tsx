@@ -107,7 +107,16 @@ export function TraktView() {
       const next = await api.trakt.begin(clientId.trim(), clientSecret.trim());
       setStatus(next);
       setClientSecret("");
-      setCode(next.connected || !next.userCode ? null : next.userCode);
+      if (next.connected) {
+        setCode(null);
+      } else if (next.userCode) {
+        setCode(next.userCode);
+      } else {
+        setCode(null);
+        setError(
+          "Trakt did not return an activation code. Check the client id and secret, then try again.",
+        );
+      }
     } catch (e) {
       setError(message(e));
     } finally {
@@ -187,7 +196,11 @@ export function TraktView() {
 
       {!status && !error ? <Loading variant="list" label="Reading local settings" count={3} /> : null}
 
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {status && !status.connected && code ? (
         <section className="settings-group">
@@ -234,7 +247,7 @@ export function TraktView() {
           <p className="settings-note">
             <Icon name="info" size={14} />
             <span>
-              The code expires after ten minutes. Cancel stops this window from checking; you can request
+              This window stops checking after five minutes. Cancel ends it sooner, and you can request
               a new code any time.
             </span>
           </p>
@@ -303,13 +316,13 @@ export function TraktView() {
               <h3>{status.username || "Trakt account"}</h3>
               <p>History merges newest-write-wins, so neither device overwrites the other blindly.</p>
             </div>
-            <Badge tone="good">connected</Badge>
+            <Badge tone="good">Connected</Badge>
           </div>
           <div className="settings-row">
             <div>
               <h3>Last sync</h3>
               <p>
-                {status.lastSync
+                {status.lastSync && Number.isFinite(status.lastSync)
                   ? new Date(status.lastSync).toLocaleString()
                   : "Never synced from this device."}
               </p>
@@ -332,7 +345,7 @@ export function TraktView() {
             ) : null}
           </div>
           {result ? (
-            <p className="settings-hint" style={{ marginTop: 14, marginBottom: 0 }}>
+            <p className="settings-hint" role="status" style={{ marginTop: 14, marginBottom: 0 }}>
               {summary(result)}
             </p>
           ) : null}

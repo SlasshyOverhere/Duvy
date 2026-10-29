@@ -19,7 +19,7 @@ const SettingsView = lazy(() =>
 );
 
 // Idle-prewarm the player chunk so clicking play never waits on the network.
-const prewarmPlayer = () => void import("./views/Player");
+const prewarmPlayer = () => void import("./views/Player").catch(() => {});
 if (typeof requestIdleCallback === "function") {
   requestIdleCallback(prewarmPlayer, { timeout: 4000 });
 } else {
@@ -31,9 +31,17 @@ if (typeof requestIdleCallback === "function") {
 // the library and playback history keep working while one view recovers.
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
+  private chunk = false;
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    // React caches a rejected chunk, so only a reload can retry a failed import.
+    this.chunk =
+      error instanceof Error &&
+      /dynamically imported module|Importing a module script|ChunkLoadError/i.test(error.message);
   }
 
   render() {
@@ -49,7 +57,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => this.setState({ failed: false })}
+            onClick={() => (this.chunk ? window.location.reload() : this.setState({ failed: false }))}
           >
             Try again
           </button>
@@ -64,7 +72,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
 
 function Toasts() {
   const { toasts, dismissToast } = useApp();
-  if (toasts.length === 0) return null;
+  // The live region stays mounted so a toast that arrives is announced.
   return (
     <div className="toasts" role="status" aria-live="polite">
       <AnimatePresence initial={false}>
@@ -115,7 +123,8 @@ function Screen() {
   // While something is playing the window shows the native video surface, so
   // the document itself has to stop painting its background.
   useEffect(() => {
-    document.documentElement.dataset.video = route.name === "player" ? "true" : "false";
+    if (route.name === "player") document.documentElement.dataset.video = "true";
+    else delete document.documentElement.dataset.video;
   }, [route.name]);
 
   if (booting) {
@@ -163,14 +172,11 @@ function Screen() {
         </ErrorBoundary>
         {/* The player covers the window, so it carries its own resize grips. */}
         <ResizeEdges />
-        <Toasts />
       </>
     );
   }
 
-  const viewKey = `${route.name}-${"id" in route ? route.id : ""}${
-    "mediaType" in route ? route.mediaType ?? "" : ""
-  }`;
+  const viewKey = `${route.name}-${"id" in route ? `${route.id}-${route.type}` : ""}`;
 
   return (
     <div className="app">
@@ -191,7 +197,6 @@ function Screen() {
             </ErrorBoundary>
           </main>
         </div>
-        <Toasts />
       </div>
       {preview ? (
         <div className="ob-preview">
@@ -206,6 +211,8 @@ export default function App() {
   return (
     <StoreProvider>
       <Screen />
+      {/* Outside the shell so boot and onboarding can report failures too. */}
+      <Toasts />
     </StoreProvider>
   );
 }

@@ -8,9 +8,16 @@
     <meta name="theme-color" content="#07080b" />
     <meta
       name="description"
-      content="Duvy — a fast, native desktop media hub. Bring your own addons."
+      content="Duvy - a fast, native desktop media hub. Bring your own addons."
     />
     <title>Duvy</title>
+    <style>
+      /* Paint the dark surface before the stylesheet arrives. */
+      html,
+      body {
+        background: #000;
+      }
+    </style>
     <link
       rel="preload"
       as="font"
@@ -26,8 +33,8 @@
         <div class="boot-mark">
           <svg viewBox="0 0 100 100" width="72" height="72" aria-hidden="true">
             <path
-              fill="var(--accent)"
-              fillRule="evenodd"
+              fill="#f0a53a"
+              fill-rule="evenodd"
               d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
             />
           </svg>

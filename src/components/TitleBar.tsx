@@ -25,6 +25,9 @@ const EDGES: Array<[string, Edge]> = [
   ["south-west", "SouthWest"],
 ];
 
+// A refused window call must not surface as an unhandled rejection.
+const run = (task: Promise<unknown>) => void task.catch(() => {});
+
 export function ResizeEdges() {
   if (!isTauri()) return null;
   const win = getCurrentWindow();
@@ -37,7 +40,7 @@ export function ResizeEdges() {
           aria-hidden="true"
           onPointerDown={(event) => {
             event.preventDefault();
-            void win.startResizeDragging(direction);
+            run(win.startResizeDragging(direction));
           }}
         />
       ))}
@@ -52,17 +55,17 @@ export function TitleBar() {
     if (!isTauri()) return;
     const win = getCurrentWindow();
     let alive = true;
-    void win.isMaximized().then((value) => {
-      if (alive) setMaximized(value);
-    });
-    const unlisten = win.onResized(() => {
-      void win.isMaximized().then((value) => {
-        if (alive) setMaximized(value);
-      });
-    });
+    const sync = () =>
+      run(
+        win.isMaximized().then((value) => {
+          if (alive) setMaximized(value);
+        }),
+      );
+    sync();
+    const unlisten = win.onResized(sync);
     return () => {
       alive = false;
-      void unlisten.then((off) => off());
+      run(unlisten.then((off) => off()));
     };
   }, []);
 
@@ -78,7 +81,7 @@ export function TitleBar() {
             type="button"
             className="titlebar-button"
             aria-label="Minimise"
-            onClick={() => void win.minimize()}
+            onClick={() => run(win.minimize())}
           >
             <svg viewBox="0 0 10 10" aria-hidden="true">
               <path d="M1 5h8" />
@@ -88,7 +91,7 @@ export function TitleBar() {
             type="button"
             className="titlebar-button"
             aria-label={maximized ? "Restore" : "Maximise"}
-            onClick={() => void win.toggleMaximize()}
+            onClick={() => run(win.toggleMaximize())}
           >
             <svg viewBox="0 0 10 10" aria-hidden="true">
               {maximized ? (
@@ -102,7 +105,7 @@ export function TitleBar() {
             type="button"
             className="titlebar-button is-close"
             aria-label="Close"
-            onClick={() => void win.close()}
+            onClick={() => run(win.close())}
           >
             <svg viewBox="0 0 10 10" aria-hidden="true">
               <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />

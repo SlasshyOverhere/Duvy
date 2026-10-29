@@ -1,4 +1,12 @@
-import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as KeyEvent,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -13,6 +21,25 @@ function initials(name: string) {
     .slice(0, 2)
     .map((word) => word[0]?.toUpperCase() ?? "")
     .join(" · ");
+}
+
+// The frame is the click surface; this transparent button carries the click so
+// the card never nests a play button inside a button role.
+const OPEN_LAYER: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  outlineOffset: -2,
+};
+
+/** Keyboard path for the right-click menu: ContextMenu key or Shift+F10. */
+function menuFromKey(event: KeyEvent<HTMLElement>) {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return null;
+  event.preventDefault();
+  const box = event.currentTarget.getBoundingClientRect();
+  return { x: box.left + 16, y: box.top + 16 };
 }
 
 // Mounted only while the menu is open, so the card itself stays unsubscribed.
@@ -112,27 +139,40 @@ export const PosterCard = memo(function PosterCard({
     <article className={`poster-card${wide ? " is-wide" : ""}`}>
       <div
         className={`poster-frame ${shapeClass}`}
-        role="button"
-        tabIndex={0}
-        aria-label={item.name}
         style={{ background: gradient } as CSSProperties}
-        onClick={onOpen}
         onContextMenu={(event) => {
           event.preventDefault();
           setMenu({ x: event.clientX, y: event.clientY });
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpen();
-          }
-        }}
       >
         {item.poster && !failed ? (
-          <img src={item.poster} alt="" loading="lazy" onError={() => setFailed(true)} />
+          <img
+            src={item.poster}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
         ) : (
-          <div className="poster-fallback">{initials(item.name)}</div>
+          <div className="poster-fallback">
+            {initials(item.name)}
+          </div>
         )}
+        {percent > 0 ? (
+          <div className="poster-progress">
+            <span style={{ width: `${Math.min(100, percent)}%` }} />
+          </div>
+        ) : null}
+        <button
+          type="button"
+          aria-label={`Open ${item.name}`}
+          style={OPEN_LAYER}
+          onClick={onOpen}
+          onKeyDown={(event) => {
+            const at = menuFromKey(event);
+            if (at) setMenu(at);
+          }}
+        />
         <div className="poster-hover">
           <span className="poster-hover-title">{item.name}</span>
           <span className="poster-hover-meta">
@@ -153,11 +193,6 @@ export const PosterCard = memo(function PosterCard({
           >
             <Icon name="play" size={17} />
           </button>
-        ) : null}
-        {percent > 0 ? (
-          <div className="poster-progress">
-            <span style={{ width: `${Math.min(100, percent)}%` }} />
-          </div>
         ) : null}
       </div>
       {caption ? (
@@ -213,8 +248,17 @@ export function Row({
       start = { x: event.clientX, left: node.scrollLeft };
       moved = false;
     };
+    const up = () => {
+      start = null;
+      node.classList.remove("is-dragging");
+    };
     const move = (event: PointerEvent) => {
       if (!start) return;
+      // A pointer released outside the window never reaches pointerup.
+      if (!event.buttons) {
+        up();
+        return;
+      }
       const dx = event.clientX - start.x;
       if (!moved && Math.abs(dx) < 6) return;
       if (!moved) {
@@ -223,10 +267,6 @@ export function Row({
       }
       event.preventDefault();
       node.scrollLeft = start.left - dx;
-    };
-    const up = () => {
-      start = null;
-      node.classList.remove("is-dragging");
     };
     const click = (event: MouseEvent) => {
       if (!moved) return;
@@ -294,7 +334,9 @@ export function ContinueCard({
   const [gone, setGone] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, refreshProgress, notify } = useApp();
-  const percent = progressPercent(position, duration);
+  const raw = progressPercent(position, duration);
+  const percent = Number.isFinite(raw) ? raw : 0;
+  const left = duration - position;
 
   const drop = (label: string, task: Promise<unknown>) => {
     void task
@@ -347,18 +389,28 @@ export function ContinueCard({
         event.preventDefault();
         setMenu({ x: event.clientX, y: event.clientY });
       }}
+      onKeyDown={(event) => {
+        const at = menuFromKey(event);
+        if (at) setMenu(at);
+      }}
       style={{ background: placeholderGradient(name) } as CSSProperties}
     >
       {(background || poster) && !failed ? (
-        <img src={background ?? poster ?? ""} alt="" loading="lazy" onError={() => setFailed(true)} />
+        <img
+          src={background ?? poster ?? ""}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
       ) : null}
       <span className="continue-scrim" />
       <span className="continue-body">
         <span className="continue-name">{name}</span>
         {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
       </span>
-      {duration > 0 ? (
-        <span className="continue-left">{remainingLabel(duration - position)}</span>
+      {Number.isFinite(left) && left > 0 ? (
+        <span className="continue-left">{remainingLabel(left)}</span>
       ) : null}
       <span className="continue-play">
         <Icon name="play" size={16} />
@@ -401,23 +453,29 @@ export function Hero({
   count?: number;
 }) {
   const [failed, setFailed] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [paused, setPaused] = useState(false);
 
   // A new featured title gets a clean attempt at its artwork.
-  useEffect(() => setFailed(false), [item.id]);
-
-  // Rotate the featured titles; hovering holds the current one.
   useEffect(() => {
-    if (!onNext || hovered) return;
+    setFailed(false);
+    setLogoFailed(false);
+  }, [item.id]);
+
+  // Rotate the featured titles; hovering or focusing holds the current one.
+  useEffect(() => {
+    if (!onNext || paused) return;
     const timer = setTimeout(onNext, 9000);
     return () => clearTimeout(timer);
-  }, [item.id, hovered, onNext]);
+  }, [item.id, paused, onNext]);
 
   return (
     <section
       className="hero"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
     >
       <AnimatePresence initial={false}>
         <motion.div
@@ -446,13 +504,19 @@ export function Hero({
       <div className="hero-body">
         <motion.div
           key={item.id}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ y: 12 }}
+          animate={{ y: 0 }}
           transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
         >
           <h1 className="hero-title">
-            {item.logo ? (
-              <img className="hero-logo" src={item.logo} alt={item.name} draggable={false} />
+            {item.logo && !logoFailed ? (
+              <img
+                className="hero-logo"
+                src={item.logo}
+                alt={item.name}
+                draggable={false}
+                onError={() => setLogoFailed(true)}
+              />
             ) : (
               item.name
             )}

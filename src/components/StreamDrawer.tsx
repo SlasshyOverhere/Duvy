@@ -29,6 +29,7 @@ function errorText(error: unknown) {
 
 export function StreamDrawer({
   title,
+  subtitle,
   open,
   request,
   onClose,
@@ -256,6 +257,18 @@ export function StreamDrawer({
   const total = groups.reduce((sum, group) => sum + group.streams.length, 0);
   const settled = groups.every((group) => group.state !== "loading");
   const pending = groups.filter((group) => group.state === "loading").length;
+  // An addon that failed already says so in its own group; the empty state is
+  // only for a panel with nothing to report.
+  const failed = groups.some((group) => group.error !== null);
+  const hasDisabledStreams = installed.some(
+    (addon) => !addon.enabled && addon.resources.includes("stream"),
+  );
+  const emptyBody =
+    groups.length > 0
+      ? "No stream addon returned a source for this title. Refresh to ask them again."
+      : hasDisabledStreams
+        ? "Every stream addon is disabled. Enable one in Addons, then refresh the sources."
+        : "Install a stream addon in Addons. Torrent sources play after you allow P2P in Settings → Playback.";
   const ranked = (group: Group) =>
     group.streams.length ? 0 : group.state === "error" ? 2 : 1;
   const visible = (filter === "all" ? groups : groups.filter((group) => group.key === filter))
@@ -277,7 +290,7 @@ export function StreamDrawer({
         className="drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={`Sources for ${title}`}
+        aria-label={subtitle ? `Sources for ${title}, ${subtitle}` : `Sources for ${title}`}
       >
         <div className="drawer-filter-bar">
           <button
@@ -299,15 +312,17 @@ export function StreamDrawer({
             onScroll={measure}
             title="Drag sideways for more addons"
           >
-            <button
-              type="button"
-              className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
-              onClick={() => targets.forEach((target) => load(target.key))}
-              aria-label="Refresh sources"
-              title="Refresh sources"
-            >
-              <Icon name="refresh" size={14} />
-            </button>
+            {targets.length ? (
+              <button
+                type="button"
+                className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
+                onClick={() => targets.forEach((target) => load(target.key))}
+                aria-label="Refresh sources"
+                title="Refresh sources"
+              >
+                <Icon name="refresh" size={14} />
+              </button>
+            ) : null}
             {groups
               .filter((group) => group.streams.length > 0 || group.state === "loading")
               .map((group) => (
@@ -365,13 +380,15 @@ export function StreamDrawer({
           {visible.map((group) => (
             <section className="stream-group" key={group.key}>
               {group.error ? (
-                <p className="stream-group-error">
+                <p className="stream-group-error" role="status">
                   {group.addon}: {group.error}
                 </p>
               ) : null}
 
               {group.state === "done" && !group.streams.length && !group.error ? (
-                <p className="stream-group-error">No sources from {group.addon}.</p>
+                <p className="stream-group-error" role="status">
+                  No sources from {group.addon}.
+                </p>
               ) : null}
 
               {group.streams.length ? (
@@ -408,6 +425,7 @@ export function StreamDrawer({
                             className="stream-play"
                             onClick={() => stream.playable && onPlay(stream)}
                             disabled={!stream.playable}
+                            title={stream.playable ? undefined : "This source has no playing link"}
                             aria-label={`Play ${label}`}
                           >
                             <span className="stream-head">
@@ -441,8 +459,8 @@ export function StreamDrawer({
                                 {audio ? <span className="stream-audio">{audio}</span> : null}
                               </>
                             )}
-                            {stream.sizeBytes != null && stream.size ? (
-                              <span className="stream-size-line">SIZE {stream.size}</span>
+                            {body && stream.sizeBytes != null && stream.size ? (
+                              <span className="stream-size-line">{stream.size}</span>
                             ) : null}
                           </button>
                           {url ? (
@@ -450,15 +468,19 @@ export function StreamDrawer({
                               type="button"
                               className="icon-btn stream-more"
                               aria-label="Stream link actions"
+                              aria-haspopup="menu"
                               title="Stream link actions"
-                              onClick={(event) =>
+                              onClick={(event) => {
+                                // A keyboard press reports 0,0: anchor the menu
+                                // to the button instead of the corner.
+                                const box = event.currentTarget.getBoundingClientRect();
                                 setMenu({
-                                  x: event.clientX,
-                                  y: event.clientY,
+                                  x: event.clientX || box.left,
+                                  y: event.clientY || box.bottom,
                                   title: label,
                                   url,
-                                })
-                              }
+                                });
+                              }}
                             >
                               <Icon name="more" size={15} />
                             </button>
@@ -493,17 +515,17 @@ export function StreamDrawer({
             />
           ) : null}
 
-          {settled && total === 0 ? (
+          {settled && total === 0 && !failed ? (
             <EmptyState
               icon="puzzle"
               title="No sources yet"
-              body="Install a stream addon in Addons. Torrent sources play after you allow P2P in Settings → Playback."
+              body={emptyBody}
               action={<Button onClick={onClose}>Close</Button>}
             />
           ) : null}
         </div>
 
-        <footer className="drawer-foot">
+        <footer className="drawer-foot" role="status">
           {pending > 0 ? (
             <span className="drawer-status">
               <Icon name="refresh" size={12} className="drawer-spin" />

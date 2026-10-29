@@ -81,13 +81,18 @@ export function TopBar() {
     () => document.documentElement.dataset.fullscreen === "on",
   );
 
-  const toggleFullscreen = useCallback(() => {
+  const toggleFullscreen = useCallback(async () => {
     const next = !fullscreen;
+    try {
+      await api.window.fullscreen(next);
+    } catch {
+      // The window refused, so the button keeps reporting the real state.
+      return;
+    }
     setFullscreen(next);
     // Fullscreen drops the floating window buttons along with the frame.
     if (next) document.documentElement.dataset.fullscreen = "on";
     else delete document.documentElement.dataset.fullscreen;
-    void api.window.fullscreen(next);
   }, [fullscreen]);
 
   useEffect(() => {
@@ -103,18 +108,23 @@ export function TopBar() {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing =
-        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
       if (
         (event.key === "/" && !typing) ||
         (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))
       ) {
+        // Navigating again from search would stack an entry and drop the query.
+        if (route.name === "search") return;
         event.preventDefault();
         navigate({ name: "search" });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
+  }, [navigate, route.name]);
 
   return (
     <header className={`topbar${route.name === "details" ? " topbar-detail" : ""}`}>
