@@ -1,6 +1,15 @@
 name: Release
 
 on:
+  # A dispatch runs on main so the build cache lands in the default-branch
+  # scope, the only one a later release can read. Caches are scoped per ref:
+  # one saved under a tag is invisible to every other tag.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 0.1.5)"
+        required: true
+  # Fallback: a tag still builds. It can read the main cache, not save one.
   push:
     tags: ["v*"]
 
@@ -16,6 +25,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # A dispatch builds the default branch, never whatever ref was picked.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'refs/heads/main' || github.ref }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -24,18 +35,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # One key for every release, so the entry the last release saved is
+          # found. CI keeps its own key: its debug artifacts would evict this.
+          shared-key: release
+          cache-on-failure: true
+          # A tag run may read the main cache, but must not leave its own
+          # orphan behind: only a dispatch writes.
+          save-if: ${{ github.event_name == 'workflow_dispatch' }}
 
       - run: bun install --frozen-lockfile
 
-      # The tag is the version. Cargo, the Tauri config and the updater all read
-      # it from here, so they can never disagree.
-      - name: Set version from tag
+      # A dispatch types the version, a tag carries it. Cargo, the Tauri config
+      # and the updater all read it from here, so they can never disagree.
+      - name: Resolve version
+        id: version
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
-            throw "Tag '$env:GITHUB_REF_NAME' is not v<major>.<minor>.<patch>"
+          $version = if ($env:INPUT_VERSION) {
+            $env:INPUT_VERSION.Trim() -replace '^v', ''
+          } else {
+            $env:REF_NAME -replace '^v', ''
           }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "'$version' is not <major>.<minor>.<patch>"
+          }
+          if (git tag --list "v$version") { throw "v$version is already tagged" }
+
           foreach ($file in 'package.json', 'src-tauri/tauri.conf.json') {
             (Get-Content $file -Raw) -replace '"version": "[^"]+"', "`"version`": `"$version`"" |
               Set-Content $file -NoNewline
@@ -48,6 +76,7 @@ jobs:
           if ($conf.version -ne $version -or $cargo.Matches[0].Groups[1].Value -ne $version) {
             throw "version did not land in every manifest"
           }
+          "version=$version" >> $env:GITHUB_OUTPUT
           "Releasing $version"
 
       # The notes are the PRs and nothing else: GitHub resolves a squash or a
@@ -58,16 +87,17 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.version }}
         run: |
           $prev = git tag --list 'v*' --sort=-v:refname |
-            Where-Object { $_ -ne $env:GITHUB_REF_NAME } | Select-Object -First 1
+            Where-Object { $_ -ne $env:TAG } | Select-Object -First 1
           $repo = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
           if ($prev) {
-            $request = @{ tag_name = $env:GITHUB_REF_NAME; previous_tag_name = $prev }
-            $compare = "$repo/compare/$prev...$env:GITHUB_REF_NAME"
+            $request = @{ tag_name = $env:TAG; previous_tag_name = $prev }
+            $compare = "$repo/compare/$prev...$env:TAG"
           } else {
-            $request = @{ tag_name = $env:GITHUB_REF_NAME }
-            $compare = "$repo/commits/$env:GITHUB_REF_NAME"
+            $request = @{ tag_name = $env:TAG }
+            $compare = "$repo/commits/$env:TAG"
           }
 
           $raw = $request | ConvertTo-Json |
@@ -109,8 +139,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tauriScript: bun run tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: Duvy ${{ github.ref_name }}
+          tagName: v${{ steps.version.outputs.version }}
+          releaseName: Duvy v${{ steps.version.outputs.version }}
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
