@@ -190,6 +190,27 @@ check("a dropped pause request is caught", () => {
   return bad;
 });
 
+check("a volume request is judged by the echo, not a rounding race", () => {
+  const bad: string[] = [];
+  const dropped = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { volume: 100 })),
+    { kind: "volume", to: 124 },
+  );
+  if (!dropped.includes("control-volume")) bad.push("a request that never landed was missed");
+  // A burst of writes can land one unit off the last value the app recorded.
+  const beside = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { volume: 125 })),
+    { kind: "volume", to: 124 },
+  );
+  if (beside.includes("control-volume")) bad.push("a neighbouring volume was called ignored");
+  const honoured = run(
+    Array.from({ length: 6 }, (_, i) => tick(i * 1000, { volume: 124 })),
+    { kind: "volume", to: 124 },
+  );
+  if (honoured.includes("control-volume")) bad.push("a volume that took effect was flagged");
+  return bad;
+});
+
 check("a seek that never lands is caught", () => {
   const bad: string[] = [];
   const dropped = run(
