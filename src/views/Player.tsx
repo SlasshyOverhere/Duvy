@@ -30,6 +30,8 @@ import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } 
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+// How much of the file counts as the ending when there is no credits marker.
+const NEXT_LEAD = 45;
 const SUB_STYLE_KEY = "duvy.subtitleStyle";
 const VIDEO_MODE_KEY = "duvy.videoMode";
 const VOLUME_KEY = "duvy.volume";
@@ -1340,7 +1342,22 @@ export function PlayerView() {
   const activeAudio = audioTracks.find((track) => track.id === local?.activeAudio) ?? null;
   const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
   const step = settings?.seekStep ?? 10;
-  const showNext = Boolean(nextEpisode && !nextOff && !failed && local?.ended);
+  // Up next is offered once the episode is effectively over: from the credits
+  // marker when there is one, otherwise in the last stretch of the file. It is
+  // never an action, so there is no countdown and nothing starts on its own.
+  const outroAt = markers?.outroStart;
+  const nextAt =
+    duration > 0 && outroAt != null && outroAt > 0 && outroAt < duration - 2
+      ? outroAt
+      : duration > 60
+        ? duration - NEXT_LEAD
+        : null;
+  const showNext = Boolean(
+    nextEpisode &&
+      !nextOff &&
+      !failed &&
+      (local?.ended || (nextAt != null && position >= nextAt)),
+  );
 
   const playVideo = useCallback(
     async (video: Video) => {
