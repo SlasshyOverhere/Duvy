@@ -62,7 +62,8 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
             throw "'$version' is not <major>.<minor>.<patch>"
           }
-          if (git tag --list "v$version") { throw "v$version is already tagged" }
+          # Only a dispatch can collide with an existing tag; a tag push is the tag.
+          if ($env:INPUT_VERSION -and (git tag --list "v$version")) { throw "v$version is already tagged" }
 
           foreach ($file in 'package.json', 'src-tauri/tauri.conf.json') {
             (Get-Content $file -Raw) -replace '"version": "[^"]+"', "`"version`": `"$version`"" |
