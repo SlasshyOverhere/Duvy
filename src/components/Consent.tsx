@@ -47,7 +47,9 @@ export function CrashReporting() {
         <p>
           When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A
           report carries the error, the screen it happened on, the app version and the last few
-          playback steps: title, episode, position.
+          playback steps: title, episode, position. It can also include a short
+          recording of the window with every word and picture blanked out, and how long
+          each screen took.
         </p>
         <p className="consent-fine">
           No accounts, tokens or file paths, and links are cut down to the host. Off until you say

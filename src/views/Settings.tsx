@@ -219,7 +219,7 @@ function PrivacyPanel() {
           title="Send error reports"
           description={
             telemetryAvailable
-              ? "The error, the screen it happened on, the app version and the last few playback steps. Never accounts, tokens or links."
+              ? "The error, the screen it happened on, the app version and the last few playback steps, plus a masked recording with every word and picture blanked out. Never accounts, tokens or links."
               : "This build has no reporting endpoint, so reports stay on this machine."
           }
           control={

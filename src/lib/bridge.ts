@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import * as Sentry from "@sentry/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { rememberLogos } from "./art";
 import type {
@@ -52,7 +53,8 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
     const { mock } = await import("./mock");
     return mock(command, args) as Promise<T>;
   }
-  return invoke<T>(command, args);
+  // One span per backend call, so a slow screen shows which command stalled.
+  return Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<T>(command, args));
 }
 
 export const api = {
