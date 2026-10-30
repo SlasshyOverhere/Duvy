@@ -4820,10 +4820,20 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sk {
+  position: relative;
   display: block;
+  overflow: hidden;
   border-radius: 8px;
-  background: linear-gradient(100deg, #131313 25%, #222222 42%, #131313 59%);
-  background-size: 220% 100%;
+  background: #131313;
+}
+
+/* The highlight travels on its own layer inside the shape, so the placeholder
+   stays exactly where its card will be; nothing slides across the page. */
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 26%, #222222 42%, transparent 58%);
   animation: sk-shimmer 1.4s linear infinite;
 }
 
