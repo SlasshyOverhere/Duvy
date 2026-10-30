@@ -506,22 +506,11 @@ select {
     inset 0 0 0 1px var(--glass-edge-soft);
 }
 
-/* Names appear when the dock is reached, so the bar stays icon-sized. */
+/* Labels are part of the bar: a bar that resizes under the cursor is the
+   glitch, so nothing about the dock changes on hover. */
 .dock-label {
   display: inline-block;
-  max-width: 0;
-  margin-left: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-width 0.26s var(--ease), margin-left 0.26s var(--ease),
-    opacity 0.18s var(--ease);
-}
-
-.dock:hover .dock-label,
-.dock:focus-within .dock-label {
-  max-width: 90px;
   margin-left: 8px;
-  opacity: 1;
 }
 
 .topbar-left {
@@ -604,31 +593,17 @@ button.pill:hover {
   color: var(--accent);
 }
 
-/* The window buttons always keep the corner: the chip gives way first, the
-   dock's hover labels would widen it into the strip, and the warning pills go
-   only once the window is too narrow to hold both. */
+/* The window buttons always keep the corner: the chip gives way first, and the
+   warning pills go only once the window is too narrow to hold both. */
 @media (max-width: 1600px) {
   .now-playing {
     max-width: 150px;
-  }
-
-  .dock:hover .dock-label {
-    max-width: 0;
-    margin-left: 0;
-    opacity: 0;
   }
 }
 
 @media (max-width: 1400px) {
   .now-playing {
     max-width: 96px;
-  }
-
-  /* Below this the open labels would reach the chip, focus included. */
-  .dock:focus-within .dock-label {
-    max-width: 0;
-    margin-left: 0;
-    opacity: 0;
   }
 }
 
