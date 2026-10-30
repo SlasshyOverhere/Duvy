@@ -5,6 +5,7 @@ import { ResizeEdges, WindowControls } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
 import { report } from "./lib/telemetry";
 import { CrashReporting } from "./components/Consent";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import { Icon } from "./components/ui";
 import { HomeView } from "./views/Home";
 import { Onboarding } from "./views/Onboarding";
@@ -231,6 +232,7 @@ export default function App() {
       <ResizeEdges />
       {/* Outside the shell so boot and onboarding can report failures too. */}
       <Toasts />
+      <UpdatePrompt />
       <CrashReporting />
     </StoreProvider>
   );

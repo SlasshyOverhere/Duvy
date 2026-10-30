@@ -527,6 +527,7 @@ pub fn run() {
             commands::settings_get,
             commands::settings_set,
             updates::update_check,
+            updates::update_prefetch,
             updates::update_install,
             commands::addons_list,
             commands::addons_install,

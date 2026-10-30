@@ -45,6 +45,8 @@ const ACTION_WINDOW_MS = 2_500;
 const ACTION_GIVE_UP_MS = 8_000;
 /** Backwards by more than this between two ticks, with no seek, is a rewind. */
 const JUMP_BACK = 2;
+/** mpv echoes whole units; a burst of writes can leave a neighbouring value. */
+const VOLUME_SLACK = 2;
 const HISTORY = 240;
 
 export function createWatch(now: number): Watch {
@@ -87,8 +89,14 @@ export function sample(watch: Watch, next: Sample): Issue[] {
   };
 
   if (next.playing && !next.paused && !next.ended) {
-    const anchor = watch.samples.find((item) => item.at >= next.at - STALL_MS) ?? next;
-    if (next.at - anchor.at >= STALL_MS - 1_000 && next.position - anchor.position < STALL_MIN_DELTA) {
+    // The anchor is the last sample the playhead actually moved in, so a seek
+    // resets it instead of leaving an older, larger position behind it.
+    const anchor = watch.samples.reduce(
+      (last, item) =>
+        Math.abs(item.position - next.position) >= STALL_MIN_DELTA ? item : last,
+      watch.samples[0],
+    );
+    if (next.at - anchor.at >= STALL_MS) {
       fire("stall", "Playback is playing but the position never moves", {
         position: round(next.position),
         duration: round(next.duration),
@@ -137,13 +145,16 @@ export function sample(watch: Watch, next: Sample): Issue[] {
           next.duration > 0 &&
           Math.abs(next.position - sent.from.position) < 2) ||
         (sent.kind === "speed" && Math.abs(next.speed - sent.to) > 0.01) ||
-        (sent.kind === "volume" && Math.abs(next.volume - sent.to) > 0.01);
+        (sent.kind === "volume" && Math.abs(next.volume - sent.to) > VOLUME_SLACK);
       if (ignored) {
-        fire(`control-${sent.kind}`, `The player ignored a ${sent.kind} request`, {
+        const data: Record<string, unknown> = {
           requested: sent.kind === "pause" ? !sent.from.paused : round(sent.to),
           position: round(next.position),
           paused: next.paused,
-        });
+        };
+        // The measured value is what answers "ignored, or just not yet".
+        if (sent.kind === "volume") data.volume = round(next.volume);
+        fire(`control-${sent.kind}`, `The player ignored a ${sent.kind} request`, data);
       }
     }
     if (age >= ACTION_GIVE_UP_MS) watch.action = null;

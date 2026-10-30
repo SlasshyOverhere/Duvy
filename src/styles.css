@@ -506,22 +506,11 @@ select {
     inset 0 0 0 1px var(--glass-edge-soft);
 }
 
-/* Names appear when the dock is reached, so the bar stays icon-sized. */
+/* Labels are part of the bar: a bar that resizes under the cursor is the
+   glitch, so nothing about the dock changes on hover. */
 .dock-label {
   display: inline-block;
-  max-width: 0;
-  margin-left: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-width 0.26s var(--ease), margin-left 0.26s var(--ease),
-    opacity 0.18s var(--ease);
-}
-
-.dock:hover .dock-label,
-.dock:focus-within .dock-label {
-  max-width: 90px;
   margin-left: 8px;
-  opacity: 1;
 }
 
 .topbar-left {
@@ -604,31 +593,17 @@ button.pill:hover {
   color: var(--accent);
 }
 
-/* The window buttons always keep the corner: the chip gives way first, the
-   dock's hover labels would widen it into the strip, and the warning pills go
-   only once the window is too narrow to hold both. */
+/* The window buttons always keep the corner: the chip gives way first, and the
+   warning pills go only once the window is too narrow to hold both. */
 @media (max-width: 1600px) {
   .now-playing {
     max-width: 150px;
-  }
-
-  .dock:hover .dock-label {
-    max-width: 0;
-    margin-left: 0;
-    opacity: 0;
   }
 }
 
 @media (max-width: 1400px) {
   .now-playing {
     max-width: 96px;
-  }
-
-  /* Below this the open labels would reach the chip, focus included. */
-  .dock:focus-within .dock-label {
-    max-width: 0;
-    margin-left: 0;
-    opacity: 0;
   }
 }
 
@@ -3644,6 +3619,78 @@ input[type="range"]::-webkit-slider-thumb {
   transition: width 0.2s linear;
 }
 
+/* The update announcement sits in the middle of the window: it carries a
+   version, a meter and one action, which a corner toast cannot hold. */
+.update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.66);
+}
+
+.update-prompt {
+  position: relative;
+  width: min(460px, 100%);
+  padding: 28px 28px 24px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.update-prompt h2 {
+  margin: 0 0 8px;
+  padding-right: 28px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.update-prompt p {
+  margin: 0;
+  max-width: 42ch;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.update-prompt .update-meter {
+  margin-top: 18px;
+  height: 6px;
+}
+
+.update-prompt .update-bytes {
+  margin: 10px 0 0;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.update-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--faint);
+}
+
+.update-close:hover {
+  color: var(--text);
+}
+
 /* Trakt, Debrid and Torrent ship as standalone pages; inside a settings card
    their own page chrome and card shells would nest, so they flatten. */
 .settings-embed > .page {
@@ -4773,10 +4820,20 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sk {
+  position: relative;
   display: block;
+  overflow: hidden;
   border-radius: 8px;
-  background: linear-gradient(100deg, #131313 25%, #222222 42%, #131313 59%);
-  background-size: 220% 100%;
+  background: #131313;
+}
+
+/* The highlight travels on its own layer inside the shape, so the placeholder
+   stays exactly where its card will be; nothing slides across the page. */
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 26%, #222222 42%, transparent 58%);
   animation: sk-shimmer 1.4s linear infinite;
 }
 

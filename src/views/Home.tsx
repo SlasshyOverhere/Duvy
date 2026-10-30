@@ -123,14 +123,16 @@ export function HomeView() {
   // reloading the whole feed.
   const continuing = useMemo(() => {
     const seen = new Set<string>();
+    const marked = new Set(watched.map((mark) => mark.key));
     const rows: ProgressItem[] = [];
     for (const row of progress) {
+      // The newest row picks the title before the filters run. Skipping it and
+      // taking the next episode is how the card used to move backwards.
+      if (seen.has(row.metaId)) continue;
+      seen.add(row.metaId);
       if (row.duration <= 0 || row.position <= 5) continue;
       if (progressPercent(row.position, row.duration) >= 90) continue;
-      if (seen.has(row.metaId)) continue;
-      const marked = watched.some((mark) => mark.key === row.key);
-      if (marked) continue;
-      seen.add(row.metaId);
+      if (marked.has(row.key)) continue;
       rows.push(row);
     }
     return rows.slice(0, 30);
@@ -139,10 +141,13 @@ export function HomeView() {
   // One map for the card progress bars, so a row of cards costs no scans.
   const resumeProgress = useMemo(() => {
     const marked = new Set(watched.map((mark) => mark.key));
+    const seen = new Set<string>();
     const map = new Map<string, ProgressItem>();
     for (const entry of progress) {
-      if (marked.has(entry.key)) continue;
-      if (!map.has(entry.metaId)) map.set(entry.metaId, entry);
+      // Same rule as the row above: the newest row decides the title.
+      if (seen.has(entry.metaId)) continue;
+      seen.add(entry.metaId);
+      if (!marked.has(entry.key)) map.set(entry.metaId, entry);
     }
     return map;
   }, [progress, watched]);

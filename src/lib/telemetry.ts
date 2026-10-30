@@ -34,12 +34,19 @@ function start(release?: string) {
     dsn: DSN,
     release,
     environment: "production",
-    // Errors only: the free tier is metered, and traces would eat it.
-    tracesSampleRate: 0,
+    // Sampled, not every session: the free tier is metered.
+    tracesSampleRate: 0.2,
+    // A tenth of sessions, and always the one that broke.
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     maxBreadcrumbs: 30,
     ignoreErrors: IGNORED,
-    // A session envelope is a separate quota and tells us nothing here.
-    integrations: (defaults) => defaults.filter((item) => item.name !== "BrowserSession"),
+    integrations: (defaults) => [
+      ...defaults,
+      Sentry.browserTracingIntegration(),
+      // A recording of a private player: blank the words, block the picture.
+      Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
+    ],
     beforeSend(event) {
       return scrubValue(event) as typeof event;
     },
