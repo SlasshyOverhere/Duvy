@@ -1406,13 +1406,13 @@ button.pill:hover {
   padding-top: 28px;
 }
 
-/* Centred hero: the copy owns the middle of the card, the artwork
-   reads around it through a vignette rather than a hard scrim. */
+/* The copy sits on the right, sharing the page gutter with the rows below,
+   and the artwork reads around it through a vignette rather than a hard scrim. */
 .hero {
   position: relative;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-end;
   min-height: clamp(500px, 72vh, 760px);
   margin: 0;
   border-radius: 0;
@@ -1473,10 +1473,9 @@ button.pill:hover {
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: clamp(96px, 12vh, 140px) clamp(24px, 4vw, 56px)
-    clamp(46px, 6vh, 72px);
+  max-width: 720px;
+  margin: 0;
+  padding: clamp(96px, 12vh, 140px) var(--pad) clamp(46px, 6vh, 72px);
   text-align: center;
 }
 
