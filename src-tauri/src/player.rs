@@ -448,6 +448,19 @@ fn parse_chapters(value: &Value) -> Vec<Chapter> {
 // Player
 // ---------------------------------------------------------------------------
 
+/// The libmpv that is actually loaded, probed once at boot: a broken bundle
+/// then shows up in the log instead of as a failed first play.
+pub fn version() -> Option<String> {
+    let mpv = Mpv::with_initializer(|init| {
+        let _ = init.set_option("vo", "null");
+        let _ = init.set_option("audio", "no");
+        let _ = init.set_option("config", "no");
+        Ok(())
+    })
+    .ok()?;
+    mpv.get_property::<String>("mpv-version").ok()
+}
+
 /// Only remote HTTP(S), file sources and local paths may reach mpv.
 pub fn validate_media_url(url: &str) -> Result<(), String> {
     let url = url.trim();
