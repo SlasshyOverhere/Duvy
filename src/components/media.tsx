@@ -66,7 +66,11 @@ function PosterMenu({
   const current = marked ? undefined : hit;
 
   const setWatched = (next: boolean) => {
-    void markWatched(current?.key ?? item.id, item.id, next)
+    // Unmarking has to hit the key that is actually marked; once a whole show
+    // is marked, the newest playhead is a different key.
+    const mark = watched.find((row) => row.metaId === item.id);
+    const key = next ? current?.key ?? item.id : mark?.key ?? item.id;
+    void markWatched(key, item.id, next)
       .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
   };
