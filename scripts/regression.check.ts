@@ -122,6 +122,20 @@ run("closed player frees the player slot", () => {
   return [];
 });
 
+run("end of stream keeps the player open", () => {
+  const end = rustFn(player, "end_stream");
+  if (!end) return ["player.rs: end_stream() not found"];
+  const closeAt = end.indexOf("close(app");
+  if (closeAt < 0) return ["end_stream never frees the slot"];
+  // Reaching the end is not a reason to close: the epilogue and the viewer's
+  // choice have to happen on screen.
+  const guardAt = end.indexOf('reason != "eof"');
+  if (guardAt < 0 || guardAt > closeAt) {
+    return ["end_stream closes the player on end of file, killing the Up next card"];
+  }
+  return [];
+});
+
 run("player snapshots carry a generation", () => {
   if (!/\bgeneration\b/.test(player)) {
     return ["player.rs: snapshots carry no generation, so stale ticks can win"];

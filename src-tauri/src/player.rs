@@ -1021,8 +1021,8 @@ fn end_reason(reason: libmpv2::EndFileReason) -> &'static str {
     }
 }
 
-/// One end for every way a stream dies: stop the core, record why, hand the
-/// slot back.
+/// One end for every way a stream dies: record why, tell the UI, and let go of
+/// the core only when the stream itself is not what ended.
 fn end_stream(
     app: &AppHandle,
     snapshot: &Arc<Mutex<Snapshot>>,
@@ -1045,10 +1045,14 @@ fn end_stream(
     }
     crate::playback_log::mark(format!("stream ended ({reason})"));
     let _ = app.emit("player:ended", reason.to_string());
-    // Whichever handle goes last ends the core, so the picture and the audio
-    // go with the stream.
-    let _ = mpv.command("quit", &[]);
-    close(app, snapshot, stop);
+    // An episode or a dead source keeps its player: the epilogue on screen is
+    // the viewer's to act on, and closing is never our call.
+    if reason != "eof" && reason != "error" {
+        // Whichever handle goes last ends the core, so the picture and the
+        // audio go with the stream.
+        let _ = mpv.command("quit", &[]);
+        close(app, snapshot, stop);
+    }
 }
 
 /// The tail every exit path shares: silence the ticker and give the slot back.
