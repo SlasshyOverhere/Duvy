@@ -254,7 +254,7 @@ export function SearchView({ query }: { query?: string }) {
           onCompositionStart={() => setIme(true)}
           onCompositionEnd={() => setIme(false)}
           onBlur={() => setIme(false)}
-          placeholder="Search movies, shows…"
+          placeholder="Search titles"
           aria-label="Search movies and shows"
           spellCheck={false}
         />
@@ -271,7 +271,11 @@ export function SearchView({ query }: { query?: string }) {
           >
             <Icon name="x" size={15} />
           </button>
-        ) : null}
+        ) : (
+          <kbd className="search-key" aria-hidden="true">
+            /
+          </kbd>
+        )}
       </form>
 
       <p style={srOnly} role="status" aria-live="polite">

@@ -1511,7 +1511,7 @@
     inset 0 0 0 1px var(--pv-edge);
   color: #fff;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -1676,7 +1676,7 @@
 .pv .pv-upnext-label {
   margin: 0;
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--accent);
 }
 

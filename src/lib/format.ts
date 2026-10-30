@@ -67,14 +67,16 @@ export function episodeCode(video: { season?: number | null; episode?: number | 
   return `S${String(video.season).padStart(2, "0")}E${String(number).padStart(2, "0")}`;
 }
 
-/** Stable pastel gradient for artwork placeholders, derived from a title. */
+/** Stable tonal backdrop for artwork placeholders, derived from a title. */
 export function placeholderGradient(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash * 31 + seed.charCodeAt(i)) % 360;
   }
-  const second = (hash + 48) % 360;
-  return `linear-gradient(145deg, hsl(${hash} 28% 18%), hsl(${second} 36% 10%))`;
+  // One warm-neutral ramp for every placeholder; only the step moves, so a
+  // missing poster never introduces a hue the shell did not choose.
+  const lift = 14 + (hash % 7);
+  return `linear-gradient(145deg, hsl(32 6% ${lift}%), hsl(32 8% ${lift - 7}%))`;
 }
 
 export function scoreLabel(value?: string | null): string | null {

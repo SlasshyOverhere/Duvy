@@ -59,7 +59,6 @@ export function StreamDrawer({
   } | null>(null);
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -218,7 +217,9 @@ export function StreamDrawer({
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
+    // The panel takes focus, not its close button: a dialog that opens with an
+    // amber ring on the X reads as an error the moment it appears.
+    drawerRef.current?.focus({ preventScroll: true });
     return () => {
       opener?.focus?.();
     };
@@ -242,7 +243,7 @@ export function StreamDrawer({
       if (!items.length) return;
       const first = items[0];
       const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === node)) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -288,6 +289,7 @@ export function StreamDrawer({
       <aside
         ref={drawerRef}
         className="drawer"
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={subtitle ? `Sources for ${title}, ${subtitle}` : `Sources for ${title}`}
@@ -354,7 +356,6 @@ export function StreamDrawer({
             className="drawer-close"
             onClick={onClose}
             aria-label="Close"
-            ref={closeRef}
           >
             <Icon name="x" size={18} />
           </button>
@@ -385,7 +386,7 @@ export function StreamDrawer({
                 </p>
               ) : null}
 
-              {group.state === "done" && !group.streams.length && !group.error ? (
+              {total > 0 && group.state === "done" && !group.streams.length && !group.error ? (
                 <p className="stream-group-error" role="status">
                   No sources from {group.addon}.
                 </p>

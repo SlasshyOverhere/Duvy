@@ -177,7 +177,7 @@ export const PosterCard = memo(function PosterCard({
         <div className="poster-hover">
           <span className="poster-hover-title">{item.name}</span>
           <span className="poster-hover-meta">
-            {[item.releaseInfo, item.imdbRating ? `★ ${item.imdbRating}` : null]
+            {[item.releaseInfo, item.imdbRating ? `${item.imdbRating} IMDb` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -558,8 +558,8 @@ export function Hero({
               type="button"
               className="btn btn-primary"
               onClick={onPlay}
-              title="Watch Now"
-              aria-label="Watch Now"
+              title="Play"
+              aria-label="Play"
             >
               <Icon name="play" size={20} />
             </button>

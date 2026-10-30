@@ -185,7 +185,6 @@ export function TraktView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <p className="kicker">Trakt</p>
           <h1>Watch history, mirrored</h1>
           <p className="page-sub">
             Watched flags, episode history and resume points move both ways through your own Trakt API

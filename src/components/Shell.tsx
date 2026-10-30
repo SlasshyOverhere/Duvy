@@ -90,7 +90,7 @@ export function TopBar() {
                   layout
                   layoutId="dock-pill"
                   className="dock-pill"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  transition={{ type: "tween", duration: 0.2, ease: [0.22, 0.68, 0.32, 1] }}
                 />
               ) : null}
               <Icon name={item.icon} size={19} />

@@ -106,8 +106,7 @@ export function DebridView() {
     <div className="page">
       <header className="page-head">
         <div>
-          <p className="kicker">Debrid</p>
-          <h1>Accounts</h1>
+          <h1>Debrid accounts</h1>
           <p className="page-sub">
             A debrid account turns a torrent the provider already has cached into a direct HTTPS link,
             so playback starts without waiting on peers. Keys are checked with the provider, then stored
