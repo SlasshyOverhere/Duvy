@@ -14,8 +14,9 @@ function megabytes(bytes: number): string {
  * small to carry a version and an action. Closing it lasts for this version.
  */
 export function UpdatePrompt() {
-  const { update } = useApp();
-  if (!update) return null;
+  const { update, route } = useApp();
+  // Never over the picture: the announcement waits for the next screen.
+  if (!update || route.name === "player") return null;
   // Keyed, so a newer release reopens a prompt that was closed earlier.
   return <Prompt key={update.version} version={update.version} current={update.currentVersion} />;
 }
