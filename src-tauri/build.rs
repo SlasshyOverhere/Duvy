@@ -31,5 +31,11 @@ fn copy_runtime(lib: &Path) {
     else {
         return;
     };
-    let _ = std::fs::copy(&dll, profile.join("libmpv-2.dll"));
+    // An identical copy is left alone: a dev build that is already running
+    // holds this DLL open, and rewriting it fails the whole build.
+    let dst = profile.join("libmpv-2.dll");
+    let same_size = dst.metadata().map(|m| m.len()).ok() == dll.metadata().map(|m| m.len()).ok();
+    if !same_size {
+        let _ = std::fs::copy(&dll, &dst);
+    }
 }
