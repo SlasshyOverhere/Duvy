@@ -366,7 +366,7 @@ export function Button({
 }: {
   children?: ReactNode;
   onClick?: () => void;
-  variant?: "primary" | "ghost" | "soft" | "danger";
+  variant?: "primary" | "ghost" | "soft" | "danger" | "text";
   icon?: IconName;
   disabled?: boolean;
   title?: string;

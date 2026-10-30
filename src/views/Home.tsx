@@ -207,7 +207,7 @@ export function HomeView() {
                 >
                   Add an addon
                 </Button>
-                <Button icon="key" onClick={() => navigate({ name: "settings", section: "integrations" })}>
+                <Button icon="key" variant="text" onClick={() => navigate({ name: "settings", section: "integrations" })}>
                   Connect TMDB
                 </Button>
               </div>

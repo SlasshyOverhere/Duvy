@@ -69,7 +69,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean
           >
             Try again
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => window.location.reload()}>
+          <button type="button" className="btn btn-text" onClick={() => window.location.reload()}>
             Reload app
           </button>
         </div>
