@@ -2555,6 +2555,21 @@ export function PlayerView() {
             ) : null}
           </div>
           <div className="pv-top-right">
+            {nextEpisode ? (
+              <button
+                type="button"
+                className="pv-next"
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+                aria-label={`Next episode: ${episodeCode(nextEpisode)}`}
+                title={`Play ${episodeCode(nextEpisode)}${
+                  nextEpisode.title ? ` · ${nextEpisode.title}` : ""
+                }`}
+              >
+                <Icon name="next" size={18} />
+                <span>Next episode</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="win-btn pv-top-btn"
