@@ -86,9 +86,7 @@ export function sample(watch: Watch, next: Sample): Issue[] {
     issues.push({ rule, message, data });
   };
 
-  // An empty buffer is a starving source, not a frozen player: a rebuffer after
-  // a seek must not read as a stall.
-  if (next.playing && !next.paused && !next.ended && next.buffered > 0) {
+  if (next.playing && !next.paused && !next.ended) {
     // The anchor is the last sample the playhead actually moved in, so a seek
     // resets it instead of leaving an older, larger position behind it.
     const anchor = watch.samples.reduce(
