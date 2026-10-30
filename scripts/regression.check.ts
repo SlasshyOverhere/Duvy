@@ -136,6 +136,19 @@ run("end of stream keeps the player open", () => {
   return [];
 });
 
+run("the outro is never skipped automatically", () => {
+  const out: string[] = [];
+  const front = read("src/components/player/skip.ts");
+  const back = read("src-tauri/src/skip.rs");
+  if (/kind:\s*"outro"/.test(front)) {
+    out.push("skip.ts still returns an outro segment, so seeking into the credits ends the episode");
+  }
+  if (/"outro"\.to_string\(\)/.test(back)) {
+    out.push("skip.rs still seeks to the end of the file on the outro marker");
+  }
+  return out;
+});
+
 run("player snapshots carry a generation", () => {
   if (!/\bgeneration\b/.test(player)) {
     return ["player.rs: snapshots carry no generation, so stale ticks can win"];

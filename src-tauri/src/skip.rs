@@ -47,9 +47,9 @@ fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
 /// The segment to skip and the timestamp to seek to.
 ///
 /// The intro fires from half a second before its start until two seconds
-/// before its end, and lands on that end. The outro fires from half a second
-/// before its start until two seconds before the file ends, and lands on the
-/// end of the file. The padding keeps a seek from landing back on the marker.
+/// before its end, and lands on that end. The padding keeps a seek from landing
+/// back on the marker. The outro is never skipped: dragging into the credits
+/// would throw the viewer at the end of the file.
 pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String, f64)> {
     if !duration.is_finite() || duration <= 0.0 || !position.is_finite() {
         return None;
@@ -64,16 +64,6 @@ pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String,
             && position <= end - 2.0
         {
             return Some(("intro".to_string(), end));
-        }
-    }
-
-    if let Some(start) = entry.outro_start {
-        if start > 0.0
-            && start < duration - 2.0
-            && position >= start - 0.5
-            && position <= duration - 2.0
-        {
-            return Some(("outro".to_string(), duration));
         }
     }
 
@@ -219,13 +209,11 @@ mod tests {
     }
 
     #[test]
-    fn outro_lands_on_the_end_of_the_file() {
+    fn the_outro_never_skips_on_its_own() {
+        // Credits are part of the episode: seeking into them must not end it.
         let skip = entry((10.0, 70.0), Some(1350.0));
-        assert_eq!(
-            apply(&skip, 1350.0, 1440.0),
-            Some(("outro".to_string(), 1440.0))
-        );
-        assert_eq!(apply(&skip, 1439.0, 1440.0), None);
+        assert_eq!(apply(&skip, 1350.0, 1440.0), None);
+        assert_eq!(apply(&skip, 1400.0, 1440.0), None);
     }
 
     #[test]
