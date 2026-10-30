@@ -619,8 +619,16 @@ button.pill:hover {
   overflow-x: clip;
   padding: 0;
   scroll-behavior: smooth;
+  /* The scroll rail was the last piece of chrome on the page. Wheel, keys,
+     drag and touch all still scroll; only the bar is gone. */
+  scrollbar-width: none;
   background-color: var(--bg);
   background-image: var(--glass-substrate-grain);
+}
+
+.view::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .page {
