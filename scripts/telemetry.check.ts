@@ -156,6 +156,13 @@ check("a frozen playhead is a stall, a moving one is not", () => {
   if (frozen.filter((rule) => rule === "stall").length !== 1) bad.push("the stall repeated");
   const moving = run(Array.from({ length: 14 }, (_, i) => tick(i * 1000, { position: 100 + i })));
   if (moving.includes("stall")) bad.push("a playing position was called a stall");
+  // A seek drops the playhead: the older, larger position must not read as a
+  // freeze once the playhead sits still while the new position settles.
+  const sought = run([
+    ...Array.from({ length: 12 }, (_, i) => tick(i * 1000, { position: 900 + i })),
+    ...Array.from({ length: 6 }, (_, i) => tick((i + 12) * 1000, { position: 40 })),
+  ]);
+  if (sought.includes("stall")) bad.push("a seek backwards was called a stall");
   return bad;
 });
 

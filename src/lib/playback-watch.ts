@@ -86,9 +86,17 @@ export function sample(watch: Watch, next: Sample): Issue[] {
     issues.push({ rule, message, data });
   };
 
-  if (next.playing && !next.paused && !next.ended) {
-    const anchor = watch.samples.find((item) => item.at >= next.at - STALL_MS) ?? next;
-    if (next.at - anchor.at >= STALL_MS - 1_000 && next.position - anchor.position < STALL_MIN_DELTA) {
+  // An empty buffer is a starving source, not a frozen player: a rebuffer after
+  // a seek must not read as a stall.
+  if (next.playing && !next.paused && !next.ended && next.buffered > 0) {
+    // The anchor is the last sample the playhead actually moved in, so a seek
+    // resets it instead of leaving an older, larger position behind it.
+    const anchor = watch.samples.reduce(
+      (last, item) =>
+        Math.abs(item.position - next.position) >= STALL_MIN_DELTA ? item : last,
+      watch.samples[0],
+    );
+    if (next.at - anchor.at >= STALL_MS) {
       fire("stall", "Playback is playing but the position never moves", {
         position: round(next.position),
         duration: round(next.duration),
