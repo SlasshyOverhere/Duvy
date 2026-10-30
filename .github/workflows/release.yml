@@ -126,9 +126,14 @@ jobs:
           "EOF" >> $env:GITHUB_OUTPUT
           $body
 
+      # libmpv's import library and DLL are not committed, so every build
+      # fetches them; the installer then bundles libmpv-2.dll beside the exe.
+      - name: Fetch libmpv
+        shell: pwsh
+        run: ./scripts/fetch-libmpv.ps1
+
       # Builds both installers, signs the updater bundles, publishes the release
       # and uploads latest.json, which is what the app's update endpoint reads.
-      # mpv is not packaged; first run downloads it from the player release.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
