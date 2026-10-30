@@ -12,6 +12,15 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
+import { wentBackwards } from "./errors";
+import {
+  action as watchAction,
+  createWatch,
+  sample as watchSample,
+  timeline,
+  type Sample,
+} from "./playback-watch";
+import { note, report } from "./telemetry";
 import type {
   AddonInfo,
   AppInfo,
@@ -71,6 +80,12 @@ interface Store {
   refreshLibrary: () => Promise<void>;
   refreshProgress: () => Promise<void>;
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
+  /** Mark a key watched or unwatched, then refresh the rows it affects. */
+  markWatched: (key: string, metaId: string, watched: boolean) => Promise<void>;
+  /** Intentional stop, so the close it causes is not reported as a crash. */
+  stopPlayer: () => void;
+  /** A player control, watched so one that lands nowhere can be reported. */
+  playerControl: (kind: string, value?: number | string | boolean | null) => void;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
   /** The release the last check found, if any. */
@@ -160,6 +175,28 @@ const FINISHED_SHARE = 0.9;
 
 /** Info hashes arrive as 40 hex or 32 base32 chars; anything else never becomes a magnet. */
 const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Za-z2-7]{32})$/;
+
+/** Controls the watchdog checks for effect; style pushes are not actions. */
+const WATCHED_CONTROLS = new Set(["pause", "seek", "speed", "volume"]);
+
+/** A snapshot in the shape the playback rules read. */
+function toSample(snap: PlayerSnapshot): Sample {
+  return {
+    at: Date.now(),
+    position: snap.position,
+    duration: snap.duration,
+    buffered: snap.buffered ?? 0,
+    playing: snap.playing,
+    paused: snap.paused,
+    ended: snap.ended,
+    // Missing track lists are unknown, not empty: only a real zero is a bug.
+    audio: snap.audioTracks?.length ?? -1,
+    subs: snap.subTracks?.length ?? -1,
+    speed: snap.speed,
+    volume: snap.volume,
+  };
+}
+
 
 /** A finished title restarts instead of resuming its last few seconds. */
 function resumePosition(position: number, duration: number): number {
@@ -342,6 +379,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
+  // Watchdog for an open that never paints, which is otherwise invisible.
+  const openStartedAt = useRef(0);
+  const openedAt = useRef(0);
+  const firstFrame = useRef(false);
+  const stopRequested = useRef(false);
+  const frameErrorReported = useRef(0);
+  const frameTimer = useRef<number | null>(null);
+  // The playback watchdog: rules over the snapshot stream, one set per open.
+  const watch = useRef(createWatch(0));
+  const playerRef = useRef<PlayerSnapshot | null>(null);
+  const lastTick = useRef<{ key: string; position: number; duration: number; ended: boolean } | null>(
+    null,
+  );
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -352,6 +402,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const notify = useCallback(
     (text: string, tone: ToastTone = "info") => {
+      // Every failure the user is told about is also a failure we could fix.
+      if (tone === "error") report(text, { area: "ui" });
       const id = toastId.current++;
       setToasts((current) => [...current.slice(-4), { id, text, tone }]);
       toastTimers.current.set(id, window.setTimeout(() => dismissToast(id), 4200));
@@ -367,6 +419,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       timers.clear();
     };
   }, []);
+
+  const clearFrameWatchdog = useCallback(() => {
+    if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
+    frameTimer.current = null;
+  }, []);
+
+  /** An open that never shows a picture is a bug, not a slow source. */
+  const armFrameWatchdog = useCallback(
+    (title: string, sessionKey: string | null) => {
+      clearFrameWatchdog();
+      if (!isTauri()) return;
+      frameTimer.current = window.setTimeout(() => {
+        if (firstFrame.current || stopRequested.current) return;
+        const waitedMs = Date.now() - openedAt.current;
+        note("no first frame", { waitedMs });
+        report(new Error("Player opened but never showed a frame"), {
+          area: "playback",
+          withLog: true,
+          extra: { title, session: sessionKey, waitedMs },
+        });
+      }, 12000);
+    },
+    [clearFrameWatchdog],
+  );
 
   const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
     const current = routeRef.current;
@@ -623,6 +699,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (generation !== 0 && generation < playerGen.current) return;
             playerGen.current = Math.max(playerGen.current, generation);
             setPlayer(event.payload);
+            const snap = event.payload;
+            if (!firstFrame.current && (snap.started === true || snap.position > 0)) {
+              firstFrame.current = true;
+              clearFrameWatchdog();
+              note("first frame", {
+                generation,
+                position: Math.round(snap.position),
+                duration: Math.round(snap.duration),
+              });
+            }
+            // mpv reports a source it cannot open in the tick, so a failure to
+            // play can arrive without a single thrown error.
+            if (snap.error && generation !== frameErrorReported.current) {
+              frameErrorReported.current = generation;
+              note("mpv refused the source", { error: snap.error });
+              report(new Error(`mpv: ${snap.error}`), {
+                area: "playback",
+                withLog: true,
+                extra: {
+                  position: Math.round(snap.position),
+                  duration: Math.round(snap.duration),
+                  buffered: Math.round(snap.buffered ?? 0),
+                },
+              });
+            }
+            playerRef.current = snap;
+            if (snap.session?.key) {
+              lastTick.current = {
+                key: snap.session.key,
+                position: snap.position,
+                duration: snap.duration,
+                ended: snap.ended,
+              };
+            }
+            // Frozen playhead, dead controls, silent tracks: all state, no error.
+            for (const issue of watchSample(watch.current, toSample(snap))) {
+              note(`rule ${issue.rule}`, issue.data);
+              report(new Error(issue.message), {
+                area: "playback",
+                withLog: true,
+                extra: { rule: issue.rule, ...issue.data, timeline: timeline(watch.current) },
+              });
+            }
           }),
         );
         keep(
@@ -632,7 +751,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (generation !== 0 && generation < playerGen.current) return;
             // Any tick still in flight from this player is now stale.
             playerGen.current = Math.max(playerGen.current, generation + 1);
+            const afterMs = Date.now() - openedAt.current;
+            const diedEarly =
+              !firstFrame.current && !stopRequested.current && openedAt.current > 0 && afterMs < 15000;
+            clearFrameWatchdog();
             setPlayer(null);
+            playerRef.current = null;
+            if (diedEarly) {
+              note("closed before first frame", { afterMs, generation });
+              report(new Error("Player closed before the first frame"), {
+                area: "playback",
+                withLog: true,
+                extra: { afterMs, generation },
+              });
+            }
+            const last = lastTick.current;
+            lastTick.current = null;
+            if (settings?.trackProgress && last && last.position > 60 && !last.ended) {
+              // The ticker writes the playhead itself; a missing row or a stale
+              // one is lost progress, which looks like "it forgot where I was".
+              void api.progress
+                .forKey(last.key)
+                .then((row) => {
+                  const saved = row?.position ?? null;
+                  if (saved == null || Math.abs(saved - last.position) > 120) {
+                    report(new Error("Playback progress was not saved"), {
+                      area: "progress",
+                      extra: {
+                        session: last.key,
+                        stoppedAt: Math.round(last.position),
+                        saved: saved == null ? null : Math.round(saved),
+                      },
+                    });
+                  }
+                })
+                .catch(() => {
+                  // Reading it back is diagnostic only.
+                });
+            }
             leavePlayer();
             void refreshProgress();
           }),
@@ -652,7 +808,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [leavePlayer, refreshProgress]);
+  }, [clearFrameWatchdog, leavePlayer, refreshProgress, settings?.trackProgress]);
 
   const saveSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -710,6 +866,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [notify],
   );
+
+  // Marking a title watched, and noticing when that leaves a worse row behind.
+  const markWatched = useCallback(
+    async (key: string, metaId: string, watched: boolean) => {
+      note("mark watched", { key, metaId, watched });
+      await api.progress.setWatched(key, metaId, watched);
+      if (watched) {
+        const rows = progress.filter((row) => row.metaId === metaId);
+        const marked = rows.find((row) => row.key === key);
+        const newest = rows.reduce<ProgressItem | null>(
+          (best, row) => (best == null || row.updatedAt > best.updatedAt ? row : best),
+          null,
+        );
+        const older = rows
+          .filter((row) => row.key !== key && row.updatedAt < (marked?.updatedAt ?? 0))
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        // Finishing the newest episode used to leave an older one as the card
+        // to resume, so the show appeared to jump backwards.
+        if (marked && newest?.key === key && older && wentBackwards(older, marked)) {
+          report(new Error("Watched mark leaves an earlier episode as the resume target"), {
+            area: "progress",
+            extra: {
+              metaId,
+              marked: key,
+              markedAt: `${marked.season ?? "?"}x${marked.episode ?? "?"}`,
+              fallback: older.key,
+              fallbackAt: `${older.season ?? "?"}x${older.episode ?? "?"}`,
+            },
+          });
+        }
+      }
+      await refreshProgress();
+    },
+    [progress, refreshProgress],
+  );
+
+  /** The user asked to stop: a close that follows is not a failure. */
+  const stopPlayer = useCallback(() => {
+    stopRequested.current = true;
+    clearFrameWatchdog();
+    void api.player.stop().catch(() => undefined);
+  }, [clearFrameWatchdog]);
+
+  /** Send control, but remember it: a control that lands nowhere is a bug. */
+  const playerControl = useCallback((kind: string, value?: number | string | boolean | null) => {
+    const snap = playerRef.current;
+    if (snap && WATCHED_CONTROLS.has(kind)) {
+      watchAction(watch.current, kind, toSample(snap), typeof value === "number" ? value : 0);
+      note("control", { kind, value: typeof value === "number" ? value : null });
+    }
+    void api.player.control(kind, value).catch(() => undefined);
+  }, []);
 
   const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);
   const progressByKey = useMemo(
@@ -807,23 +1015,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (request: PlayRequest): Promise<boolean> => {
       // A double click used to start two players; the last one won, but both
       // sessions were spawned and both were pushed onto history.
-      if (opening.current) return false;
+      if (opening.current) {
+        // A second click within a moment is a double click. Long after that,
+        // an open that never settled is why nothing plays.
+        const waited = Date.now() - openStartedAt.current;
+        if (waited > 3000) {
+          note("open ignored, previous open pending", { waitedMs: waited, title: request.title });
+          report(new Error("Play request ignored: an earlier open never settled"), {
+            area: "playback",
+            withLog: true,
+            extra: { waitedMs: waited, title: request.title, session: request.session?.key ?? null },
+          });
+        }
+        return false;
+      }
       opening.current = true;
+      openStartedAt.current = Date.now();
+      note("open requested", {
+        title: request.title,
+        startAt: Math.round(request.startAt ?? 0),
+        session: request.session?.key ?? null,
+      });
       try {
         const snapshot = await api.player.open(request);
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
+        playerRef.current = snapshot;
+        watch.current = createWatch(Date.now());
+        lastTick.current = null;
+        openedAt.current = Date.now();
+        firstFrame.current = false;
+        stopRequested.current = false;
+        frameErrorReported.current = 0;
+        armFrameWatchdog(request.title, request.session?.key ?? null);
+        note("open returned", { generation: snapshot.generation ?? 0 });
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
         return true;
       } catch (error) {
+        note("open failed", { error: errorMessage(error) });
         notify(errorMessage(error), "error");
         return false;
       } finally {
         opening.current = false;
       }
     },
-    [navigate, notify],
+    [armFrameWatchdog, navigate, notify],
   );
 
   const buildSession = useCallback((details: Details, video: Video | null) => {
@@ -977,7 +1214,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           url = await resolveStream(found);
           source = found;
         }
-        if (!url || !source) return;
+        if (!url || !source) {
+          note("hunt resolved nothing", { session: session.key });
+          report(new Error("A source hunt finished with nothing to play"), {
+            area: "playback",
+            extra: { session: session.key, name: details.name },
+          });
+          return;
+        }
         if (startToken.current !== token) return;
         const label = video
           ? `${details.name} · S${video.season ?? 1}E${video.episode ?? video.number ?? 1}`
@@ -988,6 +1232,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         // The screen is already open, so a failed hunt returns to where it began.
         if (startToken.current === token) {
+          note("hunt failed", { error: errorMessage(error) });
           notify(errorMessage(error), "error");
           leaveStart();
         }
@@ -1080,7 +1325,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           url = await resolveStream(found);
           source = found;
         }
-        if (!url || !source) return;
+        if (!url || !source) {
+          note("resume resolved nothing", { session: session.key });
+          report(new Error("Resuming finished with nothing to play"), {
+            area: "playback",
+            extra: {
+              session: session.key,
+              season: entry.season ?? null,
+              episode: entry.episode ?? null,
+            },
+          });
+          return;
+        }
         if (startToken.current !== token) return;
         const opened = await playRequest({
           url,
@@ -1095,6 +1351,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!opened && startToken.current === token) leaveStart();
       } catch (error) {
         if (startToken.current === token) {
+          note("resume failed", { error: errorMessage(error) });
           notify(errorMessage(error), "error");
           leaveStart();
         }
@@ -1139,6 +1396,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshLibrary,
       refreshProgress,
       saveSettings,
+      markWatched,
+      stopPlayer,
+      playerControl,
       toggleLibrary,
       inLibrary,
       update,
@@ -1176,6 +1436,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshLibrary,
       refreshProgress,
       saveSettings,
+      markWatched,
+      stopPlayer,
+      playerControl,
       toggleLibrary,
       inLibrary,
       update,

@@ -137,8 +137,12 @@ run("store ignores stale player events", () => {
 });
 
 run("playRequest reports a refused open", () => {
-  if (!/if\s*\(opening\.current\)\s*return false;/.test(store)) {
-    return ["playRequest returns true when another open is already running"];
+  const guard = /if\s*\(opening\.current\)\s*\{[\s\S]{0,900}?return false;/.exec(store);
+  if (!guard) return ["playRequest returns true when another open is already running"];
+  // A second click within a moment is a double click; anything later is a
+  // stuck open, and staying silent about it is how "it never plays" happens.
+  if (!/earlier open never settled/.test(guard[0])) {
+    return ["a stale open guard refuses playback without a report"];
   }
   return [];
 });

@@ -454,12 +454,16 @@ fn continue_watching_hides_finished_and_merges_episodes() {
     assert_eq!(watched.len(), 1);
     assert_eq!(watched[0].meta_id, "tt2");
 
-    // An explicit mark hides that episode; the show falls back to the one still
-    // in progress rather than vanishing.
+    // An explicit mark finishes the newest episode, so the title leaves Continue
+    // watching. Falling back to an older episode is the bug: the card moves
+    // backwards and the episode you just finished comes back.
     db::set_watched(&conn, "tt1:1:2", "tt1", true).expect("mark");
     let remaining = db::list_continue_watching(&conn).unwrap();
-    assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].key, "tt1:1:1");
+    assert!(
+        remaining.is_empty(),
+        "finished newest episode still resumes {:?}",
+        remaining.first().map(|p| &p.key)
+    );
     assert_eq!(db::list_watched_items(&conn).unwrap().len(), 2);
 
     cleanup(conn, path);

@@ -188,6 +188,8 @@ export interface Settings {
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;
   onboarded: boolean;
+  /** Crash reporting: null until the user is asked, off unless they agree. */
+  telemetry: boolean | null;
 }
 
 /** First-run player provisioning, mirrored from the Rust setup module. */

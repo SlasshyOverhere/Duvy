@@ -58,20 +58,16 @@ function PosterMenu({
   onPlay?: () => void;
   onClose: () => void;
 }) {
-  const { playItem, progress: history, refreshProgress, notify, watched } = useApp();
+  const { playItem, progress: history, markWatched, refreshProgress, notify, watched } = useApp();
   const marked = watched.some((row) => row.metaId === item.id);
   // Cards may not carry an entry; the lookup only costs anything while open.
   const hit = entry ?? history.find((row) => row.metaId === item.id);
   // A finished title is not a resume target.
   const current = marked ? undefined : hit;
 
-  const markWatched = (next: boolean) => {
-    void api.progress
-      .setWatched(current?.key ?? item.id, item.id, next)
-      .then(() => {
-        notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`);
-        return refreshProgress();
-      })
+  const setWatched = (next: boolean) => {
+    void markWatched(current?.key ?? item.id, item.id, next)
+      .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
   };
 
@@ -92,7 +88,7 @@ function PosterMenu({
   actions.push({
     label: marked ? "Mark as unwatched" : "Mark as watched",
     icon: marked ? "x" : "check",
-    onSelect: () => markWatched(!marked),
+    onSelect: () => setWatched(!marked),
   });
   if (current) {
     actions.push({
@@ -333,7 +329,7 @@ export function ContinueCard({
   const [failed, setFailed] = useState(false);
   const [gone, setGone] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const { playItem, progress: history, refreshProgress, notify } = useApp();
+  const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
   const raw = progressPercent(position, duration);
   const percent = Number.isFinite(raw) ? raw : 0;
   const left = duration - position;
@@ -363,7 +359,7 @@ export function ContinueCard({
       label: "Mark as watched",
       icon: "check",
       onSelect: () =>
-        drop(`Marked ${name} as watched`, api.progress.setWatched(entry.key, entry.metaId, true)),
+        drop(`Marked ${name} as watched`, markWatched(entry.key, entry.metaId, true)),
     },
     {
       label: "Remove from continue watching",

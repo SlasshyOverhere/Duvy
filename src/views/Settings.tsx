@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
+import { telemetryAvailable } from "../lib/telemetry";
 import { useMpv } from "../components/Shell";
 import { Badge, Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
@@ -79,6 +80,14 @@ const SECTIONS: Section[] = [
     group: "System",
     blurb: "Check for a new release and install it without leaving the app.",
     keywords: "update release version download install changelog",
+  },
+  {
+    id: "privacy",
+    label: "Privacy",
+    icon: "lock",
+    group: "System",
+    blurb: "What leaves the app when something breaks.",
+    keywords: "privacy crash report sentry telemetry error log diagnostics opt in out data",
   },
   // Build-only, so a release never ships a panel that does nothing.
   ...(import.meta.env.DEV
@@ -168,6 +177,81 @@ function Callout({
         {children}
       </div>
     </div>
+  );
+}
+
+/** Crash reporting and the local journal: what leaves the machine, and what stays. */
+function PrivacyPanel() {
+  const { settings, saveSettings, notify } = useApp();
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const on = settings?.telemetry === true;
+
+  const toggle = async (value: boolean) => {
+    try {
+      await saveSettings({ telemetry: value });
+      notify(value ? "Crash reports are on" : "Crash reports are off");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  const read = async () => {
+    setBusy(true);
+    setLogError(null);
+    try {
+      setLines(await api.playbackLog(60));
+    } catch (e) {
+      setLogError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Card
+        title="Crash reports"
+        description="When something in Duvy breaks, the error can be sent to Sentry so it can be fixed in a later build."
+      >
+        <Row
+          title="Send error reports"
+          description={
+            telemetryAvailable
+              ? "The error, the screen it happened on, the app version and the last few playback steps. Never accounts, tokens or links."
+              : "This build has no reporting endpoint, so reports stay on this machine."
+          }
+          control={
+            <Toggle
+              checked={on}
+              onChange={(value) => void toggle(value)}
+              label="Send error reports"
+              disabled={!telemetryAvailable}
+            />
+          }
+        />
+      </Card>
+
+      <Card
+        title="Local log"
+        description="Playback steps and crashes land in playback.log next to your data, whether reports are on or off."
+      >
+        <Row
+          title="Recent entries"
+          description="The last 60 lines of the log."
+          control={
+            <Button variant="soft" onClick={() => void read()} disabled={busy}>
+              {busy ? "Reading…" : lines ? "Refresh" : "Show"}
+            </Button>
+          }
+        />
+        {logError ? <Callout tone="danger">{logError}</Callout> : null}
+        {lines ? (
+          <pre className="settings-log">{lines.join("\n") || "Nothing logged yet."}</pre>
+        ) : null}
+      </Card>
+    </>
   );
 }
 
@@ -941,6 +1025,8 @@ export function SettingsView({ section }: { section?: string }) {
           {tab === "addons" ? <AddonsPanel /> : null}
 
           {tab === "update" ? <Updates /> : null}
+
+          {tab === "privacy" ? <PrivacyPanel /> : null}
 
           {tab === "developer" ? (
             <Card

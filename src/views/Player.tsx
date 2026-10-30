@@ -1083,6 +1083,8 @@ export function PlayerView() {
     progressFor,
     progressByKey,
     leavePlayer,
+    stopPlayer,
+    playerControl,
     starting,
     cancelStart,
   } = useApp();
@@ -1180,9 +1182,9 @@ export function PlayerView() {
   // unhandled rejection; the next snapshot is the source of truth anyway.
   const send = useCallback(
     (action: string, value?: number | string | boolean | null) => {
-      void api.player.control(action, value).catch(() => undefined);
+      playerControl(action, value);
     },
-    [],
+    [playerControl],
   );
 
   const pushSubStyle = useCallback(() => {
@@ -1435,8 +1437,8 @@ export function PlayerView() {
     leaveFullscreen();
     // Leave the screen first: a stuck IPC call must not trap the user.
     leavePlayer();
-    void api.player.stop().catch(() => undefined);
-  }, [leaveFullscreen, leavePlayer]);
+    stopPlayer();
+  }, [leaveFullscreen, leavePlayer, stopPlayer]);
 
   // Never leave the window frameless after the overlay goes away.
   useEffect(() => () => leaveFullscreen(), [leaveFullscreen]);

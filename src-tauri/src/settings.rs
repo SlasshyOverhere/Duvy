@@ -58,6 +58,8 @@ pub struct Settings {
     pub defaults_seeded: bool,
     /// First-run setup has been completed or skipped.
     pub onboarded: bool,
+    /// Crash reporting: `None` until the user is asked, and off unless they agree.
+    pub telemetry: Option<bool>,
 }
 
 impl Default for Settings {
@@ -92,6 +94,7 @@ impl Default for Settings {
             ignored_update_version: String::new(),
             defaults_seeded: false,
             onboarded: false,
+            telemetry: None,
         }
     }
 }

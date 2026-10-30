@@ -392,8 +392,9 @@ pub fn all_progress(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
     rows.collect()
 }
 
-/// One card per title for the home screen: the newest unfinished episode.
-/// Anything marked watched, or played past 90%, belongs in the Watched list.
+/// One card per title for the home screen: the newest episode for the title,
+/// unless that one is finished. Anything marked watched, or played past 90%,
+/// belongs in the Watched list.
 pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<ProgressItem>> {
     let mut stmt = conn.prepare(
         "SELECT key, meta_id, media_type, name, poster, background, season, episode,
@@ -403,18 +404,20 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
                   ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY updated_at DESC) AS rn
            FROM progress
            WHERE duration > 0
-             AND position > 5
-             AND position < duration * ?1
-             -- Only a finished mark newer than the position hides the title.
-             -- One left over from an earlier run must not outrank playback
-             -- that happened after it.
-             AND key NOT IN (
-               SELECT w.key FROM watched w
-               JOIN progress p ON p.key = w.key
-               WHERE w.watched = 1 AND w.updated_at > p.updated_at
-             )
          )
+         -- The newest row is picked first: excluding finished rows before the
+         -- ranking would promote an older episode and move the card backwards.
          WHERE rn = 1
+           AND position > 5
+           AND position < duration * ?1
+           -- Only a finished mark newer than the position hides the title.
+           -- One left over from an earlier run must not outrank playback
+           -- that happened after it.
+           AND key NOT IN (
+             SELECT w.key FROM watched w
+             JOIN progress p ON p.key = w.key
+             WHERE w.watched = 1 AND w.updated_at > p.updated_at
+           )
          ORDER BY updated_at DESC
          LIMIT 30",
     )?;
