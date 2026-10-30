@@ -1595,33 +1595,61 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* The play CTA stays solid paper: a solid mark inside a glass room. */
+/* The play CTA is a lit accent lens: glass over the artwork, a bright top
+   lip, a self-coloured hairline and one tight cast shadow. Bigger than the
+   square beside it so the eye finds the primary action first. */
 .hero-actions .btn.btn-primary {
-  color: var(--accent-ink);
-  background: var(--accent);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  color: #fff;
+  background:
+    radial-gradient(
+      130% 120% at 50% -10%,
+      rgba(255, 255, 255, 0.6) 0%,
+      rgba(255, 255, 255, 0.14) 34%,
+      rgba(255, 255, 255, 0) 58%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 78%, transparent),
+      color-mix(in srgb, var(--accent) 54%, transparent)
+    );
+  -webkit-backdrop-filter: blur(20px) saturate(180%) brightness(1.06);
+  backdrop-filter: blur(20px) saturate(180%) brightness(1.06);
   box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 0 0 1px var(--glass-edge-soft),
-    var(--glass-shadow);
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.68),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 10px 20px -14px rgba(0, 0, 0, 0.9);
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
-  color: var(--accent-ink);
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  color: #fff;
+  background:
+    radial-gradient(
+      130% 120% at 50% -10%,
+      rgba(255, 255, 255, 0.72) 0%,
+      rgba(255, 255, 255, 0.2) 36%,
+      rgba(255, 255, 255, 0) 60%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 88%, transparent),
+      color-mix(in srgb, var(--accent) 66%, transparent)
+    );
 }
 
-.hero-actions .btn-primary,
+.hero-actions .btn-primary svg {
+  width: 22px;
+  height: 22px;
+}
+
 .hero-actions .btn-square {
   width: 44px;
   height: 44px;
   padding: 0;
-}
-
-.hero-actions .btn-primary svg {
-  width: 20px;
-  height: 20px;
 }
 
 .hero-dots {
