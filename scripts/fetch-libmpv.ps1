@@ -39,9 +39,19 @@ tar.exe -xf $archive -C $tmp
 $dll = Join-Path $tmp "libmpv-2.dll"
 if (-not (Test-Path $dll)) { throw "The archive did not contain libmpv-2.dll" }
 
-$lib = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Recurse -Filter lib.exe -ErrorAction SilentlyContinue |
-  Where-Object { $_.FullName -match "Hostx64\\x64" } |
-  Select-Object -First 1
+# vswhere locates any VS install; older layouts keep it under Program Files (x86).
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = if (Test-Path $vswhere) { & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1 }
+$lib = if ($vs) {
+  Get-ChildItem (Join-Path $vs "VC\Tools\MSVC") -Recurse -Filter lib.exe -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "Hostx64\\x64" } |
+    Select-Object -First 1
+}
+if (-not $lib) {
+  $lib = Get-ChildItem "$env:ProgramFiles\Microsoft Visual Studio", "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Recurse -Filter lib.exe -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "Hostx64\\x64" } |
+    Select-Object -First 1
+}
 if (-not $lib) { throw "lib.exe not found; install the MSVC build tools." }
 
 $dumpbin = Join-Path $lib.DirectoryName "dumpbin.exe"
