@@ -1446,6 +1446,13 @@ button.pill:hover {
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.6) 24%,
+      rgba(0, 0, 0, 0.2) 50%,
+      rgba(0, 0, 0, 0) 68%
+    ),
+    linear-gradient(
       to top,
       rgba(0, 0, 0, 0.96) 0%,
       rgba(0, 0, 0, 0.82) 22%,
@@ -1484,10 +1491,10 @@ button.pill:hover {
 }
 
 .hero-title {
-  font-size: clamp(2.6rem, 5.4vw, 4.9rem);
-  font-weight: 700;
-  line-height: 1.04;
-  letter-spacing: -0.035em;
+  font-size: clamp(2.9rem, 6vw, 5.6rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
   max-width: 20ch;
   margin: 0;
   text-wrap: balance;
@@ -1498,8 +1505,8 @@ button.pill:hover {
   display: block;
   width: auto;
   height: auto;
-  max-width: min(460px, 78%);
-  max-height: clamp(64px, 8vw, 118px);
+  max-width: min(520px, 82%);
+  max-height: clamp(72px, 9vw, 130px);
   margin: 0;
   object-fit: contain;
 }
@@ -1509,22 +1516,35 @@ button.pill:hover {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 18px;
-  font-size: 12.5px;
-  color: var(--muted);
+  gap: 8px 8px;
+  margin-top: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .hero-genre {
-  color: var(--faint);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.hero-sep {
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 0.8em;
+}
+
+.hero-meta .badge {
+  font-size: 12px;
+  padding: 3px 9px;
 }
 
 .hero-overview {
-  margin: 16px 0 0;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.62;
-  max-width: 76ch;
+  margin: 18px 0 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: clamp(1rem, 1.15vw, 1.15rem);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 46rem;
   text-align: left;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -1536,18 +1556,18 @@ button.pill:hover {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 30px;
+  margin-top: 32px;
 }
 
 .hero-link {
   border: 0;
   background: none;
-  padding: 0 18px;
-  font-size: 13.5px;
+  padding: 0 22px;
+  font-size: 15px;
   font-weight: 600;
-  color: rgba(253, 250, 245, 0.72);
+  color: rgba(253, 250, 245, 0.78);
   transition: color 0.15s var(--ease);
 }
 
