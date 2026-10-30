@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   release:
@@ -49,25 +50,46 @@ jobs:
           }
           "Releasing $version"
 
-      # Every commit since the last tag, so the release reads as a changelog
-      # instead of just a PR list.
-      - name: Collect commits since the previous release
+      # The notes are the PRs and nothing else: GitHub resolves a squash or a
+      # rebase to its pull request, so only the bullets of its generated body
+      # are kept and the changelog is written once, by us.
+      - name: Write release notes
         id: notes
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $prev = git tag --list 'v*' --sort=-v:refname | Where-Object { $_ -ne $env:GITHUB_REF_NAME } | Select-Object -First 1
+          $prev = git tag --list 'v*' --sort=-v:refname |
+            Where-Object { $_ -ne $env:GITHUB_REF_NAME } | Select-Object -First 1
+          $repo = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
           if ($prev) {
-            $commits = git log "$prev..$env:GITHUB_REF_NAME" --no-merges --pretty='- %s (%h)'
-            $heading = "### Commits since $prev"
-            $compare = "https://github.com/$env:GITHUB_REPOSITORY/compare/$prev...$env:GITHUB_REF_NAME"
+            $request = @{ tag_name = $env:GITHUB_REF_NAME; previous_tag_name = $prev }
+            $compare = "$repo/compare/$prev...$env:GITHUB_REF_NAME"
           } else {
-            $commits = git log $env:GITHUB_REF_NAME --no-merges --pretty='- %s (%h)'
-            $heading = "### Commits"
-            $compare = "https://github.com/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME"
+            $request = @{ tag_name = $env:GITHUB_REF_NAME }
+            $compare = "$repo/commits/$env:GITHUB_REF_NAME"
           }
-          $body = (@($heading, '') + $commits + @('', "**Full changelog:** $compare")) -join "`n"
+
+          $notes = $request | ConvertTo-Json |
+            gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" --method POST --input - |
+            ConvertFrom-Json
+          $bullets = @()
+          $skip = $false
+          foreach ($line in $notes.body -split "`n") {
+            if ($line -match '^##\s+(.+)$') {
+              # "What's Changed" opens the list; every later section (new
+              # contributors) is not a change and is dropped with its heading.
+              if ($matches[1] -notmatch "What.s Changed") { $skip = $true }
+              continue
+            }
+            if (-not $skip -and $line.TrimStart().StartsWith('* ')) {
+              $bullets += $line.Trim()
+            }
+          }
+
+          $body = (@($bullets) + @('', "**Full changelog:** $compare")) -join "`n"
           "body<<EOF" >> $env:GITHUB_OUTPUT
-          $body >> $env:GITHUB_OUTPUT
+          $body.Trim() >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
           $body
 
@@ -89,6 +111,8 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
-          generateReleaseNotes: true
+          # The body above is the whole story; generated notes would append a
+          # second "What's Changed" and a second changelog link.
+          generateReleaseNotes: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
