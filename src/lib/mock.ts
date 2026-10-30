@@ -100,7 +100,6 @@ let settings: Settings = {
   tmdbApiKey: "",
   accent: "ember",
   preferredQuality: "auto",
-  autoPlayNext: true,
   autoResume: true,
   subtitleLanguage: "eng",
   audioLanguage: "eng",

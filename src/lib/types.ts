@@ -163,7 +163,6 @@ export interface Settings {
   tmdbApiKey: string;
   accent: string;
   preferredQuality: string;
-  autoPlayNext: boolean;
   autoResume: boolean;
   subtitleLanguage: string;
   audioLanguage: string;

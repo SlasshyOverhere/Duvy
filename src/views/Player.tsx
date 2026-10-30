@@ -30,7 +30,6 @@ import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } 
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-const NEXT_LEAD = 45;
 const SUB_STYLE_KEY = "duvy.subtitleStyle";
 const VIDEO_MODE_KEY = "duvy.videoMode";
 const VOLUME_KEY = "duvy.volume";
@@ -1131,7 +1130,6 @@ export function PlayerView() {
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [markMsg, setMarkMsg] = useState<string | null>(null);
 
-  const advanced = useRef(false);
   const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
   const bumpAt = useRef(0);
@@ -1342,14 +1340,7 @@ export function PlayerView() {
   const activeAudio = audioTracks.find((track) => track.id === local?.activeAudio) ?? null;
   const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
   const step = settings?.seekStep ?? 10;
-  const nextCountdown = Math.max(0, Math.ceil((duration || 0) - position));
-  const nextAutoPlay = settings?.autoPlayNext ?? false;
-  const showNext = Boolean(
-    nextEpisode &&
-      !nextOff &&
-      !failed &&
-      (local?.ended || (duration > 60 && nextCountdown <= NEXT_LEAD)),
-  );
+  const showNext = Boolean(nextEpisode && !nextOff && !failed && local?.ended);
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -1839,15 +1830,11 @@ export function PlayerView() {
 
   const dismissNext = useCallback(() => {
     setNextOff(true);
-    // Keep the end-of-file handler from starting the episode the viewer
-    // explicitly waved off.
-    advanced.current = true;
   }, []);
 
   // Each episode is a fresh session: clear everything that belonged to the
   // previous one, including a dismissed next-episode card.
   useEffect(() => {
-    advanced.current = false;
     // Anything still loading for the old episode must not write here.
     subsSeq.current += 1;
     sourceSeq.current += 1;
@@ -2076,22 +2063,8 @@ export function PlayerView() {
     [markers, session?.key],
   );
 
-  // Ended episodes advance on their own only when the setting allows it and
-  // the card has not been dismissed.
-  useEffect(() => {
-    if (
-      !local?.ended ||
-      local.error ||
-      !settings?.autoPlayNext ||
-      !nextEpisode ||
-      advanced.current ||
-      nextOff
-    ) {
-      return;
-    }
-    advanced.current = true;
-    void playVideo(nextEpisode);
-  }, [local?.ended, local?.error, settings?.autoPlayNext, nextEpisode, nextOff, playVideo]);
+  // Up next is an offer, never an action: the next episode starts only when
+  // the viewer asks for it.
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -2960,13 +2933,7 @@ export function PlayerView() {
               <p className="pv-upnext-name">
                 {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
               </p>
-              <p className="pv-upnext-meta">
-                {nextAutoPlay
-                  ? local.ended
-                    ? "Starting now"
-                    : `Starting in ${nextCountdown}s`
-                  : "Ready when you are"}
-              </p>
+              <p className="pv-upnext-meta">Ready when you are</p>
             </div>
             <div className="pv-upnext-actions">
               <button

@@ -15,7 +15,6 @@ pub struct Settings {
     pub accent: String,
     /// "auto" | "4k" | "1080p" | "720p"
     pub preferred_quality: String,
-    pub auto_play_next: bool,
     pub auto_resume: bool,
     pub subtitle_language: String,
     pub audio_language: String,
@@ -66,7 +65,6 @@ impl Default for Settings {
             tmdb_api_key: String::new(),
             accent: "ember".into(),
             preferred_quality: "auto".into(),
-            auto_play_next: true,
             auto_resume: true,
             subtitle_language: "eng".into(),
             audio_language: "eng".into(),

@@ -680,17 +680,6 @@ export function SettingsView({ section }: { section?: string }) {
                   }
                 />
                 <Row
-                  title="Play next episode"
-                  description="Automatically continue a series when an episode ends."
-                  control={
-                    <Toggle
-                      checked={settings.autoPlayNext}
-                      onChange={(value) => update({ autoPlayNext: value })}
-                      label="Play next episode"
-                    />
-                  }
-                />
-                <Row
                   title="Track progress"
                   description="Keep a Continue Watching row and mark finished titles."
                   control={
