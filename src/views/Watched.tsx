@@ -31,9 +31,6 @@ const DATE_LABEL = new Intl.DateTimeFormat(undefined, {
 
 const ID_LIKE = /^[a-z]{2}\d{5,}$/i;
 
-// History is a full list, so one cached copy serves every revisit.
-let watchedCache: WatchedItem[] | null = null;
-
 function titleOf(item: WatchedItem): string {
   const name = item.name?.trim() ?? "";
   if (!name || name === item.metaId || ID_LIKE.test(name)) {
@@ -75,7 +72,7 @@ function Thumb({ src, seed }: { src?: string | null; seed: string }) {
 // "when did I watch this" is the question a watched list usually answers.
 export function WatchedView() {
   const { navigate } = useApp();
-  const [items, setItems] = useState<WatchedItem[] | null>(watchedCache);
+  const [items, setItems] = useState<WatchedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<"calendar" | "posters">("calendar");
@@ -87,17 +84,15 @@ export function WatchedView() {
 
   useEffect(() => {
     let alive = true;
-    const hit = watchedCache;
     setError(null);
     api.watched
       .list()
       .then((rows) => {
         if (!alive) return;
-        watchedCache = rows;
         setItems(rows);
       })
       .catch((failure) => {
-        if (alive && !hit) setError(errorText(failure));
+        if (alive) setError(errorText(failure));
       });
     return () => {
       alive = false;
