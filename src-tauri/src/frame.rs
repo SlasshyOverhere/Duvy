@@ -1,14 +1,15 @@
-//! Seek-bar previews: one frame decoded by a throwaway headless mpv.
+//! Seek-bar previews: one frame decoded by a short-lived headless libmpv.
 //!
-//! The running player is never touched. Each preview is a short-lived mpv with
-//! `--vo=image` that writes a single jpg into its own temp folder and exits.
+//! The running player is never touched. Each preview is a disposable libmpv
+//! instance with `vo=image` that writes a single jpg into its own temp folder.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use libmpv2::events::Event;
 
 const BUCKET_SECONDS: f64 = 5.0;
 const CACHE_LIMIT: usize = 80;
@@ -83,14 +84,14 @@ pub fn base64(bytes: &[u8]) -> String {
 }
 
 /// `data:image/jpeg;base64,...` for the requested time, cached per bucket.
-pub async fn preview(mpv: &str, source: &str, seconds: f64) -> Result<String, String> {
+pub async fn preview(source: &str, seconds: f64) -> Result<String, String> {
     let key = bucket(seconds);
     if let Some(hit) = cached(key) {
         return Ok(hit);
     }
     let id = key.to_bits();
     // One decode per bucket: a second hover waits for the first instead of
-    // spawning another mpv.
+    // starting another decoder.
     let waiter = {
         let mut map = inflight().lock().await;
         match map.get(&id) {
@@ -116,7 +117,7 @@ pub async fn preview(mpv: &str, source: &str, seconds: f64) -> Result<String, St
             }
         };
     }
-    let result = capture(mpv, source, key).await;
+    let result = capture(source, key).await;
     if let Ok(data) = &result {
         remember(key, data.clone());
     }
@@ -144,7 +145,7 @@ impl Drop for Cleanup {
     }
 }
 
-async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {
+async fn capture(source: &str, at: f64) -> Result<String, String> {
     // One folder per call: concurrent previews cannot read each other's jpg.
     let dir = std::env::temp_dir().join(format!(
         "duvy-frame-{}-{}",
@@ -154,10 +155,10 @@ async fn capture(mpv: &str, source: &str, at: f64) -> Result<String, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Could not create the preview folder: {e}"))?;
     let _cleanup = Cleanup(dir.clone());
-    decode(mpv, source, at, &dir).await
+    decode(source, at, &dir).await
 }
 
-async fn decode(mpv: &str, source: &str, at: f64, dir: &Path) -> Result<String, String> {
+async fn decode(source: &str, at: f64, dir: &Path) -> Result<String, String> {
     static SLOTS: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     let slots = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(DECODERS));
     let _slot = match tokio::time::timeout(TIMEOUT, slots.acquire()).await {
@@ -166,50 +167,54 @@ async fn decode(mpv: &str, source: &str, at: f64, dir: &Path) -> Result<String, 
         Err(_) => return Err("The preview is busy".into()),
     };
 
-    let mut command = tokio::process::Command::new(mpv);
-    #[cfg(windows)]
-    {
-        // No console window flash for the throwaway decoder.
-        command.creation_flags(0x0800_0000);
+    let source = source.to_owned();
+    let dir = dir.to_path_buf();
+    match tokio::task::spawn_blocking(move || grab(&source, at, &dir)).await {
+        Ok(frame) => frame,
+        Err(e) => Err(format!("The preview frame failed: {e}")),
     }
-    command
-        .arg("--no-config")
-        .arg("--load-scripts=no")
-        .arg("--no-input-default-bindings")
-        .arg("--no-terminal")
-        .arg("--really-quiet")
-        .arg("--no-audio")
-        .arg("--no-sub")
-        .arg("--hr-seek=yes")
-        .arg(format!("--start={at:.3}"))
-        .arg("--frames=1")
-        .arg("--vo=image")
-        .arg("--vo-image-format=jpg")
-        .arg(format!("--vo-image-outdir={}", dir.display()))
-        .arg("--")
-        .arg(source)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
+}
 
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Could not start mpv for the preview: {e}"))?;
-    let status = match tokio::time::timeout(TIMEOUT, child.wait()).await {
-        Ok(Ok(status)) => status,
-        Ok(Err(e)) => {
-            let _ = child.kill().await;
-            return Err(format!("The preview frame failed: {e}"));
+/// Blocking: libmpv decodes one frame, writes it, then the core is torn down.
+fn grab(source: &str, at: f64, dir: &Path) -> Result<String, String> {
+    let outdir = dir.display().to_string();
+    let start = format!("{at:.3}");
+    let mut mpv = libmpv2::Mpv::with_initializer(|init| {
+        init.set_option("config", "no")?;
+        init.set_option("load-scripts", "no")?;
+        init.set_option("input-default-bindings", "no")?;
+        init.set_option("terminal", "no")?;
+        let _ = init.set_option("really-quiet", "yes");
+        init.set_option("audio", "no")?;
+        init.set_option("sub", "no")?;
+        init.set_option("hr-seek", "yes")?;
+        init.set_option("frames", "1")?;
+        init.set_option("vo", "image")?;
+        init.set_option("vo-image-format", "jpg")?;
+        init.set_option("vo-image-outdir", outdir.as_str())?;
+        init.set_option("start", start.as_str())?;
+        Ok(())
+    })
+    .map_err(|e| format!("Could not start mpv for the preview: {e}"))?;
+
+    mpv.command("loadfile", &[source, "replace"])
+        .map_err(|_| "mpv could not decode a preview frame".to_string())?;
+
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match mpv.wait_event(0.1) {
+            Some(Ok(Event::EndFile(_) | Event::Shutdown)) => break,
+            // A bad source fails the load instead of reaching EndFile.
+            Some(Err(libmpv2::Error::Raw(-13))) => {
+                return Err("mpv could not decode a preview frame".into())
+            }
+            _ => {}
         }
-        Err(_) => {
-            let _ = child.kill().await;
+        if Instant::now() >= deadline {
             return Err("The preview frame took too long".into());
         }
-    };
-    if !status.success() {
-        return Err("mpv could not decode a preview frame".into());
     }
+    drop(mpv);
 
     // mpv's file naming differs between builds; one folder holds one frame.
     let file = std::fs::read_dir(dir)

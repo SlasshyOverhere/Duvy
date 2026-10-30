@@ -814,13 +814,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // one and put the old value back on screen.
       const next = saveQueue.current.catch(() => {}).then(() => api.settings.set(patch));
       saveQueue.current = next;
-      return next.then(async (saved) => {
+      return next.then((saved) => {
         setSettings(saved);
-        // Only re-probe the player when the executable itself changed.
-        if ("mpvPath" in patch) {
-          // The patch is saved; a failed probe must not report it as lost.
-          await api.appInfo().then(setAppInfo, () => {});
-        }
       });
     },
     [],

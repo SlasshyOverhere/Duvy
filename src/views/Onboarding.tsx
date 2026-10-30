@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import {
   AnimatePresence,
   motion,
@@ -8,10 +7,9 @@ import {
   useReducedMotion,
   useSpring,
 } from "motion/react";
-import { api, isTauri } from "../lib/bridge";
+import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { Button, Icon, Spinner } from "../components/ui";
-import type { PlayerSetup } from "../lib/types";
 
 type Step = "welcome" | "account";
 type Provider = "nuvio" | "stremio";
@@ -96,9 +94,8 @@ function Lamp() {
 /**
  * First run.
  *
- * Two decisions and nothing else: who to sync with, and whether the player is
- * ready. The player download starts on the welcome screen so it is usually done
- * by the time the account form is filled in.
+ * One decision and nothing else: who to sync with. Playback is built in, so
+ * there is nothing to download before the first title.
  */
 export function Onboarding({
   preview = false,
@@ -118,52 +115,12 @@ export function Onboarding({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [player, setPlayer] = useState<PlayerSetup | null>(null);
   const still = useReducedMotion() ?? false;
   // The old step is gone by the time this node mounts, so focus lands on the
   // step that is actually on screen.
   const attachStage = useCallback((node: HTMLDivElement | null) => {
     node?.focus({ preventScroll: true });
   }, []);
-
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    const run = async () => {
-      const status = await api.playerSetup.status().catch(() => null);
-      if (disposed || !status) return;
-      setPlayer(status);
-      if (status.state === "ready") return;
-
-      if (isTauri()) {
-        const stop = await listen<{
-          state: PlayerSetup["state"];
-          progress: number;
-          error: string;
-        }>("player-setup", (event) => {
-          setPlayer((current) =>
-            current
-              ? { ...current, state: event.payload.state, error: event.payload.error }
-              : current,
-          );
-        });
-        // The screen can unmount while the listener registers.
-        if (disposed) {
-          stop();
-          return;
-        }
-        unlisten = stop;
-      }
-      if (!preview) await api.playerSetup.start().catch(() => undefined);
-    };
-
-    void run();
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [preview]);
 
   const finish = useCallback(async () => {
     if (preview) {
@@ -231,9 +188,6 @@ export function Onboarding({
   const setCred = (id: Provider, field: "email" | "password", value: string) => {
     setCreds((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
   };
-
-  const downloading = player?.state === "downloading";
-  const ready = player?.state === "ready";
 
   const rise = (delay: number) =>
     still
@@ -431,16 +385,6 @@ export function Onboarding({
                     )}
                   </div>
                 </form>
-
-                {ready ? null : (
-                  <motion.p className="ob-foot" {...rise(0.3)}>
-                    {downloading
-                      ? "The player is still downloading in the background. You can finish setup now; playback works once it lands."
-                      : player?.state === "failed"
-                        ? "The player download did not finish. You can point Duvy at an mpv you install yourself in Settings."
-                        : "You can change this later in Settings. Playback also works with an mpv you install yourself."}
-                  </motion.p>
-                )}
               </>
             )}
           </motion.div>

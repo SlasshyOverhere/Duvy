@@ -9,8 +9,6 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
-    /// Explicit path to an mpv executable. If empty, the player is auto-detected.
-    pub mpv_path: String,
     /// TMDB v3 API key. Optional: without it discovery falls back to addon catalogs.
     pub tmdb_api_key: String,
     /// Accent theme id, see the frontend theme table.
@@ -65,7 +63,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            mpv_path: String::new(),
             tmdb_api_key: String::new(),
             accent: "ember".into(),
             preferred_quality: "auto".into(),

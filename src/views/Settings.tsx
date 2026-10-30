@@ -3,8 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { telemetryAvailable } from "../lib/telemetry";
-import { useMpv } from "../components/Shell";
-import { Badge, Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
+import { Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 import { NuvioSync } from "./settings/NuvioSync";
 import { StremioSync } from "./settings/StremioSync";
 import { AddonsPanel } from "./Addons";
@@ -37,9 +36,9 @@ const SECTIONS: Section[] = [
     label: "Playback",
     icon: "play",
     group: "Playback",
-    blurb: "How mpv plays, remembers your place and moves between episodes.",
+    blurb: "How playback remembers your place and moves between episodes.",
     keywords:
-      "mpv player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
+      "player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
   },
   {
     id: "addons",
@@ -446,13 +445,11 @@ function Segmented<T extends string>({
 
 export function SettingsView({ section }: { section?: string }) {
   const { settings, saveSettings, notify, playRequest } = useApp();
-  const mpv = useMpv();
   // A deep link can name a section this build does not have, so fall back
   // instead of rendering a header with no panel under it.
   const [tab, setTab] = useState(knownSection(section) ? (section as string) : "general");
   const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
-  const [mpvPath, setMpvPath] = useState(settings?.mpvPath ?? "");
   const [p2pReview, setP2pReview] = useState(false);
   const [p2pAck, setP2pAck] = useState(false);
 
@@ -462,8 +459,7 @@ export function SettingsView({ section }: { section?: string }) {
 
   useEffect(() => {
     setTmdbKey(settings?.tmdbApiKey ?? "");
-    setMpvPath(settings?.mpvPath ?? "");
-  }, [settings?.tmdbApiKey, settings?.mpvPath]);
+  }, [settings?.tmdbApiKey]);
 
   const openLink = (url: string) => {
     void openExternal(url).catch(() => notify("Could not open that link", "error"));
@@ -484,28 +480,6 @@ export function SettingsView({ section }: { section?: string }) {
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
       return false;
-    }
-  };
-
-  const locateMpv = async () => {
-    if (!isTauri()) {
-      notify("The file picker is only available in the desktop app");
-      return;
-    }
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "mpv executable", extensions: ["exe", ""] }],
-      });
-      if (typeof selected !== "string") return;
-      if (!(await update({ mpvPath: selected }))) return;
-      const info = await api.mpvDetect(selected);
-      notify(
-        info ? `mpv detected: ${info.version}` : "That file did not answer --version",
-        info ? "success" : "error",
-      );
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e), "error");
     }
   };
 
@@ -682,57 +656,6 @@ export function SettingsView({ section }: { section?: string }) {
 
           {tab === "playback" ? (
             <>
-              <Card
-                title="Player"
-                description="mpv decodes video in its own process and draws straight into this window, so playback stays off the UI thread."
-              >
-                <div className={`mpv-card${mpv ? " is-ready" : " is-missing"}`}>
-                  <div className="mpv-status">
-                    <span className="mpv-dot" />
-                    <div className="mpv-status-copy">
-                      <div className="mpv-status-title">
-                        <h3>{mpv ? "mpv is ready" : "mpv not found"}</h3>
-                        <Badge tone={mpv ? "good" : "warn"}>{mpv ? "Ready" : "Missing"}</Badge>
-                      </div>
-                      <p>{mpv?.version ?? "Install mpv to enable playback."}</p>
-                      {mpv ? <code>{mpv.path}</code> : null}
-                    </div>
-                  </div>
-                  <div className="mpv-actions">
-                    <Button icon="monitor" onClick={() => void locateMpv()}>
-                      Locate mpv
-                    </Button>
-                    {!mpv ? (
-                      <Button icon="external" onClick={() => openLink("https://mpv.io/installation/")}>
-                        Get mpv
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="field-row settings-path">
-                  <label className="field">
-                    <span>Custom path</span>
-                    <input
-                      value={mpvPath}
-                      onChange={(event) => setMpvPath(event.target.value)}
-                      placeholder="Auto-detected when empty"
-                      aria-label="Custom mpv path"
-                      spellCheck={false}
-                    />
-                  </label>
-                  <Button
-                    disabled={mpvPath.trim() === settings.mpvPath.trim()}
-                    onClick={async () => {
-                      if (!(await update({ mpvPath: mpvPath.trim() }))) return;
-                      notify("Player path saved", "success");
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </Card>
-
               <Card title="Behaviour">
                 <Row
                   title="Hardware decoding"

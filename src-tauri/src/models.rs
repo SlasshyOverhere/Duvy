@@ -106,12 +106,4 @@ pub struct AppInfo {
     pub version: String,
     pub platform: String,
     pub data_dir: String,
-    pub mpv: Option<MpvInfo>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct MpvInfo {
-    pub path: String,
-    pub version: String,
 }

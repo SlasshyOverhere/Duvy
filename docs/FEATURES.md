@@ -30,7 +30,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Video engine | **Done** | mpv over JSON IPC paints into the app window behind a transparent web layer on Windows; separate window fallback elsewhere |
+| Video engine | **Done** | libmpv in-process paints into the app window behind a transparent web layer on Windows; own window elsewhere |
 | Hardware decoding | **Done** | `hwdec=auto-safe`, toggleable |
 | Audio/subtitle tracks | **Done** | Read from mpv and switchable from the player console |
 | External subtitles | **Done** | Addon tracks and a local file picker; the choice is remembered per episode |
@@ -41,7 +41,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Speed, volume, seek | **Done** | Player console controls; volume is applied immediately |
 | In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels |
 | Start screen | **Done** | Backdrop and title logo while the source resolves, then the first frame |
-| Seek-bar previews | **Done** | Frame previews from a short-lived headless mpv |
+| Seek-bar previews | **Done** | Frame previews from a scratch in-process libmpv |
 | Skip intro/outro | **Partial** | Community markers plus manual per-show overrides; automatic only, no visible skip button, recap or credits segments |
 | Watch party | **Planned** | Needs a sync backend |
 
@@ -77,8 +77,8 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Windows | **Done** | MSI and NSIS built, signed and released by CI on tag |
-| Player provisioning | **Done** | mpv downloaded on first run and sha256-verified, or a system player from Settings |
-| macOS / Linux | Untested | Separate mpv window fallback, no packaging support |
+| Player | **Done** | libmpv bundled with the app, no download and no external player |
+| macOS / Linux | Untested | libmpv's own window fallback, no packaging support |
 | Android / iOS / TV | Out of scope | Desktop only |
 
 ## Design choices
@@ -87,15 +87,14 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
   uses credentials the user supplies.
 - **Rust owns I/O.** Addon fan-out runs in parallel Tokio tasks; the UI never parses stream
   strings.
-- **mpv is a separate process, visually embedded.** It decodes in its own process and paints into
-  the app window's client area while the web layer above it renders transparent. The UI stays
-  responsive on large remuxes and video never travels through the WebView.
+- **libmpv is linked in, not spawned.** Video decodes in-process and paints into the app window's
+  client area while the web layer above it renders transparent. The UI stays responsive on large
+  remuxes and video never travels through the WebView.
 - **No scrapers.** Only the open addon protocol and user-configured servers; the user supplies
   every source.
 - **P2P is opt-in.** Torrent sources stay disabled until consent is given, because peers see the
   user's IP address.
-- **The player is fetched, not bundled.** mpv is downloaded on first run into app data and
-  verified against a published checksum, so app updates never re-download it and the installer
-  stays small. A system mpv still works.
+- **The player ships with the app.** libmpv is bundled, so installs stay self-contained and there
+  is no first-run download to wait on.
 - **Sync is best effort and optional.** Both account integrations use their providers' backends
   with the user's own session, and may break without notice.

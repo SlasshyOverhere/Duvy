@@ -110,11 +110,14 @@ run("failed open closes the screen", () => {
   return [];
 });
 
-run("closed pipe frees the player slot", () => {
-  const reader = rustFn(player, "spawn_reader");
-  if (!reader) return ["player.rs: spawn_reader() not found"];
-  if (!reader.includes("ptr_eq")) {
-    return ["spawn_reader keeps a dead player in the state slot"];
+run("closed player frees the player slot", () => {
+  const teardown = rustFn(player, "close");
+  if (!teardown) return ["player.rs: close() not found"];
+  if (!teardown.includes("ptr_eq")) {
+    return ["close keeps a dead player in the state slot"];
+  }
+  if (!teardown.includes("player:closed")) {
+    return ["close never emits player:closed, so the UI stays on a dead player"];
   }
   return [];
 });

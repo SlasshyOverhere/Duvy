@@ -11,7 +11,7 @@ Effort is a rough single-developer estimate, not a promise:
 | Change |
 | --- |
 | Startup, playback and network latency pass: parallel fan-out with budgets, cached settings, merged progress writes, lighter Home |
-| Player fetched on first run in the background and sha256-verified; installers no longer bundle mpv |
+| Player runs in-process on libmpv; the external `mpv.exe` download is gone |
 | Subtitle choice remembered per episode; ASS tracks keep their styling until edited |
 | Configurable forward and backward cache buffers |
 | Separate dev app data directory |
@@ -225,7 +225,7 @@ feature.
 | RG-08 | Window state restore | Geometry, maximized, fullscreen on relaunch | S | Recreates 1440x920 every launch |
 | RG-09 | Discord rich presence | IPC integration | M | |
 | RG-10 | Windows renderer choice | OpenGL vs default WebView2 | S | |
-| RG-11 | libmpv embedding | Render-API bridge instead of a separate `mpv.exe` on `--wid` | XL | Works today; this is architecture, not a bug |
+| RG-11 | libmpv embedding | Render-API bridge instead of a separate `mpv.exe` on `--wid` | XL | Shipped: playback is in-process libmpv, no external player |
 | RG-12 | Linux / macOS builds | Packaging and platform player code | - | Out of scope, Windows-only |
 
 ---
