@@ -3490,7 +3490,9 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 1 1 220px;
 }
 
-.field-row input {
+/* Direct children only: inside .field the flex axis is vertical, so a basis
+   here would become the input's height. */
+.field-row > input {
   flex: 1 1 220px;
 }
 
