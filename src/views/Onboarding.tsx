@@ -19,6 +19,10 @@ const EASE: [number, number, number, number] = [0.22, 0.68, 0.32, 1];
 const MARK =
   "M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z";
 
+// The artwork is inset in its square, so the svg is pulled back by that much to
+// sit on the same left edge as the copy under it.
+const MARK_INSET = 0.2365;
+
 const PROVIDERS: Array<{ id: Provider; name: string; note: string }> = [
   { id: "nuvio", name: "Nuvio Cloud", note: "Library, progress and watched state" },
   { id: "stremio", name: "Stremio", note: "Addons, library and resume points" },
@@ -39,6 +43,7 @@ function Mark({ size = 72, still }: { size?: number; still: boolean }) {
       viewBox="0 0 100 100"
       width={size}
       height={size}
+      style={{ marginLeft: -size * MARK_INSET }}
       aria-hidden="true"
     >
       <motion.path

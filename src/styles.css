@@ -427,8 +427,8 @@ select {
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.38) 0%,
-    rgba(0, 0, 0, 0.2) 58%,
+    rgba(0, 0, 0, 0.58) 0%,
+    rgba(0, 0, 0, 0.34) 62%,
     rgba(0, 0, 0, 0) 100%
   );
 }
@@ -768,6 +768,14 @@ button.pill:hover {
   background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
+/* A disabled primary is a surface, never a dimmed slab of accent. */
+.btn-primary:disabled {
+  opacity: 1;
+  background: var(--glass-fill-soft);
+  color: var(--faint);
+  box-shadow: inset 0 0 0 1px var(--glass-edge-soft);
+}
+
 .btn-soft {
   background: var(--glass-wash), var(--glass-fill-soft);
   color: var(--text);
@@ -898,13 +906,13 @@ button.pill:hover {
 }
 
 .toggle.is-on {
-  background: color-mix(in srgb, var(--accent) 26%, var(--glass-well));
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--accent);
+  border-color: transparent;
 }
 
 .toggle.is-on .toggle-knob {
   transform: translateX(18px);
-  background: var(--accent);
+  background: var(--accent-ink);
 }
 
 .toggle:disabled {
@@ -1008,7 +1016,7 @@ button.pill:hover {
 }
 
 .empty-icon {
-  color: var(--accent);
+  color: var(--faint);
   margin-bottom: 2px;
 }
 
@@ -2536,6 +2544,11 @@ button.pill:hover {
   }
 }
 
+/* The panel is the focus target on open; the ring belongs to its controls. */
+.drawer:focus {
+  outline: none;
+}
+
 /* The panel has no title bar: the filter row is the bar, with a step arrow on
    each side and the close button at the end. Every control owns a column, so
    nothing overlaps the chips. */
@@ -3155,6 +3168,10 @@ button.pill:hover {
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
+}
+
+.settings-group > h2 + .settings-block {
+  padding-top: 14px;
 }
 
 .settings-block {
@@ -5036,7 +5053,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .search-page-form:focus-within {
   color: var(--accent);
-  box-shadow: inset 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .search-page-form input {
@@ -5633,7 +5650,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .ob-provider[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--line-strong);
   background-color: var(--glass-fill-hover);
 }
 
@@ -5668,7 +5685,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* A signed-in account is done, not unavailable, so it keeps its lit state. */
 .ob-provider[data-signed-in]:disabled {
   opacity: 1;
-  border-color: var(--accent);
+  border-color: var(--line-strong);
   background-color: var(--glass-fill-hover);
 }
 
