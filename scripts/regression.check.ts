@@ -80,8 +80,9 @@ run("install reuses the checked release", () => {
 });
 
 run("download progress is throttled", () => {
-  const install = rustFn(updates, "update_install");
-  if (!/elapsed\(\)/.test(install)) {
+  const download = rustFn(updates, "download");
+  if (!download) return ["updates.rs: download() not found"];
+  if (!/elapsed\(\)/.test(download)) {
     return ["update:progress is emitted for every network chunk"];
   }
   return [];
@@ -174,11 +175,18 @@ run("subtitle size can go below the old floor", () => {
 run("continue watching compares exact episode keys", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
-  if (!/mark\.key === row\.key/.test(home)) {
+  if (!/marked\.has\(row\.key\)/.test(home)) {
     out.push("Home.tsx hides a title by meta id instead of the watched episode key");
   }
   if (!/marked\.has\(entry\.key\)/.test(home)) {
     out.push("Home.tsx card progress is hidden by meta id instead of the episode key");
+  }
+  // The newest row claims the title before a finished row is dropped, or
+  // finishing E2 puts E1 back on the shelf.
+  const rankAt = home.indexOf("seen.has(row.metaId)");
+  const skipAt = home.indexOf("marked.has(row.key)");
+  if (rankAt < 0 || skipAt < 0 || rankAt > skipAt) {
+    out.push("Home.tsx filters a finished row before the newest one claims the title");
   }
   return out;
 });
