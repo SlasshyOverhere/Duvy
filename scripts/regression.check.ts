@@ -194,6 +194,20 @@ run("continue watching compares exact episode keys", () => {
   return out;
 });
 
+run("auto-advance keeps the playing addon", () => {
+  const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
+  if (!pick) return ["store.tsx: pickSource() not found"];
+  // Staying on the current addon must be decided before the quality fallback,
+  // or the next episode can land on a different source mid-binge.
+  const addonAt = pick.indexOf("playing.addon");
+  const fallbackAt = pick.indexOf("if (wanted !== null)");
+  if (addonAt < 0) return ["pickSource ignores the addon that is already playing"];
+  if (fallbackAt < 0 || addonAt > fallbackAt) {
+    return ["pickSource tries the preferred quality before the playing addon"];
+  }
+  return [];
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];

@@ -240,13 +240,19 @@ export function pickSource(
     const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
     if (samePack) return samePack;
   }
-  if (quality && quality !== "auto") {
-    const wanted = quality.toLowerCase();
-    const match = playable.find((stream) => stream.quality.toLowerCase().includes(wanted));
+  const wanted = quality && quality !== "auto" ? quality.toLowerCase() : null;
+  const fits = (stream: StreamOption) =>
+    wanted === null || stream.quality.toLowerCase().includes(wanted);
+  // Staying with the addon that is already playing beats a quality jump: on
+  // auto-advance the next episode must not land on a different source.
+  const fromAddon = playing ? playable.filter((stream) => stream.addon === playing.addon) : [];
+  const home = fromAddon.find(fits) ?? fromAddon[0];
+  if (home) return home;
+  if (wanted !== null) {
+    const match = playable.find(fits);
     if (match) return match;
   }
-  const sameAddon = playing ? playable.find((stream) => stream.addon === playing.addon) : undefined;
-  return sameAddon ?? playable[0];
+  return playable[0];
 }
 
 /** The whole source a session played last time, so resuming skips the hunt. */
