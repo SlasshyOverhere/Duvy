@@ -1,10 +1,11 @@
 /**
- * Intro and outro markers, mirrored from `src-tauri/src/skip.rs`.
+ * Intro markers, mirrored from `src-tauri/src/skip.rs`.
  *
  * The player checks these on every position tick, so the rule lives here
  * instead of a round trip: the intro fires from half a second before its start
- * until two seconds before its end, the outro from half a second before its
- * start until two seconds before the file ends.
+ * until two seconds before its end. The outro is never skipped: jumping the
+ * credits to the end of the file would end an episode the viewer chose to keep
+ * watching, and seeking into the credits would do it every time.
  */
 export interface SkipEntry {
   introStart?: number | null;
@@ -33,7 +34,7 @@ export function findSkip(
     return null;
   }
 
-  const { introStart, introEnd, outroStart } = entry;
+  const { introStart, introEnd } = entry;
   if (introStart != null && introEnd != null) {
     // A stale marker past the end would otherwise seek to the end.
     if (
@@ -44,16 +45,6 @@ export function findSkip(
     ) {
       return { kind: "intro", at: introEnd };
     }
-  }
-
-  if (
-    outroStart != null &&
-    outroStart > 0 &&
-    outroStart < duration - 2 &&
-    position >= outroStart - 0.5 &&
-    position <= duration - 2
-  ) {
-    return { kind: "outro", at: duration };
   }
 
   return null;

@@ -13,7 +13,6 @@ mod models;
 mod nuvio_sync;
 mod playback_log;
 mod player;
-mod player_setup;
 mod secret;
 mod servers;
 mod settings;
@@ -67,19 +66,33 @@ fn install_crash_hook(handle: tauri::AppHandle) {
 ///
 /// mpv's render window is created after the web view, so by default it becomes
 /// the topmost child of the app window and would swallow every click meant for
-/// the controls. Raising the web view instead leaves the video underneath it.
+/// the controls. The video surface is sunk to the bottom of the child z-order
+/// and the web view is raised above it, so the picture leaves the page alone
+/// even if the player reasserts itself later.
 #[cfg(windows)]
 pub fn raise_webview(host: isize) {
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumChildWindows, GetClassNameW, SetWindowPos, HWND_TOP, SWP_ASYNCWINDOWPOS,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, HWND_TOP,
+        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     };
 
     unsafe extern "system" fn collect(child: HWND, lparam: LPARAM) -> windows_sys::core::BOOL {
         let children = unsafe { &mut *(lparam as *mut Vec<HWND>) };
         children.push(child);
         1
+    }
+
+    fn class_of(child: HWND) -> String {
+        let mut name = [0u16; 64];
+        let len = unsafe { GetClassNameW(child, name.as_mut_ptr(), name.len() as i32) };
+        if len <= 0 {
+            return String::new();
+        }
+        // GetClassNameW can report more than the buffer holds when the class
+        // name is long, and slicing past it aborts the app from a window event.
+        let len = (len as usize).min(name.len());
+        String::from_utf16_lossy(&name[..len])
     }
 
     let mut children: Vec<HWND> = Vec::new();
@@ -90,20 +103,33 @@ pub fn raise_webview(host: isize) {
             &mut children as *mut _ as LPARAM,
         );
     }
-    for child in children {
-        let mut name = [0u16; 64];
-        let len = unsafe { GetClassNameW(child, name.as_mut_ptr(), name.len() as i32) };
-        if len <= 0 {
-            continue;
+    let named: Vec<(HWND, String)> = children
+        .into_iter()
+        .map(|child| (child, class_of(child)))
+        .collect();
+
+    // The video goes down first: raising the web view while the surface is
+    // still on top can leave it above the controls on a slow frame.
+    for (child, class) in &named {
+        if class.starts_with("mpv") {
+            unsafe {
+                SetWindowPos(
+                    *child,
+                    HWND_BOTTOM,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+                );
+            }
         }
-        // GetClassNameW can report more than the buffer holds when the class
-        // name is long, and slicing past it aborts the app from a window event.
-        let len = (len as usize).min(name.len());
-        let class = String::from_utf16_lossy(&name[..len]);
+    }
+    for (child, class) in &named {
         if class.starts_with("Chrome_WidgetWin") {
             unsafe {
                 SetWindowPos(
-                    child,
+                    *child,
                     HWND_TOP,
                     0,
                     0,
@@ -469,6 +495,12 @@ pub fn run() {
             // The journal exists before anything can fail, and a panic is the
             // one failure with nowhere else to go.
             playback_log::init(&data_dir);
+            // One line at boot proves the bundled libmpv loads and its client
+            // API matches, before any title is opened.
+            match player::version() {
+                Some(version) => playback_log::mark(format!("libmpv {version}")),
+                None => playback_log::mark("libmpv did not answer; playback will fail"),
+            }
             install_crash_hook(app.handle().clone());
 
             let db_path = data_dir.join("duvy.db");
@@ -494,8 +526,6 @@ pub fn run() {
             };
             let http = http_client();
 
-            player_setup::init(app.handle());
-
             app.manage(AppState {
                 db: db::Db(Mutex::new(connection)),
                 http,
@@ -504,8 +534,6 @@ pub fn run() {
             });
 
             updates::watch(app.handle().clone());
-            // A machine with no player fetches one quietly, in the background.
-            player_setup::ensure(app.handle());
             // Cinemeta ships by default, the way Stremio and Nuvio do it.
             tauri::async_runtime::spawn(commands::seed_default_addons(app.handle().clone()));
 
@@ -520,9 +548,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
-            commands::mpv_detect,
-            player_setup::player_setup_status,
-            player_setup::player_setup_start,
             commands::playback_log,
             commands::settings_get,
             commands::settings_set,

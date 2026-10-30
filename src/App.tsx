@@ -148,7 +148,6 @@ function Screen() {
           </svg>
         </div>
         <p className="boot-title">Duvy</p>
-        <p className="boot-sub">Warming up the projector…</p>
       </div>
     );
   }

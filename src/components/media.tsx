@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useEffect,
   useRef,
@@ -66,7 +67,11 @@ function PosterMenu({
   const current = marked ? undefined : hit;
 
   const setWatched = (next: boolean) => {
-    void markWatched(current?.key ?? item.id, item.id, next)
+    // Unmarking has to hit the key that is actually marked; once a whole show
+    // is marked, the newest playhead is a different key.
+    const mark = watched.find((row) => row.metaId === item.id);
+    const key = next ? current?.key ?? item.id : mark?.key ?? item.id;
+    void markWatched(key, item.id, next)
       .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
   };
@@ -518,19 +523,34 @@ export function Hero({
             )}
           </h1>
           <div className="hero-meta">
-            {item.imdbRating ? (
-              <Badge tone="accent">
-                <span className="rating-value">{item.imdbRating}</span>
-                <ImdbMark />
-              </Badge>
-            ) : null}
-            {item.releaseInfo ? <span>{item.releaseInfo}</span> : null}
-            {item.runtime ? <span>{item.runtime}</span> : null}
-            {item.genres?.slice(0, 2).map((genre) => (
-              <span key={genre} className="hero-genre">
-                {genre}
-              </span>
-            ))}
+            {[
+              item.imdbRating ? (
+                <Badge tone="accent" key="rating">
+                  <span className="rating-value">{item.imdbRating}</span>
+                  <ImdbMark />
+                </Badge>
+              ) : null,
+              item.releaseInfo ? <span key="year">{item.releaseInfo}</span> : null,
+              item.runtime ? <span key="runtime">{item.runtime}</span> : null,
+              ...(item.genres ?? [])
+                .slice(0, 3)
+                .map((genre) => (
+                  <span key={genre} className="hero-genre">
+                    {genre}
+                  </span>
+                )),
+            ]
+              .filter(Boolean)
+              .map((node, index) => (
+                <Fragment key={index}>
+                  {index > 0 ? (
+                    <span className="hero-sep" aria-hidden="true">
+                      •
+                    </span>
+                  ) : null}
+                  {node}
+                </Fragment>
+              ))}
           </div>
           {item.description ? <p className="hero-overview">{item.description}</p> : null}
           <div className="hero-actions">

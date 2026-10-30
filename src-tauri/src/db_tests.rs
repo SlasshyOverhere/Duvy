@@ -583,6 +583,47 @@ fn rewatching_a_finished_title_returns_it_to_continue_watching() {
 }
 
 #[test]
+fn playing_again_drops_the_watched_mark() {
+    let (conn, path) = temp_database();
+    let item = db::ProgressItem {
+        key: "tt5:1:1".into(),
+        meta_id: "tt5".into(),
+        media_type: "series".into(),
+        name: "A Show".into(),
+        poster: None,
+        background: None,
+        season: Some(1),
+        episode: Some(1),
+        episode_title: None,
+        position: 980.0,
+        duration: 1000.0,
+        updated_at: 0,
+    };
+    db::save_playback(&conn, &item, true).expect("finish");
+    db::set_watched(&conn, "tt5", "tt5", true).expect("show mark");
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 1);
+
+    // Starting the episode again saves a playhead, and that has to retire the
+    // mark instead of leaving the title listed as finished.
+    db::save_playback(
+        &conn,
+        &db::ProgressItem {
+            position: 120.0,
+            ..item
+        },
+        false,
+    )
+    .expect("rewatch");
+
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    let continuing = db::list_continue_watching(&conn).expect("continue");
+    assert_eq!(continuing.len(), 1);
+    assert_eq!(continuing[0].position, 120.0);
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
     let (conn, path) = temp_database();
     db::save_progress(

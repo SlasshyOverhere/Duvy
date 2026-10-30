@@ -619,8 +619,16 @@ button.pill:hover {
   overflow-x: clip;
   padding: 0;
   scroll-behavior: smooth;
+  /* The scroll rail was the last piece of chrome on the page. Wheel, keys,
+     drag and touch all still scroll; only the bar is gone. */
+  scrollbar-width: none;
   background-color: var(--bg);
   background-image: var(--glass-substrate-grain);
+}
+
+.view::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .page {
@@ -1406,13 +1414,13 @@ button.pill:hover {
   padding-top: 28px;
 }
 
-/* Centred hero: the copy owns the middle of the card, the artwork
-   reads around it through a vignette rather than a hard scrim. */
+/* The copy sits on the left, sharing the page gutter with the rows below,
+   and the artwork reads around it through a vignette rather than a hard scrim. */
 .hero {
   position: relative;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: clamp(500px, 72vh, 760px);
   margin: 0;
   border-radius: 0;
@@ -1446,6 +1454,13 @@ button.pill:hover {
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.6) 24%,
+      rgba(0, 0, 0, 0.2) 50%,
+      rgba(0, 0, 0, 0) 68%
+    ),
+    linear-gradient(
       to top,
       rgba(0, 0, 0, 0.96) 0%,
       rgba(0, 0, 0, 0.82) 22%,
@@ -1473,11 +1488,10 @@ button.pill:hover {
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: clamp(96px, 12vh, 140px) clamp(24px, 4vw, 56px)
-    clamp(46px, 6vh, 72px);
-  text-align: center;
+  max-width: min(100%, 60rem);
+  margin: 0;
+  padding: clamp(96px, 12vh, 140px) var(--pad) clamp(46px, 6vh, 72px);
+  text-align: left;
 }
 
 .hero-kicker {
@@ -1485,12 +1499,12 @@ button.pill:hover {
 }
 
 .hero-title {
-  font-size: clamp(2.6rem, 5.4vw, 4.9rem);
-  font-weight: 700;
-  line-height: 1.04;
-  letter-spacing: -0.035em;
+  font-size: clamp(2.9rem, 6vw, 5.6rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
   max-width: 20ch;
-  margin: 0 auto;
+  margin: 0;
   text-wrap: balance;
   text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
 }
@@ -1499,36 +1513,49 @@ button.pill:hover {
   display: block;
   width: auto;
   height: auto;
-  max-width: min(460px, 78%);
-  max-height: clamp(64px, 8vw, 118px);
-  margin: 0 auto;
+  max-width: min(520px, 82%);
+  max-height: clamp(72px, 9vw, 130px);
+  margin: 0;
   object-fit: contain;
 }
 
 .hero-meta {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-top: 18px;
-  font-size: 12.5px;
-  color: var(--muted);
+  gap: 8px 8px;
+  margin-top: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .hero-genre {
-  color: var(--faint);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.hero-sep {
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 0.8em;
+}
+
+.hero-meta .badge {
+  font-size: 12px;
+  padding: 3px 9px;
 }
 
 .hero-overview {
-  margin: 16px auto 0;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.62;
-  max-width: 54ch;
-  text-align: center;
+  margin: 18px 0 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: clamp(1rem, 1.15vw, 1.15rem);
+  font-weight: 500;
+  line-height: 1.55;
+  max-width: 46rem;
+  text-align: left;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1536,19 +1563,19 @@ button.pill:hover {
 .hero-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 30px;
+  margin-top: 32px;
 }
 
 .hero-link {
   border: 0;
   background: none;
-  padding: 0 18px;
-  font-size: 13.5px;
+  padding: 0 22px;
+  font-size: 15px;
   font-weight: 600;
-  color: rgba(253, 250, 245, 0.72);
+  color: rgba(253, 250, 245, 0.78);
   transition: color 0.15s var(--ease);
 }
 
@@ -1576,33 +1603,56 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* The play CTA stays solid paper: a solid mark inside a glass room. */
+/* The play CTA is a real lens: a thin frost that keeps the artwork readable
+   through it, a specular band across the top third, a hairline lip and one
+   tight cast shadow. The fill stays low-opacity on purpose - a solid white
+   disc reads as a sticker, not glass. */
 .hero-actions .btn.btn-primary {
-  color: var(--accent-ink);
-  background: var(--accent);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  color: #fff;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.38) 0%,
+      rgba(255, 255, 255, 0.1) 34%,
+      rgba(255, 255, 255, 0) 52%
+    ),
+    rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
+  backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
   box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 0 0 1px var(--glass-edge-soft),
-    var(--glass-shadow);
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 1px 1px rgba(0, 0, 0, 0.32),
+    0 8px 20px -12px rgba(0, 0, 0, 0.9);
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
-  color: var(--accent-ink);
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  color: #fff;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.16) 36%,
+      rgba(255, 255, 255, 0.02) 54%
+    ),
+    rgba(255, 255, 255, 0.16);
 }
 
-.hero-actions .btn-primary,
+.hero-actions .btn-primary svg {
+  width: 22px;
+  height: 22px;
+  /* The frost can pass light through, so the glyph carries its own shadow. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
 .hero-actions .btn-square {
   width: 44px;
   height: 44px;
   padding: 0;
-}
-
-.hero-actions .btn-primary svg {
-  width: 20px;
-  height: 20px;
 }
 
 .hero-dots {
@@ -3490,87 +3540,14 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 1 1 220px;
 }
 
-.field-row input {
+/* Direct children only: inside .field the flex axis is vertical, so a basis
+   here would become the input's height. */
+.field-row > input {
   flex: 1 1 220px;
 }
 
 .settings-path {
   margin-top: 4px;
-}
-
-.mpv-card {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-  margin: 12px 0 16px;
-  padding: 15px 16px;
-  border-radius: 10px;
-  background: var(--glass-wash), var(--glass-fill-soft);
-  box-shadow:
-    inset 0 1px 0 var(--glass-edge-soft),
-    inset 0 0 0 1px var(--glass-edge-soft);
-}
-
-.mpv-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  min-width: 0;
-}
-
-.mpv-status-copy {
-  min-width: 0;
-}
-
-.mpv-dot {
-  width: 7px;
-  height: 7px;
-  margin-top: 7px;
-  border-radius: 50%;
-  background: var(--muted);
-  flex: 0 0 auto;
-}
-
-.mpv-card.is-ready .mpv-dot {
-  background: var(--good);
-}
-
-.mpv-card.is-missing .mpv-dot {
-  background: var(--danger);
-}
-
-.mpv-status-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 3px;
-}
-
-.mpv-status h3 {
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.mpv-status p {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.mpv-status code {
-  display: block;
-  margin-top: 5px;
-  font-size: 11px;
-  color: var(--faint);
-  word-break: break-all;
-}
-
-.mpv-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .log-view {
@@ -5751,14 +5728,6 @@ input[type="range"]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   border-width: 1.6px;
-}
-
-.ob-foot {
-  margin: 0;
-  max-width: 52ch;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--faint);
 }
 
 @media (max-width: 560px) {

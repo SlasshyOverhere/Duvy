@@ -19,27 +19,26 @@ The name "Duvy" is used descriptively to identify this independent project and d
 imply affiliation, endorsement, or sponsorship. If a rights holder objects to the name, it will
 be changed.
 
-Player download
----------------
-Duvy does not bundle mpv in its installers. On first launch the app downloads a Windows
-build of mpv into its app data directory, verifying every file against the release's
-`sha256.txt` before use. The `player-1` release of this repository serves two files:
+Playback library
+----------------
+Playback runs on libmpv, loaded into the app process from `libmpv-2.dll`, which installers
+built from this repository place next to the executable. The DLL is not committed; run
+`scripts/fetch-libmpv.ps1` to obtain it for a local build.
 
-- `mpv.exe`, a Windows build of mpv reporting version `v0.41.0-1227-ge471496c5`. mpv is free
-  software distributed under GPL-2.0-or-later. The corresponding source is published by the mpv
-  project at https://github.com/mpv-player/mpv; the commit named in the version string is in that
-  repository. The build also uses FFmpeg (https://ffmpeg.org), libplacebo
-  (https://github.com/haasn/libplacebo) and other libraries, each under its own license and with
-  its own published source. This repository does not ship a copy of mpv's license text; the
-  upstream terms are in the mpv repository's `Copyright` and `LICENSE.GPL` files.
-- `d3dcompiler_43.dll`, Microsoft's Direct3D 43 shader compiler redistributable, included
-  alongside the mpv Windows build. It is Microsoft software governed by Microsoft's
-  redistributable terms, not by the GPL.
+The DLL fetched by that script is a Windows build of mpv (https://mpv.io,
+https://github.com/mpv-player/mpv) that also contains FFmpeg (https://ffmpeg.org),
+libplacebo (https://github.com/haasn/libplacebo) and other libraries. Each is distributed
+under its own license and publishes its own source. Upstream mpv's terms are in that
+repository's `Copyright` and `LICENSE.GPL` files.
 
-A user-supplied mpv set in Settings is used instead when present and is governed by that copy's
-own license. Because the player is fetched at runtime, an installer built from this repository
-does not redistribute mpv. Anyone redistributing the player files themselves should keep this
-NOTICE and keep the corresponding source locations available.
+That default build is GPL-2.0-or-later. Shipping a GPL build inside a closed-source
+installer is not permitted on its own: a release either has to bundle a libmpv built with
+`--enable-lgpl`, or comply with the GPL for the whole distributed work. This is a licensing
+decision that has to be made before a release, not a build detail.
+
+A build configured with `--enable-lgpl` is LGPL-2.1-or-later and can be bundled, provided
+its notice and the offer of corresponding source travel with it. Record the exact build
+and its license here before shipping.
 
 Content and services
 --------------------
@@ -70,8 +69,7 @@ Third-party services
 - Jellyfin and Emby: the user connects their own server. Duvy is not affiliated with either
   project.
 - Debrid: the user connects their own account. Duvy is not affiliated with any provider.
-- mpv: playback is performed by the downloaded or user-installed mpv, under the terms described
-  above.
+- mpv: playback is performed in-process by libmpv, under the terms described above.
 
 Third-party crates and npm packages are used under their own licenses; see `Cargo.lock` and
 `bun.lock` for the exact set. Duvy's own source is MIT-licensed; see `LICENSE`.

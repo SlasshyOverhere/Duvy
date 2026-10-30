@@ -29,4 +29,9 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
+      # The libmpv import library and DLL are not committed.
+      - name: Fetch libmpv
+        shell: pwsh
+        run: ./scripts/fetch-libmpv.ps1
+
       - run: cargo test --manifest-path src-tauri/Cargo.toml

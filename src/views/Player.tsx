@@ -30,6 +30,7 @@ import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } 
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+// How much of the file counts as the ending when there is no credits marker.
 const NEXT_LEAD = 45;
 const SUB_STYLE_KEY = "duvy.subtitleStyle";
 const VIDEO_MODE_KEY = "duvy.videoMode";
@@ -896,7 +897,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
 
         <section className="pv-rail pv-rail--variants">
           <h3>Subtitles</h3>
-          {subs === null ? (
+          {subs === null && currentVariants.length === 0 ? (
             <Spinner label="Finding subtitles" />
           ) : currentVariants.length === 0 ? (
             <div className="pv-rail-empty">
@@ -1077,7 +1078,6 @@ export function PlayerView() {
     route,
     playRequest,
     buildSession,
-    appInfo,
     resolveStream,
     playingSource,
     progressFor,
@@ -1132,7 +1132,6 @@ export function PlayerView() {
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [markMsg, setMarkMsg] = useState<string | null>(null);
 
-  const advanced = useRef(false);
   const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
   const bumpAt = useRef(0);
@@ -1343,13 +1342,21 @@ export function PlayerView() {
   const activeAudio = audioTracks.find((track) => track.id === local?.activeAudio) ?? null;
   const mode = VIDEO_MODES.find((entry) => entry.id === videoMode) ?? VIDEO_MODES[0];
   const step = settings?.seekStep ?? 10;
-  const nextCountdown = Math.max(0, Math.ceil((duration || 0) - position));
-  const nextAutoPlay = settings?.autoPlayNext ?? false;
+  // Up next is offered once the episode is effectively over: from the credits
+  // marker when there is one, otherwise in the last stretch of the file. It is
+  // never an action, so there is no countdown and nothing starts on its own.
+  const outroAt = markers?.outroStart;
+  const nextAt =
+    duration > 0 && outroAt != null && outroAt > 0 && outroAt < duration - 2
+      ? outroAt
+      : duration > 60
+        ? duration - NEXT_LEAD
+        : null;
   const showNext = Boolean(
     nextEpisode &&
       !nextOff &&
       !failed &&
-      (local?.ended || (duration > 60 && nextCountdown <= NEXT_LEAD)),
+      (local?.ended || (nextAt != null && position >= nextAt)),
   );
 
   const playVideo = useCallback(
@@ -1840,15 +1847,11 @@ export function PlayerView() {
 
   const dismissNext = useCallback(() => {
     setNextOff(true);
-    // Keep the end-of-file handler from starting the episode the viewer
-    // explicitly waved off.
-    advanced.current = true;
   }, []);
 
   // Each episode is a fresh session: clear everything that belonged to the
   // previous one, including a dismissed next-episode card.
   useEffect(() => {
-    advanced.current = false;
     // Anything still loading for the old episode must not write here.
     subsSeq.current += 1;
     sourceSeq.current += 1;
@@ -1862,6 +1865,12 @@ export function PlayerView() {
     setLoadedSub(null);
     frameCache.current.clear();
     frameBucket.current = 0;
+  }, [session?.key]);
+
+  // Warm the addon subtitle hunt while the episode plays, so the panel opens
+  // with the list already in. Only the session restarts it, not `subs`.
+  useEffect(() => {
+    if (session?.key) void loadSubtitles(true);
   }, [session?.key]);
 
   // Markers are stored per episode, keyed like the session. The command still
@@ -2071,22 +2080,8 @@ export function PlayerView() {
     [markers, session?.key],
   );
 
-  // Ended episodes advance on their own only when the setting allows it and
-  // the card has not been dismissed.
-  useEffect(() => {
-    if (
-      !local?.ended ||
-      local.error ||
-      !settings?.autoPlayNext ||
-      !nextEpisode ||
-      advanced.current ||
-      nextOff
-    ) {
-      return;
-    }
-    advanced.current = true;
-    void playVideo(nextEpisode);
-  }, [local?.ended, local?.error, settings?.autoPlayNext, nextEpisode, nextOff, playVideo]);
+  // Up next is an offer, never an action: the next episode starts only when
+  // the viewer asks for it.
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -2308,10 +2303,9 @@ export function PlayerView() {
       ["Cached to", formatTime(local?.buffered ?? 0)],
       ["Speed", `${local?.speed ?? 1}×`],
       ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " (muted)" : ""}`],
-      ["Engine", appInfo?.mpv?.version ?? "mpv"],
+      ["Engine", "libmpv"],
     ],
     [
-      appInfo?.mpv?.version,
       duration,
       local?.buffered,
       local?.ended,
@@ -2956,13 +2950,7 @@ export function PlayerView() {
               <p className="pv-upnext-name">
                 {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
               </p>
-              <p className="pv-upnext-meta">
-                {nextAutoPlay
-                  ? local.ended
-                    ? "Starting now"
-                    : `Starting in ${nextCountdown}s`
-                  : "Ready when you are"}
-              </p>
+              <p className="pv-upnext-meta">Ready when you are</p>
             </div>
             <div className="pv-upnext-actions">
               <button
@@ -3045,18 +3033,6 @@ export function PlayerView() {
             >
               <Icon name={paused ? "play" : "pause"} size={26} />
             </button>
-            {nextEpisode ? (
-              <button
-                type="button"
-                className="pv-cbtn"
-                aria-label="Next episode"
-                title="Next episode"
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
-              >
-                <Icon name="next" size={26} />
-              </button>
-            ) : null}
             <button
               type="button"
               className="pv-cbtn"
@@ -3081,6 +3057,19 @@ export function PlayerView() {
             </div>
 
             <div className="pv-spacer" />
+
+            {nextEpisode ? (
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label="Next episode"
+                title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+              >
+                <Icon name="next" size={24} />
+              </button>
+            ) : null}
 
             <div
               className={`pv-cluster${btnMenu ? " is-open" : ""}`}

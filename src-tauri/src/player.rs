@@ -1,27 +1,23 @@
-//! Native playback through mpv.
+//! Native playback through libmpv, in this process.
 //!
-//! Video is decoded by mpv (hardware accelerated, in-process with its own
-//! render surface) while Duvy drives it over mpv's JSON IPC socket. The
-//! picture is painted into the app window itself and the web layer above it
-//! stays transparent, so playback never leaves the window and the WebView stays
+//! Video is decoded by mpv (hardware accelerated, with its own render surface)
+//! and painted into the app window itself; the web layer above it stays
+//! transparent, so playback never leaves the window and the WebView stays
 //! completely out of the decode path.
 
 use crate::db::{self, ProgressItem};
-use crate::models::{MpvInfo, PlaybackSession};
+use crate::models::PlaybackSession;
 use crate::settings::Settings;
 use crate::AppState;
+use libmpv2::events::{Event, PropertyData};
+use libmpv2::{Format, Mpv};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-
-pub trait Duplex: Read + Write + Send {}
-impl<T: Read + Write + Send> Duplex for T {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -111,8 +107,9 @@ pub struct PlayRequest {
 }
 
 pub struct Player {
-    child: Child,
-    writer: Arc<Mutex<Box<dyn Duplex>>>,
+    /// Shared with every command and with the event thread; the core lives
+    /// while a handle does.
+    mpv: Arc<Mpv>,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
     app: AppHandle,
@@ -123,215 +120,10 @@ pub struct Player {
     source: String,
     /// Stamped on every snapshot and event, so the UI can drop a dead player's.
     generation: u64,
-    #[cfg_attr(windows, allow(dead_code))]
-    pipe: String,
 }
 
-/// One id per mpv process, so stale events can never be mistaken for the new one.
+/// One id per player, so stale events can never be mistaken for the new one.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
-
-// ---------------------------------------------------------------------------
-// mpv discovery
-// ---------------------------------------------------------------------------
-
-// Probing spawns `mpv --version`; a seek-hover preview asks constantly, so
-// one answer per (explicit path, resource dir) is cached.
-static MPV_CACHE: Mutex<Option<(String, Option<MpvInfo>, Instant)>> = Mutex::new(None);
-
-/// Drop the cached answer: a fresh install must be seen without waiting out the TTL.
-pub fn reset_mpv_cache() {
-    if let Ok(mut cache) = MPV_CACHE.lock() {
-        *cache = None;
-    }
-}
-
-pub fn find_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
-    // A miss is cached briefly: mpv may be installed while the app is running.
-    const MISS_TTL: Duration = Duration::from_secs(5);
-    let explicit = explicit.trim();
-    let key = format!(
-        "{explicit}\u{1}{}",
-        resource_dir
-            .map(|dir| dir.to_string_lossy().to_string())
-            .unwrap_or_default()
-    );
-    if let Ok(cache) = MPV_CACHE.lock() {
-        if let Some((seen, found, at)) = cache.as_ref() {
-            if *seen == key && (found.is_some() || at.elapsed() < MISS_TTL) {
-                return found.clone();
-            }
-        }
-    }
-    let found = locate_mpv(explicit, resource_dir);
-    if let Ok(mut cache) = MPV_CACHE.lock() {
-        *cache = Some((key, found.clone(), Instant::now()));
-    }
-    found
-}
-
-/// Async call sites: the probe spawns processes, so keep it off a worker.
-pub async fn find_mpv_async(
-    explicit: String,
-    resource_dir: Option<std::path::PathBuf>,
-) -> Option<MpvInfo> {
-    tokio::task::spawn_blocking(move || find_mpv(&explicit, resource_dir.as_deref()))
-        .await
-        .ok()
-        .flatten()
-}
-
-/// Detection ignores the cache: mpv may have been installed since the last try.
-pub fn detect_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
-    locate_mpv(explicit.trim(), resource_dir)
-}
-
-fn locate_mpv(explicit: &str, resource_dir: Option<&std::path::Path>) -> Option<MpvInfo> {
-    let mut candidates: Vec<String> = Vec::new();
-    if !explicit.is_empty() {
-        candidates.push(explicit.to_string());
-    }
-
-    // A player this app downloaded on first run sits next to the database.
-    if let Some(path) = crate::player_setup::installed() {
-        candidates.push(path);
-    }
-
-    // The copy shipped with the installer wins over anything on PATH, so
-    // playback does not depend on the user installing mpv themselves.
-    if let Some(dir) = resource_dir {
-        for relative in ["mpv/mpv.exe", "resources/mpv/mpv.exe"] {
-            candidates.push(dir.join(relative).to_string_lossy().to_string());
-        }
-    }
-    candidates.push(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("resources/mpv/mpv.exe")
-            .to_string_lossy()
-            .to_string(),
-    );
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            for relative in ["mpv/mpv.exe", "resources/mpv/mpv.exe"] {
-                candidates.push(dir.join(relative).to_string_lossy().to_string());
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        candidates.push("mpv".to_string());
-        if let Ok(output) = hidden_command("where").arg("mpv").output() {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
-                let line = line.trim();
-                if !line.is_empty() {
-                    candidates.push(line.to_string());
-                }
-            }
-        }
-        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
-        let program_files = std::env::var("PROGRAMFILES").unwrap_or_default();
-        let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
-        for path in [
-            format!("{program_files}\\mpv\\mpv.exe"),
-            format!("{local}\\Programs\\mpv\\mpv.exe"),
-            format!("{local}\\Microsoft\\WinGet\\Links\\mpv.exe"),
-            format!("{user_profile}\\scoop\\shims\\mpv.exe"),
-            format!("{user_profile}\\scoop\\apps\\mpv\\current\\mpv.exe"),
-            "C:\\mpv\\mpv.exe".to_string(),
-        ] {
-            candidates.push(path);
-        }
-    }
-
-    #[cfg(unix)]
-    {
-        candidates.push("mpv".to_string());
-        for path in ["/usr/bin/mpv", "/usr/local/bin/mpv", "/opt/homebrew/bin/mpv"] {
-            candidates.push(path.to_string());
-        }
-    }
-
-    candidates.into_iter().find_map(|candidate| probe_mpv(&candidate))
-}
-
-/// Spawn without flashing a console window on Windows.
-pub(crate) fn hidden_command(program: &str) -> Command {
-    #[allow(unused_mut)]
-    let mut command = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    command
-}
-
-fn probe_mpv(path: &str) -> Option<MpvInfo> {
-    let output = hidden_command(path).arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let version = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()
-        .unwrap_or("mpv")
-        .trim()
-        .to_string();
-    Some(MpvInfo {
-        path: path.to_string(),
-        version,
-    })
-}
-
-// ---------------------------------------------------------------------------
-// IPC plumbing
-// ---------------------------------------------------------------------------
-
-fn pipe_name() -> String {
-    // Two opens in the same millisecond must not land on one socket: the second
-    // mpv would fail to bind, or worse, talk over the first one's pipe.
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    #[cfg(windows)]
-    {
-        format!(r"\\.\pipe\duvy-{}-{stamp}-{seq}", std::process::id())
-    }
-    #[cfg(unix)]
-    {
-        format!("/tmp/duvy-{}-{stamp}-{seq}.sock", std::process::id())
-    }
-}
-
-fn connect_pipe(name: &str) -> std::io::Result<(Box<dyn Duplex>, Box<dyn Duplex>)> {
-    #[cfg(windows)]
-    {
-        let reader = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(name)?;
-        let writer = reader.try_clone()?;
-        Ok((Box::new(reader), Box::new(writer)))
-    }
-    #[cfg(unix)]
-    {
-        let reader = std::os::unix::net::UnixStream::connect(name)?;
-        let writer = reader.try_clone()?;
-        Ok((Box::new(reader), Box::new(writer)))
-    }
-}
-
-fn send(writer: &mut Box<dyn Duplex>, command: Value) -> Result<(), String> {
-    let mut payload = serde_json::to_string(&command).map_err(|e| e.to_string())?;
-    payload.push('\n');
-    writer
-        .write_all(payload.as_bytes())
-        .and_then(|_| writer.flush())
-        .map_err(|e| format!("mpv IPC write failed: {e}"))
-}
 
 fn number_value(value: Option<&Value>, what: &str) -> Result<f64, String> {
     value
@@ -656,6 +448,19 @@ fn parse_chapters(value: &Value) -> Vec<Chapter> {
 // Player
 // ---------------------------------------------------------------------------
 
+/// The libmpv that is actually loaded, probed once at boot: a broken bundle
+/// then shows up in the log instead of as a failed first play.
+pub fn version() -> Option<String> {
+    let mpv = Mpv::with_initializer(|init| {
+        let _ = init.set_option("vo", "null");
+        let _ = init.set_option("audio", "no");
+        let _ = init.set_option("config", "no");
+        Ok(())
+    })
+    .ok()?;
+    mpv.get_property::<String>("mpv-version").ok()
+}
+
 /// Only remote HTTP(S), file sources and local paths may reach mpv.
 pub fn validate_media_url(url: &str) -> Result<(), String> {
     let url = url.trim();
@@ -718,216 +523,133 @@ impl Player {
         settings: &Settings,
         request: &PlayRequest,
         host: Option<isize>,
-        resource_dir: Option<&std::path::Path>,
     ) -> Result<Self, String> {
         validate_media_url(&request.url)?;
-        let mpv = find_mpv(&settings.mpv_path, resource_dir).ok_or_else(|| {
-            if crate::player_setup::running() {
-                "The player is still downloading. Try again in a moment.".to_string()
-            } else {
-                "mpv was not found. Reinstall Duvy, or point it at an mpv.exe in Settings → Playback."
-                    .to_string()
-            }
-        })?;
 
-        crate::playback_log::mark(format!("mpv found: {}", mpv.path));
-
-        let pipe = pipe_name();
         let (forward_mb, forward_secs) =
             forward_cache(settings.buffer_forward_value, &settings.buffer_forward_unit);
         let backward_mb = back_cache(settings.buffer_backward_value, &settings.buffer_backward_unit);
-        let mut command = hidden_command(&mpv.path);
+        let start = request.start_at.unwrap_or(0.0);
+
         // Keep a log next to the database: when a stream refuses to play on a
         // user's machine this is the only window into mpv's decision making.
-        let mut stderr_sink = None;
-        if let Ok(dir) = app.path().app_data_dir() {
+        let log_file = app.path().app_data_dir().ok().map(|dir| {
             let _ = std::fs::create_dir_all(&dir);
-            command.arg(format!("--log-file={}", dir.join("mpv.log").display()));
-            if let Ok(file) = std::fs::File::create(dir.join("mpv-stderr.log")) {
-                stderr_sink = Some(file);
+            dir.join("mpv.log").to_string_lossy().to_string()
+        });
+
+        let mpv = Mpv::with_initializer(|init| {
+            // Only `wid` and `vo` can fail the open. Everything else is
+            // cosmetic, and one unknown option must not cost a playback.
+            if let Some(log) = log_file.as_deref() {
+                let _ = init.set_option("log-file", log);
             }
-        }
-        command
-            .arg("--no-config")
-            .arg(format!("--input-ipc-server={pipe}"))
-            .arg("--idle=yes")
-            .arg("--keep-open=no")
-            .arg("--save-position-on-quit=no")
-            .arg("--osd-level=1")
-            .arg("--osd-font-size=34")
-            .arg("--osd-duration=2500")
-            .arg("--sub-font-size=46")
-            .arg("--sub-auto=fuzzy")
-            .arg("--sub-visibility=yes")
-            .arg("--volume=100")
-            .arg("--volume-max=200")
-            .arg("--cache=yes")
-            .arg("--cache-on-disk=no")
-            .arg(format!("--demuxer-max-bytes={forward_mb}MiB"))
-            .arg(format!("--demuxer-max-back-bytes={backward_mb}MiB"))
-            .arg("--network-timeout=20")
-            .arg(format!(
-                "--alang={}",
-                language_arg(&settings.audio_language)
-            ))
-            .arg(format!(
-                "--slang={}",
-                language_arg(&settings.subtitle_language)
-            ))
-            .arg(format!(
-                "--hwdec={}",
+            let _ = init.set_option("config", "no");
+            let _ = init.set_option("keep-open", "no");
+            let _ = init.set_option("save-position-on-quit", "no");
+            let _ = init.set_option("idle", "yes");
+            let _ = init.set_option("osd-level", "1");
+            let _ = init.set_option("osd-font-size", "34");
+            let _ = init.set_option("osd-duration", "2500");
+            let _ = init.set_option("sub-font-size", "46");
+            let _ = init.set_option("sub-auto", "fuzzy");
+            let _ = init.set_option("sub-visibility", "yes");
+            let _ = init.set_option("volume", "100");
+            let _ = init.set_option("volume-max", "200");
+            let _ = init.set_option("cache", "yes");
+            let _ = init.set_option("cache-on-disk", "no");
+            let _ = init.set_option("demuxer-max-bytes", format!("{forward_mb}MiB"));
+            let _ = init.set_option("demuxer-max-back-bytes", format!("{backward_mb}MiB"));
+            // A time-based forward buffer is capped by seconds; the byte
+            // ceiling above only stops a runaway read on a broken stream.
+            if let Some(secs) = forward_secs {
+                let _ = init.set_option("cache-secs", secs.to_string());
+            }
+            let _ = init.set_option("network-timeout", "20");
+            let _ = init.set_option("alang", language_arg(&settings.audio_language));
+            let _ = init.set_option("slang", language_arg(&settings.subtitle_language));
+            let _ = init.set_option(
+                "hwdec",
                 if settings.hardware_decoding {
                     "auto-safe"
                 } else {
                     "no"
-                }
-            ))
+                },
+            );
             // Pin the picture pipeline instead of relying on whatever the mpv
             // build picks as defaults: libplacebo renders, maps HDR and Dolby
             // Vision to the panel's real range (SDR included) and dithers the
             // result, and every codec the GPU can decode is offloaded.
-            .arg("--vo=gpu-next")
-            .arg("--hwdec-codecs=all")
-            .arg("--tone-mapping=bt.2390")
-            .arg("--hdr-compute-peak=yes")
-            .arg("--dither-depth=auto")
-            // mpv 0.40+ dropped space-separated values for these two.
-            .arg(format!("--force-media-title={}", request.title))
-            .arg("--user-agent=Mozilla/5.0 Duvy/0.1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(match stderr_sink {
-                Some(file) => Stdio::from(file),
-                None => Stdio::null(),
-            });
-
-        // A time-based forward buffer is capped by seconds; the byte ceiling above
-        // only stops a runaway read on a broken stream.
-        if let Some(secs) = forward_secs {
-            command.arg(format!("--cache-secs={secs}"));
-        }
-
-        // Resume is a launch option, not a loadfile one: mpv answers
-        // `loadfile url replace "start=..."` with "invalid parameter", which
-        // aborted the whole open whenever a saved position existed.
-        if let Some(start) = request.start_at.filter(|value| *value > 5.0) {
-            command.arg(format!("--start={start:.3}"));
-        }
-
-        match host {
-            Some(wid) => {
-                // mpv paints straight into the app window's client area, and the
-                // transparent web layer above it draws the controls. Everything
-                // mpv would normally draw around the picture is turned off so
-                // there is exactly one UI.
-                command
-                    .arg(format!("--wid={wid}"))
-                    .arg("--no-border")
-                    .arg("--osc=no")
-                    .arg("--osd-bar=no")
-                    .arg("--input-vo-keyboard=no")
-                    .arg("--input-default-bindings=no")
-                    .arg("--stop-screensaver=yes");
+            init.set_option("vo", "gpu-next")?;
+            let _ = init.set_option("hwdec-codecs", "all");
+            let _ = init.set_option("tone-mapping", "bt.2390");
+            let _ = init.set_option("hdr-compute-peak", "yes");
+            let _ = init.set_option("dither-depth", "auto");
+            let _ = init.set_option("force-media-title", request.title.as_str());
+            let _ = init.set_option("user-agent", "Mozilla/5.0 Duvy/0.1");
+            // Resume is an open option, not a loadfile one: mpv answers
+            // `loadfile url replace "start=..."` with "invalid parameter".
+            if let Some(start) = request.start_at.filter(|value| *value > 5.0) {
+                let _ = init.set_option("start", format!("{start:.3}"));
             }
-            None => {
-                // Fallback: a normal mpv window, still driven over IPC.
-                command
-                    .arg("--force-window=yes")
-                    .arg("--osc=yes")
-                    .arg("--autofit-larger=90%x90%")
-                    .arg("--title=Duvy");
-            }
-        }
-
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("Could not start mpv at {}: {e}", mpv.path))?;
-        crate::playback_log::mark(format!("mpv process started (pid {})", child.id()));
-
-        // A failure below used to return with the child still alive: mpv keeps
-        // painting over the app window with nobody driving it, and every retry
-        // leaks another process. Any early return kills it first.
-        macro_rules! give_up {
-            ($error:expr) => {{
-                crate::playback_log::mark(format!("playback failed: {}", $error));
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err($error);
-            }};
-        }
-
-
-        // mpv creates the IPC server asynchronously; give it a moment.
-        let mut connected = None;
-        let mut attempts = 0u32;
-        let mut exited = false;
-        for _ in 0..60 {
-            attempts += 1;
-            match connect_pipe(&pipe) {
-                Ok(pair) => {
-                    connected = Some(pair);
-                    break;
+            match host {
+                Some(wid) => {
+                    // Set before initialization, so the picture has a surface
+                    // the moment the core starts. Everything mpv would draw
+                    // around it is off: the web layer is the only UI.
+                    init.set_property("wid", wid as i64)?;
+                    let _ = init.set_option("border", "no");
+                    let _ = init.set_option("osc", "no");
+                    let _ = init.set_option("osd-bar", "no");
+                    let _ = init.set_option("input-vo-keyboard", "no");
+                    let _ = init.set_option("input-default-bindings", "no");
+                    let _ = init.set_option("stop-screensaver", "yes");
                 }
-                Err(_) => {
-                    // A process that died on a bad argument never opens its
-                    // socket; waiting out the full three seconds only hides why.
-                    if matches!(child.try_wait(), Ok(Some(_))) {
-                        exited = true;
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(50));
+                None => {
+                    // Fallback: mpv's own window, still driven by us.
+                    let _ = init.set_option("force-window", "yes");
+                    let _ = init.set_option("osc", "yes");
+                    let _ = init.set_option("autofit-larger", "90%x90%");
+                    let _ = init.set_option("title", "Duvy");
                 }
             }
-        }
-        let (reader, mut writer) = match connected {
-            Some(pair) => {
-                crate::playback_log::mark(format!(
-                    "control pipe ready after {attempts} attempt(s)"
-                ));
-                pair
-            }
-            None if exited => {
-                give_up!("mpv exited before it accepted a command.".to_string())
-            }
-            None => give_up!("mpv started but its IPC socket never became available.".to_string()),
-        };
+            Ok(())
+        })
+        .map_err(|error| format!("Could not start the player: {error}"))?;
+        crate::playback_log::mark("libmpv initialised");
 
-        // Esc leaves playback and hands the app window back.
-        let _ = send(&mut writer, json!({"command": ["keybind", "ESC", "quit"]}));
+        let mpv = Arc::new(mpv);
+        // A second handle for the event loop: `wait_event` needs `&mut`, while
+        // commands and property reads come in on the shared one. No client
+        // name: libmpv2 5 builds a dangling `CString` when one is given.
+        let events = mpv
+            .create_client(None)
+            .map_err(|error| format!("Could not attach the player's events: {error}"))?;
 
-        for (id, property) in [
-            (1, "time-pos"),
-            (2, "duration"),
-            (3, "pause"),
-            (4, "volume"),
-            (5, "mute"),
-            (6, "speed"),
-            (7, "track-list"),
-            (8, "eof-reached"),
-            (9, "media-title"),
-            (10, "demuxer-cache-time"),
-            (11, "chapter-list"),
+        for (id, name, format) in [
+            (1, "time-pos", Format::Double),
+            (2, "duration", Format::Double),
+            (3, "pause", Format::Flag),
+            (4, "volume", Format::Double),
+            (5, "mute", Format::Flag),
+            (6, "speed", Format::Double),
+            (7, "track-list/count", Format::Int64),
+            (8, "eof-reached", Format::Flag),
+            (9, "media-title", Format::String),
+            (10, "demuxer-cache-time", Format::Double),
+            (11, "chapter-list/count", Format::Int64),
         ] {
-            if let Err(error) = send(
-                &mut writer,
-                json!({"command": ["observe_property", id, property]}),
-            ) {
-                give_up!(error);
+            if let Err(error) = events.observe_property(name, format, id) {
+                crate::playback_log::mark(format!("playback failed: {error}"));
+                return Err(format!("Could not watch {name}: {error}"));
             }
         }
 
-        let start = request.start_at.unwrap_or(0.0);
-        let load = json!({"command": ["loadfile", request.url, "replace"]});
         crate::playback_log::mark(format!("handing the URL to mpv (start at {start:.1}s)"));
-        if let Err(error) = send(&mut writer, load) {
-            give_up!(error);
-        }
-        if let Err(error) = send(
-            &mut writer,
-            json!({"command": ["set_property", "pause", false]}),
-        ) {
-            give_up!(error);
-        }
+        mpv.command("loadfile", &[request.url.as_str(), "replace"])
+            .map_err(|error| format!("mpv refused the source: {error}"))?;
+        mpv.set_property("pause", false)
+            .map_err(|error| format!("mpv would not start playback: {error}"))?;
         crate::playback_log::mark("waiting for the first frame");
 
         let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
@@ -943,11 +665,12 @@ impl Player {
         let stop = Arc::new(AtomicBool::new(false));
         let session = Arc::new(Mutex::new(request.session.clone()));
 
-        spawn_reader(
+        spawn_events(
             app.clone(),
-            reader,
+            events,
             Arc::clone(&snapshot),
             Arc::clone(&stop),
+            Arc::clone(&mpv),
         );
         spawn_ticker(
             app.clone(),
@@ -958,8 +681,7 @@ impl Player {
         );
 
         Ok(Self {
-            child,
-            writer: Arc::new(Mutex::new(writer)),
+            mpv,
             snapshot,
             stop,
             app,
@@ -967,7 +689,6 @@ impl Player {
             final_saved: AtomicBool::new(false),
             source: request.url.clone(),
             generation,
-            pipe,
         })
     }
 
@@ -983,11 +704,11 @@ impl Player {
         &self.source
     }
 
-    pub fn writer(&self) -> Arc<Mutex<Box<dyn Duplex>>> {
-        Arc::clone(&self.writer)
+    pub fn handle(&self) -> Arc<Mpv> {
+        Arc::clone(&self.mpv)
     }
 
-    /// mpv reported a dead source. Its pipe wedges, so writes are refused.
+    /// mpv reported a dead source, so further actions have nothing to drive.
     pub fn failed(&self) -> bool {
         self.snapshot
             .lock()
@@ -1005,147 +726,110 @@ impl Player {
         persist(&self.app, &snap, session.as_ref());
     }
 
-    /// Stop mpv now; reaping it can happen later on another thread.
+    /// Stop mpv now; the core itself goes when its last handle drops.
     pub fn kill(&mut self) {
         self.save_final();
         self.stop.store(true, Ordering::Relaxed);
-        let _ = self.child.kill();
+        let _ = self.mpv.command("quit", &[]);
     }
 
-    /// Send one action without holding the player slot, so a wedged mpv cannot
-    /// block the next playback behind a full IPC pipe.
-    pub fn send_action(
-        writer: &Arc<Mutex<Box<dyn Duplex>>>,
-        action: &str,
-        value: Option<Value>,
-    ) -> Result<(), String> {
-        let mut writer = writer.lock().map_err(|_| "player is busy")?;
+    /// Commands are thread-safe on the handle, so no lock stands between the UI
+    /// and a player that is already stopping.
+    pub fn send_action(mpv: &Mpv, action: &str, value: Option<Value>) -> Result<(), String> {
+        fn apply(result: libmpv2::Result<()>) -> Result<(), String> {
+            result.map_err(|error| format!("mpv rejected that: {error}"))
+        }
         match action {
-            "toggle-pause" => send(&mut writer, json!({"command": ["cycle", "pause"]})),
+            "toggle-pause" => apply(mpv.command("cycle", &["pause"])),
             "pause" => {
                 let paused = bool_value(value.as_ref(), "Pause")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "pause", paused]}),
-                )
+                apply(mpv.set_property("pause", paused))
             }
             "seek" => {
                 let position = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "time-pos", position]}),
-                )
+                apply(mpv.set_property("time-pos", position))
             }
             "seek-rel" => {
                 let delta = value.and_then(|v| v.as_f64()).unwrap_or(0.0);
-                send(
-                    &mut writer,
-                    json!({"command": ["seek", delta, "relative+exact"]}),
-                )
+                let delta = format!("{delta}");
+                apply(mpv.command("seek", &[delta.as_str(), "relative+exact"]))
             }
             "volume" => {
                 let volume = value.and_then(|v| v.as_f64()).unwrap_or(100.0);
-                send(&mut writer, json!({"command": ["set_property", "volume", volume]}))
+                apply(mpv.set_property("volume", volume))
             }
             "mute" => {
                 let muted = value
                     .as_ref()
                     .and_then(Value::as_bool)
                     .ok_or("mute needs a boolean")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "mute", muted]}),
-                )
+                apply(mpv.set_property("mute", muted))
             }
             "speed" => {
                 let speed = value.and_then(|v| v.as_f64()).unwrap_or(1.0);
-                send(&mut writer, json!({"command": ["set_property", "speed", speed]}))
+                apply(mpv.set_property("speed", speed))
             }
             "audio" => {
                 let id = value.and_then(|v| v.as_i64());
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "aid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
-                )
+                apply(mpv.set_property(
+                    "aid",
+                    id.map(|n| n.to_string()).unwrap_or_else(|| "no".into()),
+                ))
             }
             "sub" => {
                 let id = value.and_then(|v| v.as_i64());
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sid", id.map(Value::from).unwrap_or_else(|| json!("no"))]}),
-                )
+                apply(mpv.set_property(
+                    "sid",
+                    id.map(|n| n.to_string()).unwrap_or_else(|| "no".into()),
+                ))
             }
             "sub-ass-override" => {
                 // ASS tracks keep their own styling until a control is moved.
                 let custom = bool_value(value.as_ref(), "Subtitle style override")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-ass-override",
-                        if custom { "force" } else { "no" }]}),
-                )
+                apply(mpv.set_property(
+                    "sub-ass-override",
+                    if custom { "force" } else { "no" },
+                ))
             }
             "sub-font-size" => {
                 let size = number_value(value.as_ref(), "Subtitle font size")?;
                 if !(10.0..=200.0).contains(&size) {
                     return Err("Subtitle font size must be between 10 and 200".into());
                 }
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-font-size", size]}),
-                )
+                apply(mpv.set_property("sub-font-size", size))
             }
             "sub-color" => {
                 let color = color_value(value.as_ref(), "Subtitle colour")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-color", color]}),
-                )
+                apply(mpv.set_property("sub-color", color))
             }
             "sub-back-color" => {
                 let color = color_value(value.as_ref(), "Subtitle background")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-back-color", color]}),
-                )
+                apply(mpv.set_property("sub-back-color", color))
             }
             "sub-delay" => {
                 let delay = number_value(value.as_ref(), "Subtitle delay")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-delay", delay]}),
-                )
+                apply(mpv.set_property("sub-delay", delay))
             }
             "sub-pos" => {
                 // mpv measures sub-pos from the top: 0 is the top edge, 100 the bottom.
-                let position = number_value(value.as_ref(), "Subtitle position")?.clamp(25.0, 100.0);
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-pos", position]}),
-                )
+                let position =
+                    number_value(value.as_ref(), "Subtitle position")?.clamp(25.0, 100.0);
+                apply(mpv.set_property("sub-pos", position))
             }
             "sub-bold" => {
                 let bold = bool_value(value.as_ref(), "Subtitle bold")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-bold", bold]}),
-                )
+                apply(mpv.set_property("sub-bold", bold))
             }
             "sub-border-size" => {
                 let size = number_value(value.as_ref(), "Subtitle outline")?;
                 if !(0.0..=10.0).contains(&size) {
                     return Err("Subtitle outline must be between 0 and 10".into());
                 }
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-border-size", size]}),
-                )
+                apply(mpv.set_property("sub-border-size", size))
             }
             "sub-border-color" => {
                 let color = color_value(value.as_ref(), "Subtitle outline colour")?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "sub-border-color", color]}),
-                )
+                apply(mpv.set_property("sub-border-color", color))
             }
             "sub-add" => {
                 let url = value
@@ -1162,10 +846,7 @@ impl Player {
                     .unwrap_or("Subtitle")
                     .to_string();
                 validate_media_url(&url)?;
-                send(
-                    &mut writer,
-                    json!({"command": ["sub-add", url, "select", label]}),
-                )
+                apply(mpv.command("sub-add", &[url.as_str(), "select", label.as_str()]))
             }
             "video-mode" => {
                 // Two properties per mode: aspect first, then the pan/scan crop.
@@ -1184,17 +865,11 @@ impl Player {
                         ));
                     }
                 };
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "keepaspect", aspect]}),
-                )?;
-                send(
-                    &mut writer,
-                    json!({"command": ["set_property", "panscan", panscan]}),
-                )
+                apply(mpv.set_property("keepaspect", aspect))?;
+                apply(mpv.set_property("panscan", panscan))
             }
             "stop" => {
-                let _ = send(&mut writer, json!({"command": ["quit"]}));
+                let _ = mpv.command("quit", &[]);
                 Ok(())
             }
             other => Err(format!("Unknown player action: {other}")),
@@ -1205,101 +880,106 @@ impl Player {
 impl Drop for Player {
     fn drop(&mut self) {
         self.save_final();
-        // Terminate mpv directly. A graceful `quit` over the IPC pipe can
-        // block forever if mpv's IPC thread is parked (after end-of-file, for
-        // instance), and dropping a player must never freeze the UI.
+        // `quit` only queues the request, so dropping a player can never freeze
+        // the UI. The core ends once the last handle is gone.
         self.stop.store(true, Ordering::Relaxed);
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-
-        #[cfg(unix)]
-        {
-            let _ = std::fs::remove_file(&self.pipe);
-        }
+        let _ = self.mpv.command("quit", &[]);
     }
 }
 
-fn spawn_reader(
+/// The event thread owns the handle it waits on: `wait_event` needs `&mut`,
+/// while commands and property reads use the shared one.
+fn spawn_events(
     app: AppHandle,
-    reader: Box<dyn Duplex>,
+    mut events: Mpv,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
+    mpv: Arc<Mpv>,
 ) {
     thread::spawn(move || {
-        let buffered = BufReader::new(reader);
-        for line in buffered.lines() {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
-            let Ok(line) = line else { break };
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
-                continue;
+        let mut ended = false;
+        while !stop.load(Ordering::Relaxed) {
+            let event = match events.wait_event(0.2) {
+                None => continue,
+                Some(Ok(event)) => event,
+                // mpv reports a source that will not open as a bare error, not
+                // as EndFile: this is the only signal a dead stream gives.
+                Some(Err(error)) => {
+                    let dead = matches!(
+                        &error,
+                        libmpv2::Error::Raw(code)
+                            if *code == libmpv2::mpv_error::LoadingFailed
+                    );
+                    if dead {
+                        end_stream(&app, &snapshot, &stop, &mpv, "error");
+                        ended = true;
+                        break;
+                    }
+                    // A failed property or command reply must not cost a playback.
+                    crate::playback_log::mark(format!("mpv event error: {error}"));
+                    continue;
+                }
             };
-            let event = value.get("event").and_then(|v| v.as_str()).unwrap_or("");
             match event {
-                "property-change" => {
-                    let name = value.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let data = value.get("data").cloned().unwrap_or(Value::Null);
+                Event::PropertyChange { name, change, .. } => {
                     let mut snap = match snapshot.lock() {
                         Ok(snap) => snap,
                         Err(_) => break,
                     };
                     match name {
                         "time-pos" => {
-                            if let Some(position) = data.as_f64() {
+                            if let Some(position) = as_double(&change) {
                                 snap.position = position;
                             }
                         }
                         "duration" => {
-                            if let Some(duration) = data.as_f64() {
+                            if let Some(duration) = as_double(&change) {
                                 snap.duration = duration;
                             }
                         }
                         "demuxer-cache-time" => {
                             // The property is an absolute timestamp, not a lead.
-                            if let Some(time) = data.as_f64() {
-                                let position = snap.position;
-                                snap.buffered = (time - position).max(0.0);
+                            if let Some(time) = as_double(&change) {
+                                snap.buffered = (time - snap.position).max(0.0);
                             }
                         }
-                        "pause" => snap.paused = data.as_bool().unwrap_or(false),
+                        "pause" => snap.paused = as_flag(&change),
                         "volume" => {
-                            if let Some(volume) = data.as_f64() {
+                            if let Some(volume) = as_double(&change) {
                                 snap.volume = volume;
                             }
                         }
-                        "mute" => snap.muted = data.as_bool().unwrap_or(false),
+                        "mute" => snap.muted = as_flag(&change),
                         "speed" => {
-                            if let Some(speed) = data.as_f64() {
+                            if let Some(speed) = as_double(&change) {
                                 snap.speed = speed;
                             }
                         }
                         "media-title" => {
-                            if let Some(title) = data.as_str() {
-                                if !title.is_empty() {
-                                    snap.title = title.to_string();
-                                }
+                            if let Some(title) = as_text(&change).filter(|text| !text.is_empty()) {
+                                snap.title = title.to_string();
                             }
                         }
                         "eof-reached" => {
-                            if data.as_bool().unwrap_or(false) {
+                            if as_flag(&change) {
                                 snap.ended = true;
                                 snap.paused = true;
                             }
                         }
-                        "track-list" => {
-                            let (audio, subs, active_audio, active_sub) = parse_tracks(&data);
+                        "track-list/count" => {
+                            let (audio, subs, active_audio, active_sub) =
+                                parse_tracks(&read_tracks(&mpv));
                             snap.audio_tracks = audio;
                             snap.sub_tracks = subs;
                             snap.active_audio = active_audio;
                             snap.active_sub = active_sub;
                         }
-                        "chapter-list" => snap.chapters = parse_chapters(&data),
+                        "chapter-list/count" => snap.chapters = parse_chapters(&read_chapters(&mpv)),
                         _ => {}
                     }
                     drop(snap);
                 }
-                "file-loaded" => {
+                Event::FileLoaded => {
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
                         snap.paused = false;
@@ -1308,57 +988,173 @@ fn spawn_reader(
                     }
                     crate::playback_log::mark("demuxer opened the stream");
                 }
-                "end-file" => {
-                    let reason = value
-                        .get("reason")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default();
-                    let failed = reason == "error";
-                    if let Ok(mut snap) = snapshot.lock() {
-                        snap.playing = false;
-                        if failed {
-                            snap.error =
-                                Some("The stream ended before it could play.".to_string());
-                        }
-                        snap.ended = reason == "eof" || snap.ended || failed;
-                    }
-                    crate::playback_log::mark(format!("stream ended ({reason})"));
-                    let _ = app.emit("player:ended", reason.to_string());
+                Event::EndFile(reason) => {
+                    end_stream(&app, &snapshot, &stop, &mpv, end_reason(reason));
+                    ended = true;
+                    break;
                 }
+                Event::Shutdown => break,
                 _ => {}
             }
         }
-        if let Ok(mut snap) = snapshot.lock() {
-            snap.playing = false;
-        }
-        // The pipe is gone, so the ticker has nothing left to report. Without
-        // this it keeps emitting ticks for a player that no longer exists.
-        let replaced = stop.swap(true, Ordering::Relaxed);
-        let generation = snapshot.lock().map(|snap| snap.generation).unwrap_or(0);
-        crate::playback_log::mark("control pipe closed");
-        // Drop this player from the slot so the next open starts clean and
-        // controls stop writing into a dead process. A newer player may already
-        // own the slot, so only our own is cleared.
-        if let Some(state) = app.try_state::<AppState>() {
-            let doomed = match state.player.lock() {
-                Ok(mut guard)
-                    if guard
-                        .as_ref()
-                        .is_some_and(|player| Arc::ptr_eq(&player.snapshot, &snapshot)) =>
-                {
-                    guard.take()
-                }
-                _ => None,
-            };
-            // Dropping kills and reaps mpv, which must not happen under the lock.
-            drop(doomed);
-        }
-        // A player we killed on purpose (stop, or a new source taking over) is
-        // not news: closing it would blank the snapshot of the new playback.
-        if !replaced {
-            let _ = app.emit("player:closed", generation);
+        if !ended {
+            if let Ok(mut snap) = snapshot.lock() {
+                snap.playing = false;
+            }
+            close(&app, &snapshot, &stop);
         }
     });
+}
+
+/// libmpv's end reasons, as the strings the UI already listens for.
+fn end_reason(reason: libmpv2::EndFileReason) -> &'static str {
+    if reason == libmpv2::mpv_end_file_reason::Eof {
+        "eof"
+    } else if reason == libmpv2::mpv_end_file_reason::Error {
+        "error"
+    } else if reason == libmpv2::mpv_end_file_reason::Stop {
+        "stop"
+    } else if reason == libmpv2::mpv_end_file_reason::Redirect {
+        "redirect"
+    } else {
+        "quit"
+    }
+}
+
+/// One end for every way a stream dies: record why, tell the UI, and let go of
+/// the core only when the stream itself is not what ended.
+fn end_stream(
+    app: &AppHandle,
+    snapshot: &Arc<Mutex<Snapshot>>,
+    stop: &Arc<AtomicBool>,
+    mpv: &Mpv,
+    reason: &str,
+) {
+    // A player we stopped on purpose already answered the UI. An EndFile on the
+    // way down is not the end of a stream, so it must not emit one.
+    if stop.load(Ordering::Relaxed) {
+        return;
+    }
+    let failed = reason == "error";
+    if let Ok(mut snap) = snapshot.lock() {
+        snap.playing = false;
+        if failed {
+            snap.error = Some("The stream ended before it could play.".to_string());
+        }
+        snap.ended = reason == "eof" || snap.ended || failed;
+    }
+    crate::playback_log::mark(format!("stream ended ({reason})"));
+    let _ = app.emit("player:ended", reason.to_string());
+    // An episode or a dead source keeps its player: the epilogue on screen is
+    // the viewer's to act on, and closing is never our call.
+    if reason != "eof" && reason != "error" {
+        // Whichever handle goes last ends the core, so the picture and the
+        // audio go with the stream.
+        let _ = mpv.command("quit", &[]);
+        close(app, snapshot, stop);
+    }
+}
+
+/// The tail every exit path shares: silence the ticker and give the slot back.
+fn close(app: &AppHandle, snapshot: &Arc<Mutex<Snapshot>>, stop: &Arc<AtomicBool>) {
+    // The stream is gone, so the ticker has nothing left to report. Without
+    // this it keeps emitting ticks for a player that no longer exists.
+    let replaced = stop.swap(true, Ordering::Relaxed);
+    let generation = snapshot.lock().map(|snap| snap.generation).unwrap_or(0);
+    crate::playback_log::mark("player closed");
+    // Drop this player from the slot so the next open starts clean and
+    // controls stop writing into a dead core. A newer player may already own
+    // the slot, so only our own is cleared.
+    if let Some(state) = app.try_state::<AppState>() {
+        let doomed = match state.player.lock() {
+            Ok(mut guard)
+                if guard
+                    .as_ref()
+                    .is_some_and(|player| Arc::ptr_eq(&player.snapshot, snapshot)) =>
+            {
+                guard.take()
+            }
+            _ => None,
+        };
+        // Dropping ends the core, which must not happen under the lock.
+        drop(doomed);
+    }
+    // A player we killed on purpose (stop, or a new source taking over) is
+    // not news: closing it would blank the snapshot of the new playback.
+    if !replaced {
+        let _ = app.emit("player:closed", generation);
+    }
+}
+
+fn as_double(data: &PropertyData) -> Option<f64> {
+    match data {
+        PropertyData::Double(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn as_flag(data: &PropertyData) -> bool {
+    matches!(data, PropertyData::Flag(true))
+}
+
+fn as_text<'a>(data: &PropertyData<'a>) -> Option<&'a str> {
+    match data {
+        PropertyData::Str(value) => Some(*value),
+        _ => None,
+    }
+}
+
+/// Rebuild the track list in the shape `parse_tracks` already reads.
+fn read_tracks(mpv: &Mpv) -> Value {
+    let count = mpv
+        .get_property::<i64>("track-list/count")
+        .unwrap_or(0)
+        .max(0);
+    let mut list = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let text = |name: &str| {
+            mpv.get_property::<String>(&format!("track-list/{index}/{name}"))
+                .ok()
+        };
+        let number = |name: &str| {
+            mpv.get_property::<i64>(&format!("track-list/{index}/{name}"))
+                .unwrap_or(0)
+        };
+        let flag = |name: &str| {
+            mpv.get_property::<bool>(&format!("track-list/{index}/{name}"))
+                .unwrap_or(false)
+        };
+        list.push(json!({
+            "type": text("type").unwrap_or_default(),
+            "id": number("id"),
+            "lang": text("lang"),
+            "title": text("title"),
+            "codec": text("codec"),
+            "demux-channels": text("demux-channels"),
+            "demux-channel-count": number("demux-channel-count"),
+            "selected": flag("selected"),
+            "external": flag("external"),
+        }));
+    }
+    Value::Array(list)
+}
+
+fn read_chapters(mpv: &Mpv) -> Value {
+    let count = mpv
+        .get_property::<i64>("chapter-list/count")
+        .unwrap_or(0)
+        .max(0);
+    let mut list = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let time = mpv
+            .get_property::<f64>(&format!("chapter-list/{index}/time"))
+            .unwrap_or(0.0);
+        let title = mpv
+            .get_property::<String>(&format!("chapter-list/{index}/title"))
+            .ok();
+        list.push(json!({ "time": time, "title": title }));
+    }
+    Value::Array(list)
 }
 
 /// The cheap subset of a snapshot: when two ticks match here, nothing moved.
@@ -1522,48 +1318,9 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 mod tests {
     use super::{
         back_cache, bool_value, color_value, forward_cache, number_value, parse_chapters,
-        parse_tracks, validate_media_url, Duplex, Player,
+        parse_tracks, validate_media_url,
     };
-    use serde_json::{json, Value};
-    use std::io::{Read, Write};
-    use std::sync::{Arc, Mutex};
-
-    struct FakePipe(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for FakePipe {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .map_err(|_| std::io::ErrorKind::Other)?
-                .extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl Read for FakePipe {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Ok(0)
-        }
-    }
-
-    fn fake_player() -> (Arc<Mutex<Box<dyn Duplex>>>, Arc<Mutex<Vec<u8>>>) {
-        let buffer = Arc::new(Mutex::new(Vec::new()));
-        let writer = Arc::new(Mutex::new(
-            Box::new(FakePipe(Arc::clone(&buffer))) as Box<dyn Duplex>
-        ));
-        (writer, buffer)
-    }
-
-    fn written_lines(buffer: &Arc<Mutex<Vec<u8>>>) -> Vec<Value> {
-        String::from_utf8(buffer.lock().unwrap().clone())
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect()
-    }
+    use serde_json::json;
 
     #[test]
     fn cache_limits_accept_time_and_size_units() {
@@ -1575,61 +1332,6 @@ mod tests {
         assert_eq!(back_cache(3, "min"), 180);
         assert_eq!(back_cache(1, "gb"), 1024);
         assert_eq!(back_cache(99_999, "gb"), 65_536);
-    }
-
-    #[test]
-    fn pause_action_sets_the_requested_state() {
-        for state in [true, false] {
-            let (writer, buffer) = fake_player();
-            Player::send_action(&writer, "pause", Some(json!(state))).unwrap();
-            assert_eq!(
-                written_lines(&buffer),
-                vec![json!({"command": ["set_property", "pause", state]})]
-            );
-        }
-    }
-
-    #[test]
-    fn pause_action_rejects_missing_or_non_boolean_values() {
-        let (writer, buffer) = fake_player();
-        assert!(Player::send_action(&writer, "pause", None).is_err());
-        assert!(Player::send_action(&writer, "pause", Some(json!("true"))).is_err());
-        assert!(buffer.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn toggle_pause_still_cycles() {
-        let (writer, buffer) = fake_player();
-        Player::send_action(&writer, "toggle-pause", None).unwrap();
-        assert_eq!(
-            written_lines(&buffer),
-            vec![json!({"command": ["cycle", "pause"]})]
-        );
-    }
-
-    #[test]
-    fn mute_sets_the_requested_state_and_needs_a_boolean() {
-        let (writer, buffer) = fake_player();
-        Player::send_action(&writer, "mute", Some(json!(true))).unwrap();
-        Player::send_action(&writer, "mute", Some(json!(false))).unwrap();
-        assert_eq!(
-            written_lines(&buffer),
-            vec![
-                json!({"command": ["set_property", "mute", true]}),
-                json!({"command": ["set_property", "mute", false]}),
-            ]
-        );
-        assert!(Player::send_action(&writer, "mute", None).is_err());
-    }
-
-    #[test]
-    fn relative_seek_is_exact() {
-        let (writer, buffer) = fake_player();
-        Player::send_action(&writer, "seek-rel", Some(json!(10))).unwrap();
-        assert_eq!(
-            written_lines(&buffer),
-            vec![json!({"command": ["seek", 10.0, "relative+exact"]})]
-        );
     }
 
     #[test]

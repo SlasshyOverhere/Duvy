@@ -448,6 +448,11 @@ pub fn save_playback(conn: &Connection, p: &ProgressItem, watched: bool) -> rusq
     let tx = conn.unchecked_transaction()?;
     if watched {
         mark_watched(&tx, &p.key, &p.meta_id)?;
+    } else {
+        // A whole-show mark from the card menu has to go too: it carries the
+        // meta id as its key, so the per-episode delete in write_progress
+        // never reaches it.
+        tx.execute("DELETE FROM watched WHERE key = ?1", params![p.meta_id])?;
     }
     write_progress(&tx, p)?;
     tx.commit()

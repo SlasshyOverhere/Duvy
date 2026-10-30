@@ -9,19 +9,18 @@
 │  settings, player console   │                                 │  addons · metadata        │
 └─────────────────────────────┘                                 │  SQLite · sources         │
                                                                 └────────┬─────────────────┘
-                                                                         │ JSON IPC (named pipe)
+                                                                         │ libmpv handle
                                                                          ▼
                                                                 ┌──────────────────────────┐
-                                                                │ mpv (separate process)   │
+                                                                │ libmpv (in-process)      │
                                                                 │ hardware decode + render │
                                                                 │ paints the app window    │
                                                                 └──────────────────────────┘
 ```
 
-The WebView never decodes or composites video. On Windows, mpv is given `--wid=<app window>` and
-paints straight into the app window's client area, so the picture is the bottom layer of the same
-window the UI lives in. If no window handle is available (non-Windows), mpv opens its own window
-and is still driven over IPC.
+The WebView never decodes or composites video. libmpv renders straight into the app window's
+client area (`--wid=<app window>` on Windows), so the picture is the bottom layer of the same
+window the UI lives in. Without a window handle (non-Windows) libmpv opens its own window.
 
 The picture is visible because the WebView above it is see-through: `lib.rs` sets the WebView2
 background to alpha 0. The native window stays opaque, because window-level transparency on the
@@ -35,11 +34,9 @@ every click meant for the controls. `raise_webview()` returns the `Chrome_Widget
 (`window_fullscreen` -> `set_fullscreen`), because the framework's fullscreen path can wedge the
 UI thread while video is presenting into the same window.
 
-mpv is not packaged in the installer. On launch `player_setup::ensure` looks for a usable player
-and, when there is none, downloads the pinned Windows build into `<app data>/player/` in the
-background. Every file is checked against the player release's `sha256.txt` before it is moved
-into place, and a user-supplied path from Settings always wins. Keeping the player out of the
-installer means app updates never re-download 120 MB of mpv.
+Playback runs in-process through libmpv, so there is no separate player to find or download.
+`scripts/fetch-libmpv.ps1` pulls `libmpv-2.dll` and builds the MSVC import library once per
+checkout into `src-tauri/libmpv/`, and the build bundles both with the installer.
 
 ## Modules
 
@@ -49,8 +46,7 @@ installer means app updates never re-download 120 MB of mpv.
 | `streams.rs` | Turns free-form addon titles into ranked stream options: quality, size, seeders, languages, HDR and cached badges, playability. Tested. |
 | `meta.rs` | Cinemeta-first metadata (episodes, cast, artwork) with a TMDB-schema fallback, cast photo cache. Tested. |
 | `tmdb.rs` | Optional discovery rows, search, details and IMDb to TMDB resolution when a key is set. |
-| `player.rs` | mpv discovery, spawn flags and cache buffers, IPC connection, property observers, first-frame gate, subtitle styling, ticker, progress persistence. |
-| `player_setup.rs` | First-run player download into app data, `sha256.txt` verification, pinned-build fallback, setup status. |
+| `player.rs` | libmpv handle, player options and cache buffers, property observers, first-frame gate, subtitle styling, ticker, progress persistence. |
 | `torrent.rs` | One `librqbit` session per playback, metadata resolution, loopback HTTP range server, cache bound, stats and teardown. Tested parsers. |
 | `debrid.rs` | Real-Debrid, AllDebrid, Premiumize and TorBox key storage, cache checks, link unrestricting and pack-file selection. Tested parsers. |
 | `trakt.rs` | Device-code auth, scrobbling, watched/progress pull and push. Tested merge helpers. |
@@ -59,13 +55,13 @@ installer means app updates never re-download 120 MB of mpv.
 | `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision. Tested. |
 | `playback_log.rs` | Small in-memory timeline of playback steps, exposed in Settings. |
 | `updates.rs` | Launch and six-hourly release checks, signature-verified download and install, toast and desktop notification. |
-| `frame.rs` | Seek-bar previews from a throwaway headless mpv, bucketed and capped. |
+| `frame.rs` | Seek-bar previews from a scratch in-process libmpv, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
 | `secret.rs` | DPAPI `enc1:` encoding for stored credentials, with legacy plaintext pass-through. |
 | `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out with budgets, source resolution, metadata merge. |
 | `models.rs` | Serde shapes shared by commands and events. |
-| `lib.rs` | State wiring, HTTP client, window helpers, background jobs (updates, player setup, Cinemeta seeding), command registration. |
+| `lib.rs` | State wiring, HTTP client, window helpers, background jobs (updates, Cinemeta seeding), command registration. |
 
 ## Addon and metadata flow
 
@@ -113,24 +109,23 @@ The UI turns a stream row into a playable URL in this order:
   The engine is torn down on stop, and a single torrent is active at a time.
 - **Media servers:** Jellyfin and Emby items resolve to a direct `/Videos/{id}/stream` URL with
   the stored token.
-- **Local files:** a path is handed to mpv directly.
+- **Local files:** a path is handed to the player directly.
 
 ## Playback lifecycle
 
 1. The UI opens the player route first and calls `player_open({ url, title, startAt, session })`
    once the source resolves. While it waits, the start screen shows the title backdrop and logo.
-2. Rust drops any existing player (terminating the old mpv), then spawns mpv with
-   `--no-config --idle=yes --keep-open=no --input-ipc-server=\\.\pipe\duvy-<pid>-<ts>`,
-   hardware decoding from settings, `--vo=gpu-next`, `--tone-mapping=bt.2390`, `--cache=yes`,
-   `--demuxer-max-bytes` / `--demuxer-max-back-bytes` from the buffer settings, `--sub-auto=fuzzy`,
-   subtitle/audio language preferences, and `--wid=<app window>` on Windows. Logs go to the app
-   data directory (`mpv.log`, `mpv-stderr.log`).
-3. The IPC pipe is connected with a short retry loop. `observe_property` covers `time-pos`,
+2. Rust drops any existing player (destroying the old libmpv handle), then opens a new one with
+   `no-config`, `idle=yes`, `keep-open=no`, hardware decoding from settings, `vo=gpu-next`,
+   `tone-mapping=bt.2390`, `cache=yes`, `demuxer-max-bytes` / `demuxer-max-back-bytes` from the
+   buffer settings, `sub-auto=fuzzy`, subtitle/audio language preferences, and `wid=<app window>`
+   on Windows. Logs go to the app data directory (`mpv.log`, `mpv-stderr.log`).
+3. The handle is opened with a short retry loop. `observe_property` covers `time-pos`,
    `duration`, `demuxer-cache-time`, `pause`, `volume`, `mute`, `speed`, `track-list`,
    `eof-reached`, `media-title` and related fields. The snapshot reports `started` only after the
    first frame, so the UI never uncovers a black surface.
-4. A reader thread parses newline-delimited JSON into a shared snapshot. A ticker emits
-   `player:tick` every 500ms and persists progress every 5s.
+4. Property events update a shared snapshot. A ticker emits `player:tick` every 500ms and
+   persists progress every 5s.
 5. At 92% the title is marked watched and the progress row is kept for the Watched list. Below
    that, the position is upserted into `progress`. Continue Watching excludes rows at or above
    90% and rows already marked watched.
@@ -178,8 +173,7 @@ not read SQLite per call.
   schemes the UI needs).
 - Outbound requests share one reqwest client with an 18s timeout and an 8s connect timeout, with
   tighter per-command budgets where a screen must not wait.
-- First run downloads mpv from GitHub and verifies it against the player release's `sha256.txt`.
-  Updates are checked against GitHub and installed only after the updater signature verifies.
+- Updates are checked against GitHub and installed only after the updater signature verifies.
 - Skip lookups send an IMDb id plus season/episode to IntroDB. Account sync talks to each
   provider's official backend using the user's own session.
 
@@ -202,22 +196,20 @@ helpers, server URL builders, IntroDB segment mapping and skip decisions.
 
 Not covered by automated tests, and not a support guarantee: playback against real streams,
 hardware decoding, HDR, P2P swarms, debrid accounts, Trakt and account sync, Jellyfin/Emby
-servers, the first-run player download and installer packaging. Those paths require accounts,
-servers or media that CI does not have.
+servers and installer packaging. Those paths require accounts, servers or media that CI does not
+have.
 
 ## Known limits
 
 - Windows is the supported platform. The in-window player path is Windows-specific; other
-  platforms fall back to a separate mpv window and are untested.
-- One mpv process and one torrent at a time.
+  platforms fall back to libmpv's own window and are untested.
+- One player and one torrent at a time.
 - No downloads/offline library, local profiles or PIN, translations, app icon packs, crash
   reporting or a dedicated Discover browser.
 - Intro/outro skipping is automatic. There is no visible skip button, and only intro and outro
   segments are understood (no recap or credits taxonomy).
-- The first run needs a network connection to fetch mpv unless a system player is already
-  installed or a path is set in Settings.
 - Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
 - The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
   configuration pages, addon permissions and addon collections are not implemented.
-- mpv flags are explicit (`--no-config`), so a user's `mpv.conf` is ignored.
+- Player options are explicit (`no-config`), so a user's `mpv.conf` is ignored.
 - `tmdb:*` ids need a TMDB key even to open details.

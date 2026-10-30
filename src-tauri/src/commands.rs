@@ -306,8 +306,7 @@ pub fn playback_log(lines: Option<usize>) -> Vec<String> {
 }
 
 #[tauri::command]
-pub async fn app_info(app: AppHandle, state: State<'_, AppState>) -> Result<AppInfo, String> {
-    let settings = load_settings(&state);
+pub async fn app_info(app: AppHandle) -> Result<AppInfo, String> {
     let data_dir = app
         .path()
         .app_data_dir()
@@ -317,18 +316,7 @@ pub async fn app_info(app: AppHandle, state: State<'_, AppState>) -> Result<AppI
         version: env!("CARGO_PKG_VERSION").to_string(),
         platform: std::env::consts::OS.to_string(),
         data_dir,
-        mpv: player::find_mpv_async(settings.mpv_path.clone(), mpv_dir(&app))
-            .await,
     })
-}
-
-fn mpv_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().resource_dir().ok()
-}
-
-#[tauri::command]
-pub async fn mpv_detect(app: AppHandle, path: Option<String>) -> Option<crate::models::MpvInfo> {
-    player::detect_mpv(path.as_deref().unwrap_or_default(), mpv_dir(&app).as_deref())
 }
 
 #[tauri::command]
@@ -1420,8 +1408,8 @@ pub fn watched_set(
 // Playback
 // ---------------------------------------------------------------------------
 
-// Async on purpose: starting mpv waits on a named pipe, and sync commands run on
-// the UI thread. Blocking there freezes the whole window.
+// Async on purpose: starting the player sets up libmpv, and sync commands run
+// on the UI thread. Blocking there freezes the whole window.
 #[tauri::command]
 pub async fn player_open(
     request: PlayRequest,
@@ -1447,14 +1435,13 @@ pub async fn player_open(
     ));
     let settings = load_settings(&state);
     let host = crate::video_host(&app);
-    // Spawning waits for mpv to open its IPC pipe, so the lock is not held
-    // across it: every other player command would block behind it.
+    // The slot is not held across the spawn: every other player command would
+    // block behind it.
     let previous = state.player.lock().map_err(|_| "player is busy")?.take();
-    // A wedged mpv can stall wait() in Drop, so the old process is killed now
-    // and reaped on its own thread. It can never hold up the next source.
+    // The old core is told to quit before the next one takes the window; its
+    // teardown is asynchronous, so nothing here waits on it.
     if let Some(mut previous) = previous {
         previous.kill();
-        std::thread::spawn(move || drop(previous));
     }
     crate::playback_log::mark("starting mpv");
     // The picture owns the whole window. tao leaves the undecorated shadow on,
@@ -1464,13 +1451,7 @@ pub async fn player_open(
     if let Some(host) = host {
         crate::refit_webview(host);
     }
-    let player = match Player::spawn(
-        app.clone(),
-        &settings,
-        &request,
-        host,
-        mpv_dir(&app).as_deref(),
-    ) {
+    let player = match Player::spawn(app.clone(), &settings, &request, host) {
         Ok(player) => player,
         Err(error) => {
             // The previous player is already gone, so a screen left behind
@@ -1512,11 +1493,10 @@ pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>
 }
 
 /// One frame from the running source as a `data:image/jpeg;base64,...` URL.
-/// Decoded by a second headless mpv, so the picture keeps playing untouched.
+/// Grabbed out of band, so the picture keeps playing untouched.
 #[tauri::command]
 pub async fn player_frame(
     seconds: f64,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     // A NaN never compares equal in the frame cache, so every call would spawn
@@ -1529,11 +1509,7 @@ pub async fn player_frame(
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         player.source().to_string()
     };
-    let settings = load_settings(&state);
-    let mpv = player::find_mpv_async(settings.mpv_path.clone(), mpv_dir(&app))
-        .await
-        .ok_or("mpv was not found")?;
-    crate::frame::preview(&mpv.path, &source, seconds).await
+    crate::frame::preview(&source, seconds).await
 }
 
 #[tauri::command]
@@ -1546,23 +1522,23 @@ pub async fn player_control(
     if action == "stop" {
         return player_stop(app, state).await;
     }
-    // Never hold the player slot across an IPC write: mpv's pipe can wedge
-    // after a source dies, and that blocked the next play for good.
-    let (writer, failed) = {
+    // Never hold the player slot across a command: libmpv can wedge on a dying
+    // source, and that blocked the next play for good.
+    let (handle, failed) = {
         let guard = state.player.lock().map_err(|_| "player is busy")?;
         let player = guard.as_ref().ok_or("Nothing is playing")?;
-        (player.writer(), player.failed())
+        (player.handle(), player.failed())
     };
     if failed {
         return Err("Playback has stopped. Choose another source.".into());
     }
-    Player::send_action(&writer, &action, value)
+    Player::send_action(&handle, &action, value)
 }
 
 #[tauri::command]
 pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Kill the player first so a slow P2P teardown can never leave mpv running
-    // behind the menu. Reaping happens off-thread: Drop waits on the process.
+    // Quit the player first so a slow P2P teardown can never leave it playing
+    // behind the menu. libmpv's teardown is asynchronous, so this does not wait.
     let player = {
         let mut guard = state.player.lock().map_err(|_| "player is busy")?;
         guard.take()
@@ -1571,7 +1547,6 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
     let generation = player.as_ref().map(Player::generation).unwrap_or(0);
     if let Some(mut player) = player {
         player.kill();
-        std::thread::spawn(move || drop(player));
     }
     // Hand the window and the screen back now. Waiting for the torrent engine
     // used to emit this seconds late, wiping a playback started meanwhile.
@@ -1593,16 +1568,16 @@ pub async fn player_subtitle(
 ) -> Result<(), String> {
     // The picker hands over a local path, so both paths are accepted.
     player::validate_media_url(&url)?;
-    let writer = {
+    let handle = {
         let guard = state.player.lock().map_err(|_| "player is busy")?;
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         if player.failed() {
             return Err("Playback has stopped. Choose another source.".into());
         }
-        player.writer()
+        player.handle()
     };
     Player::send_action(
-        &writer,
+        &handle,
         "sub-add",
         Some(json!({ "url": url, "label": label.unwrap_or_else(|| "Subtitle".into()) })),
     )

@@ -110,13 +110,43 @@ run("failed open closes the screen", () => {
   return [];
 });
 
-run("closed pipe frees the player slot", () => {
-  const reader = rustFn(player, "spawn_reader");
-  if (!reader) return ["player.rs: spawn_reader() not found"];
-  if (!reader.includes("ptr_eq")) {
-    return ["spawn_reader keeps a dead player in the state slot"];
+run("closed player frees the player slot", () => {
+  const teardown = rustFn(player, "close");
+  if (!teardown) return ["player.rs: close() not found"];
+  if (!teardown.includes("ptr_eq")) {
+    return ["close keeps a dead player in the state slot"];
+  }
+  if (!teardown.includes("player:closed")) {
+    return ["close never emits player:closed, so the UI stays on a dead player"];
   }
   return [];
+});
+
+run("end of stream keeps the player open", () => {
+  const end = rustFn(player, "end_stream");
+  if (!end) return ["player.rs: end_stream() not found"];
+  const closeAt = end.indexOf("close(app");
+  if (closeAt < 0) return ["end_stream never frees the slot"];
+  // Reaching the end is not a reason to close: the epilogue and the viewer's
+  // choice have to happen on screen.
+  const guardAt = end.indexOf('reason != "eof"');
+  if (guardAt < 0 || guardAt > closeAt) {
+    return ["end_stream closes the player on end of file, killing the Up next card"];
+  }
+  return [];
+});
+
+run("the outro is never skipped automatically", () => {
+  const out: string[] = [];
+  const front = read("src/components/player/skip.ts");
+  const back = read("src-tauri/src/skip.rs");
+  if (/kind:\s*"outro"/.test(front)) {
+    out.push("skip.ts still returns an outro segment, so seeking into the credits ends the episode");
+  }
+  if (/"outro"\.to_string\(\)/.test(back)) {
+    out.push("skip.rs still seeks to the end of the file on the outro marker");
+  }
+  return out;
 });
 
 run("player snapshots carry a generation", () => {
@@ -189,6 +219,20 @@ run("continue watching compares exact episode keys", () => {
     out.push("Home.tsx filters a finished row before the newest one claims the title");
   }
   return out;
+});
+
+run("auto-advance keeps the playing addon", () => {
+  const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
+  if (!pick) return ["store.tsx: pickSource() not found"];
+  // Staying on the current addon must be decided before the quality fallback,
+  // or the next episode can land on a different source mid-binge.
+  const addonAt = pick.indexOf("playing.addon");
+  const fallbackAt = pick.indexOf("if (wanted !== null)");
+  if (addonAt < 0) return ["pickSource ignores the addon that is already playing"];
+  if (fallbackAt < 0 || addonAt > fallbackAt) {
+    return ["pickSource tries the preferred quality before the playing addon"];
+  }
+  return [];
 });
 
 let failed = 0;

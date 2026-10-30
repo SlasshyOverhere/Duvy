@@ -160,11 +160,9 @@ export interface LibraryItem {
 }
 
 export interface Settings {
-  mpvPath: string;
   tmdbApiKey: string;
   accent: string;
   preferredQuality: string;
-  autoPlayNext: boolean;
   autoResume: boolean;
   subtitleLanguage: string;
   audioLanguage: string;
@@ -190,14 +188,6 @@ export interface Settings {
   onboarded: boolean;
   /** Crash reporting: null until the user is asked, off unless they agree. */
   telemetry: boolean | null;
-}
-
-/** First-run player provisioning, mirrored from the Rust setup module. */
-export interface PlayerSetup {
-  state: "ready" | "missing" | "downloading" | "failed";
-  source: string;
-  version: string;
-  error: string;
 }
 
 /** A release newer than the running build. */
@@ -276,7 +266,6 @@ export interface AppInfo {
   version: string;
   platform: string;
   dataDir: string;
-  mpv: { path: string; version: string } | null;
 }
 
 export interface Track {

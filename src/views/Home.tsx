@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import { api } from "../lib/bridge";
 import { cachedFeed, feedAge, loadFeed } from "../lib/feed";
 import { useApp } from "../lib/store";
-import type { HomeFeed, ProgressItem } from "../lib/types";
+import type { HomeFeed, MetaPreview, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
 import { progressPercent, seasonLabel } from "../lib/format";
@@ -10,6 +10,17 @@ import { progressPercent, seasonLabel } from "../lib/format";
 const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
 let feedSig = "";
+
+// Six of the row's top twenty, drawn per feed, so a launch does not open on the
+// same poster three days running. The row itself still starts at number one.
+function pickFeatured(items: MetaPreview[]): MetaPreview[] {
+  const pool = items.slice(0, 20);
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, 6);
+}
 
 // Screen-reader only: the page keeps a level-one heading even without a hero.
 const srOnly: CSSProperties = {
@@ -98,7 +109,10 @@ export function HomeView() {
     };
   }, [addonSignature, attempt]);
 
-  const featured = (feed?.rows?.[0]?.items ?? []).slice(0, 6);
+  const featured = useMemo(
+    () => pickFeatured(feed?.rows?.[0]?.items ?? []),
+    [feed],
+  );
   const hero = featured[slide] ?? featured[0] ?? null;
   const nextBackdrop = featured[(slide + 1) % featured.length]?.background;
 

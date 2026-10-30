@@ -97,11 +97,9 @@ const ROWS: HomeRow[] = [
 ];
 
 let settings: Settings = {
-  mpvPath: "",
   tmdbApiKey: "",
   accent: "ember",
   preferredQuality: "auto",
-  autoPlayNext: true,
   autoResume: true,
   subtitleLanguage: "eng",
   audioLanguage: "eng",
@@ -398,16 +396,7 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         version: "0.1.0-preview",
         platform: "browser preview",
         dataDir: "~/Duvy",
-        mpv: { path: "C:\\Program Files\\mpv\\mpv.exe", version: "mpv 0.41.0" },
       } satisfies AppInfo;
-
-    case "mpv_detect":
-      return { path: "C:\\Program Files\\mpv\\mpv.exe", version: "mpv 0.41.0" };
-
-    case "player_setup_status":
-      return { state: "ready", source: "system", version: "mpv 0.41.0", error: "" };
-    case "player_setup_start":
-      return true;
 
     case "settings_get":
       return settings;

@@ -16,10 +16,10 @@ Most desktop media hubs run the whole app, including a large shared UI layer, on
 Duvy takes a different route: a small Rust core and a WebView that never touches a video
 frame:
 
-- **Playback is out of process.** mpv decodes with `hwdec=auto-safe` and paints into the app
-  window's client area, with a transparent web layer above it for the controls. The UI drives it
-  over mpv's JSON IPC. A large remux cannot stall the interface, and video never travels through
-  the WebView.
+- **Playback is in-process.** libmpv decodes with `hwdec=auto-safe` and paints into the app
+  window's client area, with a transparent web layer above it for the controls. The UI calls
+  libmpv directly, so there is no player process, no IPC socket and no protocol between them. A
+  large remux cannot stall the interface, and video never travels through the WebView.
 - **Streams are parsed once, in Rust.** Quality, size, seeders, HDR and cached badges are ranked in
   a native module with unit tests, not per-render string work in JavaScript.
 - **Addon fan-out is concurrent.** Catalogs, search, streams and subtitles run as parallel Tokio
@@ -30,8 +30,7 @@ frame:
 
 ## What works now (0.1.0 beta)
 
-- First-run onboarding: choose a sync account or skip it, while mpv is prepared in the
-  background.
+- First-run onboarding: choose a sync account or skip it; playback needs no setup.
 - Addon protocol: install from URL, reorder, refresh, open the addon's configure page when it
   advertises one, enable/disable and remove. Cinemeta is installed on first launch.
 - Home rows from addon catalogs, an auto-rotating art-led hero, drag-to-scroll rows, poster
@@ -50,7 +49,7 @@ frame:
   - debrid resolution through Real-Debrid, AllDebrid, Premiumize or TorBox keys you provide,
     including the requested file inside a torrent pack;
   - Jellyfin and Emby libraries and direct playback.
-- Playback: embedded mpv, hardware decoding toggle, configurable forward and backward cache
+- Playback: embedded libmpv, hardware decoding toggle, configurable forward and backward cache
   buffers, resume per episode, seeking, speed, volume, audio/subtitle track switching, addon
   subtitles, local subtitle files, subtitle styling (size, bold, colour, outline, background,
   position) and delay, auto-advance, and watched-at-92% bookkeeping.
@@ -78,18 +77,16 @@ plugins, hover previews, subtitle auto-sync, subtitle folder scanning and crash 
 - [Rust](https://rustup.rs) 1.85 or newer
 - [Bun](https://bun.sh) 1.2 or newer
 
-mpv is not shipped in the installer. On first launch the app downloads a pinned Windows build
-into `<app data>/player/`, checking every file against the release's `sha256.txt` before it is
-used, so updates never re-download it and the installer stays small. The first run therefore
-needs a network connection.
-
-You can skip the download by installing mpv yourself; the app looks at an explicit path from
-Settings first, then the downloaded copy, then `PATH`, WinGet, Scoop and the usual Program Files
-locations:
+Playback runs on libmpv loaded into the app process. The import library and the runtime DLL live
+in `src-tauri/libmpv/`, which is not committed; fetch them once per checkout:
 
 ```powershell
-winget install mpv
+powershell -ExecutionPolicy Bypass -File scripts/fetch-libmpv.ps1
 ```
+
+Installers bundle `libmpv-2.dll` next to the executable, so a released app needs no download and
+no separate player install. The bundled build's license is a shipping decision: see
+[NOTICE](NOTICE).
 
 ## Setup
 
@@ -98,8 +95,7 @@ bun install
 bun run app        # desktop app (Tauri dev)
 ```
 
-The first launch shows onboarding and fetches mpv in the background; playback is ready when the
-player status in onboarding turns ready.
+The first launch shows onboarding; playback is ready as soon as the app opens.
 
 For UI work without Rust rebuilds:
 
@@ -127,8 +123,7 @@ third-party services are not covered by automated tests.
 Releases are built and published by CI only. Push a tag and `.github/workflows/release.yml` does
 the rest: it sets the version from the tag, builds the MSI and NSIS installers, signs the updater
 bundles, publishes the GitHub release and uploads `latest.json` (the manifest the in-app updater
-reads). The installers do not carry mpv; the app fetches the player on first run from the separate
-`player-1` release.
+reads). The installers carry `libmpv-2.dll` beside the executable, so playback works offline.
 
 ```bash
 git tag v1.0.0
@@ -146,10 +141,8 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/duvy.key
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is only needed if the key has a password. Keep the key safe:
 lose it and every install already in the wild can no longer verify updates.
 
-The player build is published separately by `.github/workflows/player.yml` (manual dispatch). It
-uploads `mpv.exe`, `d3dcompiler_43.dll` and `sha256.txt` to the `player-1` release; first run
-verifies every file against that manifest. To ship a new mpv, bump `RELEASE` in
-`src-tauri/src/player_setup.rs` and run the workflow again.
+The installer takes `src-tauri/libmpv/libmpv-2.dll` and places it next to the executable. Run
+`scripts/fetch-libmpv.ps1` before a local build; the file is not committed.
 
 A local `bun run tauri build` still works for smoke tests, but it needs the same key
 (`TAURI_SIGNING_PRIVATE_KEY_PATH`) and its artifacts are never published.
@@ -203,9 +196,8 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Where data lives
 
-`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`,
-`mpv-stderr.log`, the temporary `torrent-cache` directory and `player/` (the mpv the app
-downloaded on first run). Seek-bar previews decode into the system temp folder and are removed
+`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`, the temporary
+`torrent-cache` directory. Seek-bar previews decode into the system temp folder and are removed
 when they expire. Delete the database file to reset the app.
 
 Development builds use `%APPDATA%\app.duvy.desktop.dev`, so they never touch production
@@ -226,8 +218,7 @@ src-tauri/src/
   streams.rs             quality/size/seeders parsing and ranking (+ tests)
   meta.rs                Cinemeta-first metadata and cast photos (+ tests)
   tmdb.rs                optional discovery/enrichment (+ tests)
-  player.rs              mpv discovery, spawn, JSON IPC, subtitle loading, progress
-  player_setup.rs        first-run player download, sha256 verification
+  player.rs              libmpv lifecycle, commands, events, subtitle loading, progress
   torrent.rs             librqbit session and loopback HTTP stream (+ tests)
   debrid.rs              four debrid providers and link resolution (+ tests)
   trakt.rs               device auth, scrobble and watched sync (+ tests)
@@ -258,10 +249,11 @@ Security problems go through [SECURITY.md](SECURITY.md), not the public issue tr
 MIT for this repository's code. Duvy is an independent implementation; no third-party
 client code is included here.
 
-On first run the app downloads a Windows build of mpv, which is free software under
-GPL-2.0-or-later, plus Microsoft's `d3dcompiler_43.dll`. The build reports version
-`v0.41.0-1227-ge471496c5`; its source is published by the mpv project at
-<https://github.com/mpv-player/mpv>. See [NOTICE](NOTICE) for the exact disclosure and licenses.
+Installers bundle a Windows build of libmpv, which also contains FFmpeg, libplacebo and other
+libraries, each under its own license. The build fetched by `scripts/fetch-libmpv.ps1` is
+GPL-2.0-or-later; shipping it inside a closed-source installer requires either a libmpv built with
+`--enable-lgpl` or GPL compliance for the distributed work. See [NOTICE](NOTICE) for the exact
+disclosure and licenses.
 
 Metadata is provided by the addons you install and, optionally, TMDB. This product uses the TMDB
 API but is not endorsed or certified by TMDB.
