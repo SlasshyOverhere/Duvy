@@ -896,7 +896,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
 
         <section className="pv-rail pv-rail--variants">
           <h3>Subtitles</h3>
-          {subs === null ? (
+          {subs === null && currentVariants.length === 0 ? (
             <Spinner label="Finding subtitles" />
           ) : currentVariants.length === 0 ? (
             <div className="pv-rail-empty">
@@ -1861,6 +1861,12 @@ export function PlayerView() {
     setLoadedSub(null);
     frameCache.current.clear();
     frameBucket.current = 0;
+  }, [session?.key]);
+
+  // Warm the addon subtitle hunt while the episode plays, so the panel opens
+  // with the list already in. Only the session restarts it, not `subs`.
+  useEffect(() => {
+    if (session?.key) void loadSubtitles(true);
   }, [session?.key]);
 
   // Markers are stored per episode, keyed like the session. The command still
