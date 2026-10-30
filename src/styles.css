@@ -1595,47 +1595,50 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* The play CTA is a lit paper lens: white glass over the artwork, a bright
-   top lip, a self-coloured hairline and one tight cast shadow. No accent in
-   it - the disc is the lightest thing on the page, the glyph is ink. */
+/* The play CTA is a real lens: a thin frost that keeps the artwork readable
+   through it, a specular band across the top third, a hairline lip and one
+   tight cast shadow. The fill stays low-opacity on purpose - a solid white
+   disc reads as a sticker, not glass. */
 .hero-actions .btn.btn-primary {
   width: 56px;
   height: 56px;
   padding: 0;
-  color: var(--accent-ink);
+  color: #fff;
   background:
-    radial-gradient(
-      130% 120% at 50% -10%,
-      rgba(255, 255, 255, 0.98) 0%,
-      rgba(255, 255, 255, 0.6) 42%,
-      rgba(255, 255, 255, 0.24) 72%
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.38) 0%,
+      rgba(255, 255, 255, 0.1) 34%,
+      rgba(255, 255, 255, 0) 52%
     ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72));
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
+    rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
+  backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.07),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 10px 22px -14px rgba(0, 0, 0, 0.85);
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 1px 1px rgba(0, 0, 0, 0.32),
+    0 8px 20px -12px rgba(0, 0, 0, 0.9);
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
-  color: var(--accent-ink);
+  color: #fff;
   background:
-    radial-gradient(
-      130% 120% at 50% -10%,
-      rgba(255, 255, 255, 1) 0%,
-      rgba(255, 255, 255, 0.72) 44%,
-      rgba(255, 255, 255, 0.34) 74%
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.5) 0%,
+      rgba(255, 255, 255, 0.16) 36%,
+      rgba(255, 255, 255, 0.02) 54%
     ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.82));
+    rgba(255, 255, 255, 0.16);
 }
 
 .hero-actions .btn-primary svg {
   width: 22px;
   height: 22px;
+  /* The frost can pass light through, so the glyph carries its own shadow. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
 }
 
 .hero-actions .btn-square {
