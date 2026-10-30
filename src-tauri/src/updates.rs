@@ -46,6 +46,15 @@ const RETRIES: [u64; 3] = [60, 300, 900];
 /// The release the last check found, so install starts downloading at once.
 static CHECKED: Mutex<Option<Update>> = Mutex::new(None);
 
+/// The package the announcement already fetched, so "Update now" only installs.
+static PACKAGE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+/// One download or install at a time: a second caller waits instead of racing.
+static WORK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A progress event per chunk would flood the webview; this still reads live.
+const PROGRESS: Duration = Duration::from_millis(120);
+
 /// The version the background check already announced.
 static ANNOUNCED: Mutex<String> = Mutex::new(String::new());
 
@@ -105,29 +114,17 @@ pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
     Ok(found.as_ref().map(info))
 }
 
-/// Download and install the newest release. On Windows the installer takes
-/// over and the process exits, so this only returns when something failed.
-#[tauri::command]
-pub async fn update_install(app: AppHandle) -> Result<(), String> {
-    // Reuse the release the check already found: a second latest.json round
-    // trip made the download look stalled before the first byte arrived.
-    let update = match cached() {
-        Some(update) => update,
-        None => fetch(&app)
-            .await?
-            .ok_or("Duvy is already up to date.")?,
-    };
+/// Download the package, reporting progress, and verify its signature.
+async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
     let handle = app.clone();
     let mut downloaded = 0usize;
     let mut last = None::<Instant>;
     update
-        .download_and_install(
+        .download(
             move |chunk, total| {
                 downloaded += chunk;
                 let done = total.is_some_and(|total| downloaded as u64 >= total);
-                // One event per network chunk floods the webview; a quarter of
-                // a second still reads as live without the jank.
-                let due = last.is_none_or(|at| at.elapsed() >= Duration::from_millis(250));
+                let due = last.is_none_or(|at| at.elapsed() >= PROGRESS);
                 if !due && !done {
                     return;
                 }
@@ -144,6 +141,48 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Fetch the package while the announcement is on screen, so the button does
+/// not start a 6 MB transfer the moment it is pressed.
+#[tauri::command]
+pub async fn update_prefetch(app: AppHandle) -> Result<(), String> {
+    if PACKAGE.lock().is_ok_and(|slot| slot.is_some()) {
+        return Ok(());
+    }
+    let _busy = WORK.lock().await;
+    if PACKAGE.lock().is_ok_and(|slot| slot.is_some()) {
+        return Ok(());
+    }
+    let update = match cached() {
+        Some(update) => update,
+        None => fetch(&app).await?.ok_or("Duvy is already up to date.")?,
+    };
+    let bytes = download(&app, &update).await?;
+    let mut slot = PACKAGE.lock().map_err(|_| "Update state is unavailable.")?;
+    *slot = Some(bytes);
+    Ok(())
+}
+
+/// Download and install the newest release. On Windows the installer takes
+/// over and the process exits, so this only returns when something failed.
+#[tauri::command]
+pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    let _busy = WORK.lock().await;
+    // Reuse the release the check already found: a second latest.json round
+    // trip made the download look stalled before the first byte arrived.
+    let update = match cached() {
+        Some(update) => update,
+        None => fetch(&app)
+            .await?
+            .ok_or("Duvy is already up to date.")?,
+    };
+    // The prefetch usually beat the click; a missing package just downloads.
+    let bytes = match PACKAGE.lock().ok().and_then(|mut slot| slot.take()) {
+        Some(bytes) => bytes,
+        None => download(&app, &update).await?,
+    };
+    update.install(bytes).map_err(|e| e.to_string())
 }
 
 /// Check on launch, then hourly while the app stays open. A failed check

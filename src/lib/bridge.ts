@@ -75,6 +75,8 @@ export const api = {
   updates: {
     /** `null` when the running build is the newest release. */
     check: () => call<UpdateInfo | null>("update_check"),
+    /** Fetches the package ahead of the click, so install is not the transfer. */
+    prepare: () => call<null>("update_prefetch"),
     /** Downloads and installs, then the installer restarts the app. */
     install: () => call<null>("update_install"),
   },

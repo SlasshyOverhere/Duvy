@@ -3644,6 +3644,78 @@ input[type="range"]::-webkit-slider-thumb {
   transition: width 0.2s linear;
 }
 
+/* The update announcement sits in the middle of the window: it carries a
+   version, a meter and one action, which a corner toast cannot hold. */
+.update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.66);
+}
+
+.update-prompt {
+  position: relative;
+  width: min(460px, 100%);
+  padding: 28px 28px 24px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.update-prompt h2 {
+  margin: 0 0 8px;
+  padding-right: 28px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.update-prompt p {
+  margin: 0;
+  max-width: 42ch;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.update-prompt .update-meter {
+  margin-top: 18px;
+  height: 6px;
+}
+
+.update-prompt .update-bytes {
+  margin: 10px 0 0;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.update-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--faint);
+}
+
+.update-close:hover {
+  color: var(--text);
+}
+
 /* Trakt, Debrid and Torrent ship as standalone pages; inside a settings card
    their own page chrome and card shells would nest, so they flatten. */
 .settings-embed > .page {

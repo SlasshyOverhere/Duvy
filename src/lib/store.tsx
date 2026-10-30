@@ -633,16 +633,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [settings?.nuvioAutoSync, settings?.stremioAutoSync, refreshProgress, refreshLibrary, refreshAddons]);
 
-  // The background check announces a new release; the toast says where to act.
+  // The background check announces a new release; the prompt shows it.
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<UpdateInfo>("update:available", (event) => {
+      // The prompt in the middle of the window carries this, not a toast.
       setUpdate(event.payload);
-      notify(
-        `Duvy ${event.payload.version} is available. Install it from Settings, Update.`,
-      );
     })
       .then((stop) => {
         if (disposed) stop();
@@ -655,7 +653,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unlisten?.();
     };
-  }, [notify]);
+  }, []);
 
   // The bundled addon is installed after the first list load; pick it up live.
   useEffect(() => {
