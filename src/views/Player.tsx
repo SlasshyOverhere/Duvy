@@ -2555,21 +2555,6 @@ export function PlayerView() {
             ) : null}
           </div>
           <div className="pv-top-right">
-            {nextEpisode ? (
-              <button
-                type="button"
-                className="pv-next"
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
-                aria-label={`Next episode: ${episodeCode(nextEpisode)}`}
-                title={`Play ${episodeCode(nextEpisode)}${
-                  nextEpisode.title ? ` · ${nextEpisode.title}` : ""
-                }`}
-              >
-                <Icon name="next" size={18} />
-                <span>Next episode</span>
-              </button>
-            ) : null}
             <button
               type="button"
               className="win-btn pv-top-btn"
@@ -3048,18 +3033,6 @@ export function PlayerView() {
             >
               <Icon name={paused ? "play" : "pause"} size={26} />
             </button>
-            {nextEpisode ? (
-              <button
-                type="button"
-                className="pv-cbtn"
-                aria-label="Next episode"
-                title="Next episode"
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
-              >
-                <Icon name="next" size={26} />
-              </button>
-            ) : null}
             <button
               type="button"
               className="pv-cbtn"
@@ -3084,6 +3057,19 @@ export function PlayerView() {
             </div>
 
             <div className="pv-spacer" />
+
+            {nextEpisode ? (
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label="Next episode"
+                title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
+                disabled={busy}
+                onClick={() => void playVideo(nextEpisode)}
+              >
+                <Icon name="next" size={24} />
+              </button>
+            ) : null}
 
             <div
               className={`pv-cluster${btnMenu ? " is-open" : ""}`}

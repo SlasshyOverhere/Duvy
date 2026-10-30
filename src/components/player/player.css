@@ -1270,36 +1270,6 @@
   flex: none;
 }
 
-/* Next episode is one click away, not only once the credits roll. */
-.pv .pv-next {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  flex: none;
-  margin-right: 4px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--pv-control);
-  color: rgba(255, 255, 255, 0.86);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  transition: background-color 0.14s linear, color 0.14s linear;
-}
-
-.pv .pv-next:hover {
-  background: var(--pv-control-hover);
-  color: #fff;
-}
-
-.pv .pv-next:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* Geometry and hover come from the shared .win-btn, same as the header. */
 
 /* ---- seek row ----------------------------------------------------------- */
