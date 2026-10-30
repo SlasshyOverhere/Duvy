@@ -25,8 +25,14 @@ Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $archive = Join-Path $tmp "mpv-dev.7z"
 
-Write-Host "Downloading $($item.title)"
+Write-Host "Downloading $($item.title.InnerText)"
 Invoke-WebRequest -UseBasicParsing $item.link -OutFile $archive
+# SourceForge can answer with an HTML interstitial that meta-refreshes to the real file.
+if ((Get-Item $archive).Length -lt 1MB) {
+  $next = [regex]::Match((Get-Content $archive -Raw), '(?i)url=([^"]+)"').Groups[1].Value -replace '&amp;', '&'
+  if (-not $next) { throw "Unexpected download payload from SourceForge." }
+  Invoke-WebRequest -UseBasicParsing $next -OutFile $archive
+}
 # bsdtar (shipped with Windows 10+) reads 7z.
 tar.exe -xf $archive -C $tmp
 
@@ -46,7 +52,7 @@ $names = & $dumpbin /nologo /exports $dll |
 if (-not $names) { throw "No exports found in libmpv-2.dll" }
 
 Set-Content $def ("LIBRARY libmpv-2.dll`nEXPORTS`n" + (($names | ForEach-Object { "  $_" }) -join "`n") + "`n") -Encoding ascii
-& $lib.FullName /nologo /def:$def /out:(Join-Path $dest "mpv.lib") /machine:x64
+& $lib.FullName /nologo /def:$def /out:"$dest\mpv.lib" /machine:x64
 if ($LASTEXITCODE -ne 0) { throw "lib.exe failed" }
 
 Copy-Item $dll (Join-Path $dest "libmpv-2.dll") -Force
