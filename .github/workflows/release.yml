@@ -70,12 +70,15 @@ jobs:
             $compare = "$repo/commits/$env:GITHUB_REF_NAME"
           }
 
-          $notes = $request | ConvertTo-Json |
-            gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" --method POST --input - |
-            ConvertFrom-Json
+          $raw = $request | ConvertTo-Json |
+            gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" --method POST --input -
+          # A notes hiccup must not block the release: the changelog still ships.
+          $generated = if ($LASTEXITCODE -eq 0 -and $raw) { ($raw | ConvertFrom-Json).body } else { "" }
+          # The fallback above is the whole response to a notes failure.
+          $global:LASTEXITCODE = 0
           $bullets = @()
           $skip = $false
-          foreach ($line in $notes.body -split "`n") {
+          foreach ($line in $generated -split "`n") {
             if ($line -match '^##\s+(.+)$') {
               # "What's Changed" opens the list; every later section (new
               # contributors) is not a change and is dropped with its heading.
