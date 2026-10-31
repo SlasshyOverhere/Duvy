@@ -55,6 +55,9 @@ pub struct Snapshot {
     pub muted: bool,
     pub speed: f64,
     pub ended: bool,
+    /// True when an eof landed well before the duration: a dropped stream.
+    #[serde(default)]
+    pub cut_short: bool,
     /// Set when mpv cannot open or continue the source.
     pub error: Option<String>,
     pub audio_tracks: Vec<Track>,
@@ -83,6 +86,7 @@ impl Default for Snapshot {
             muted: false,
             speed: 1.0,
             ended: false,
+            cut_short: false,
             error: None,
             audio_tracks: Vec::new(),
             sub_tracks: Vec::new(),
@@ -962,6 +966,8 @@ fn spawn_events(
                         }
                         "eof-reached" => {
                             if as_flag(&change) {
+                                let cut_short = ended_early(&snap);
+                                snap.cut_short = cut_short;
                                 snap.ended = true;
                                 snap.paused = true;
                             }
@@ -984,6 +990,7 @@ fn spawn_events(
                         snap.playing = true;
                         snap.paused = false;
                         snap.ended = false;
+                        snap.cut_short = false;
                         snap.error = None;
                     }
                     crate::playback_log::mark("demuxer opened the stream");
@@ -1021,6 +1028,12 @@ fn end_reason(reason: libmpv2::EndFileReason) -> &'static str {
     }
 }
 
+/// An eof well short of the duration is a dropped stream, not the credits.
+/// Same threshold as the playback watchdog.
+fn ended_early(snap: &Snapshot) -> bool {
+    snap.duration > 60.0 && snap.position / snap.duration < 0.85
+}
+
 /// One end for every way a stream dies: record why, tell the UI, and let go of
 /// the core only when the stream itself is not what ended.
 fn end_stream(
@@ -1038,6 +1051,10 @@ fn end_stream(
     let failed = reason == "error";
     if let Ok(mut snap) = snapshot.lock() {
         snap.playing = false;
+        // An eof well short of the duration is a dropped stream, not the
+        // credits: the UI retries it instead of showing the end card.
+        let cut_short = reason == "eof" && ended_early(&snap);
+        snap.cut_short = cut_short;
         if failed {
             snap.error = Some("The stream ended before it could play.".to_string());
         }
@@ -1317,10 +1334,24 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 #[cfg(test)]
 mod tests {
     use super::{
-        back_cache, bool_value, color_value, forward_cache, number_value, parse_chapters,
-        parse_tracks, validate_media_url,
+        back_cache, bool_value, color_value, ended_early, forward_cache, number_value,
+        parse_chapters, parse_tracks, validate_media_url, Snapshot,
     };
     use serde_json::json;
+
+    #[test]
+    fn an_eof_short_of_the_duration_is_a_dropped_stream() {
+        let at = |position: f64, duration: f64| Snapshot {
+            position,
+            duration,
+            ..Default::default()
+        };
+        // The Covenant died at 2675s of 7383s.
+        assert!(ended_early(&at(2675.0, 7383.0)));
+        assert!(!ended_early(&at(7300.0, 7383.0)));
+        // A live stream has no duration to compare against.
+        assert!(!ended_early(&at(10.0, 0.0)));
+    }
 
     #[test]
     fn cache_limits_accept_time_and_size_units() {
