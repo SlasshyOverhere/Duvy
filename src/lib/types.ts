@@ -317,6 +317,8 @@ export interface PlayerSnapshot {
   muted: boolean;
   speed: number;
   ended: boolean;
+  /** An eof well before the duration: the source dropped, not the credits. */
+  cutShort?: boolean;
   /** Set when mpv cannot open or continue the source. */
   error?: string | null;
   audioTracks: Track[];

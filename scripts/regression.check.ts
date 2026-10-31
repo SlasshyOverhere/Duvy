@@ -136,6 +136,36 @@ run("end of stream keeps the player open", () => {
   return [];
 });
 
+run("a dropped stream is not a finished film", () => {
+  const end = rustFn(player, "end_stream");
+  if (!end) return ["player.rs: end_stream() not found"];
+  // The Covenant reported eof at 2675s of 7383s and the screen said "Nothing
+  // queued after this one." An eof that far short of the duration is a dropped
+  // stream: it must be marked as one, not as the credits.
+  const rule = rustFn(player, "ended_early");
+  if (!rule || !/position\s*\/\s*(?:snap\.)?duration/.test(rule)) {
+    return ["player.rs: no rule separates a dropped stream from a real end"];
+  }
+  if (!/ended_early\(/.test(end)) {
+    return ["end_stream sets ended on any eof, so a dropped stream reads as the end"];
+  }
+  return [];
+});
+
+run("a dropped stream is retried, not declared over", () => {
+  const out: string[] = [];
+  if (!/cutShort/.test(playerView)) {
+    out.push("Player.tsx ignores cutShort, so a dropped stream shows the end card");
+  }
+  if (!/resumeDropped/.test(playerView)) {
+    out.push("Player.tsx never reopens a dropped stream");
+  }
+  if (!/!nextEpisode\s*&&\s*!failed\s*&&\s*!dropped/.test(playerView)) {
+    out.push("Player.tsx offers the end card over a dropped stream");
+  }
+  return out;
+});
+
 run("the outro is never skipped automatically", () => {
   const out: string[] = [];
   const front = read("src/components/player/skip.ts");

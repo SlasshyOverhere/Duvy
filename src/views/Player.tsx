@@ -1107,6 +1107,7 @@ export function PlayerView() {
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const [hud, setHud] = useState<Hud | null>(null);
   // Stremio's centre card: the level moved, so show it big for a moment.
@@ -1312,7 +1313,9 @@ export function PlayerView() {
   const muted = pending.muted ?? local?.muted ?? false;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
-  const failed = local?.error ?? null;
+  const failed = local?.error ?? retryError;
+  // A source that died well before the credits: retried, never called over.
+  const dropped = Boolean(local?.cutShort);
   // The first painted frame; older snapshots omit the field.
   const firstFrame = (local as (PlayerSnapshot & { started?: boolean }) | null)?.started === true;
   // A live stream never reports a duration, so only silence before the first
@@ -1356,6 +1359,7 @@ export function PlayerView() {
     nextEpisode &&
       !nextOff &&
       !failed &&
+      !dropped &&
       (local?.ended || (nextAt != null && position >= nextAt)),
   );
 
@@ -1778,6 +1782,50 @@ export function PlayerView() {
     },
     [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream],
   );
+
+  // A source that dies mid-film is reopened from the same spot, silently. A
+  // second drop within a minute is not a blip: that one surfaces the failure.
+  const lastRetry = useRef(0);
+  const retrying = useRef(false);
+  const resumeDropped = useCallback(async () => {
+    const session = sessionRef.current;
+    const source = playingSource;
+    if (!session || !source) return false;
+    try {
+      const url = await resolveStream(source);
+      if (!alive.current) return false;
+      return await playRequest({
+        url,
+        title: local?.title || session.name,
+        startAt: posRef.current,
+        session,
+      });
+    } catch {
+      return false;
+    }
+  }, [local?.title, playRequest, playingSource, resolveStream]);
+
+  useEffect(() => {
+    if (!dropped || failed || retrying.current) return;
+    const now = Date.now();
+    if (now - lastRetry.current < 60_000) {
+      setRetryError("The stream keeps dropping. Choose another source.");
+      return;
+    }
+    lastRetry.current = now;
+    retrying.current = true;
+    void resumeDropped().then((ok) => {
+      retrying.current = false;
+      if (!ok) {
+        setRetryError("The stream ended early and could not be resumed. Choose another source.");
+      }
+    });
+  }, [dropped, failed, resumeDropped]);
+
+  // A new picture clears the retry failure, however it was opened.
+  useEffect(() => {
+    if (retryError && !local?.ended && !local?.error) setRetryError(null);
+  }, [local?.ended, local?.error, retryError]);
 
   // While a control holds keyboard focus the chrome stays, so the focus ring
   // does not vanish mid-keyboard navigation.
@@ -2975,7 +3023,7 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {local.ended && !nextEpisode && !failed ? (
+      {local.ended && !nextEpisode && !failed && !dropped ? (
         <section className="pv-upnext pv-upnext--end">
           <div className="pv-upnext-info">
             <div className="pv-upnext-copy">
