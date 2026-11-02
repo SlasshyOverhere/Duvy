@@ -506,11 +506,28 @@ select {
     inset 0 0 0 1px var(--glass-edge-soft);
 }
 
-/* Labels are part of the bar: a bar that resizes under the cursor is the
-   glitch, so nothing about the dock changes on hover. */
+/* Names appear when the dock is reached, so the bar stays icon-sized. */
 .dock-label {
   display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition:
+    max-width 0.26s var(--ease),
+    margin-left 0.26s var(--ease),
+    opacity 0.18s var(--ease);
+  /* Collapsing waits a beat, so skimming past the bar does not flicker it. */
+  transition-delay: 0.12s;
+}
+
+.dock:hover .dock-label,
+.dock:focus-within .dock-label {
+  max-width: 90px;
   margin-left: 8px;
+  opacity: 1;
+  transition-delay: 0s;
 }
 
 .topbar-left {
