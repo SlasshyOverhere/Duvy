@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -329,7 +329,14 @@ function Range({
   suffix?: string;
   onChange: (value: number) => void;
 }) {
-  const fill = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  // The saved value only lands after the write returns, so a drag would rewind
+  // the thumb on every queued resolution. Hold the thumb locally meanwhile.
+  const [draft, setDraft] = useState(value);
+  const dragging = useRef(false);
+  useEffect(() => {
+    if (!dragging.current) setDraft(value);
+  }, [value]);
+  const fill = max === min ? 0 : ((draft - min) / (max - min)) * 100;
   return (
     <div className="range-wrap">
       <input
@@ -337,13 +344,29 @@ function Range({
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={draft}
         aria-label={label}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          setDraft(next);
+          onChange(next);
+        }}
+        onPointerDown={() => {
+          dragging.current = true;
+        }}
+        onPointerUp={() => {
+          dragging.current = false;
+        }}
+        onPointerCancel={() => {
+          dragging.current = false;
+        }}
+        onBlur={() => {
+          dragging.current = false;
+        }}
         style={{ "--fill": `${fill}%` } as CSSProperties}
       />
       <output>
-        {value}
+        {draft}
         {suffix}
       </output>
     </div>
@@ -373,7 +396,11 @@ function BufferField({
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
 
-  const read = () => Math.min(65536, Math.max(1, Math.round(Number(draft)) || 1));
+  // Each unit has its own ceiling: the backend caps MB and minutes, so a field
+  // showing 100 GB must not promise a value it will silently shrink.
+  const limitFor = (next: string) =>
+    next === "gb" ? 64 : next === "min" ? 1440 : next === "sec" ? 86_400 : 65_536;
+  const read = () => Math.min(limitFor(unit), Math.max(1, Math.round(Number(draft)) || 1));
   const commit = () => {
     // An empty field is a paused edit (say, clicking the unit), not a value.
     if (draft.trim() === "") {
@@ -391,7 +418,7 @@ function BufferField({
         type="number"
         inputMode="numeric"
         min={1}
-        max={65536}
+        max={limitFor(unit)}
         value={draft}
         aria-label={label}
         onChange={(event) => setDraft(event.target.value)}
@@ -408,10 +435,14 @@ function BufferField({
       <select
         value={unit}
         aria-label={`${label} unit`}
-        onChange={(event) =>
-          // An empty draft keeps the committed number, not a coerced 1.
-          onChange(draft.trim() === "" ? value : read(), event.target.value)
-        }
+        onChange={(event) => {
+          // An empty draft keeps the committed number, not a coerced 1, and the
+          // clamp follows the unit being switched to.
+          const nextUnit = event.target.value;
+          const raw =
+            draft.trim() === "" ? value : Math.min(limitFor(nextUnit), Math.max(1, Math.round(Number(draft)) || 1));
+          onChange(raw, nextUnit);
+        }}
       >
         {BUFFER_UNITS.map(([id, text]) => (
           <option key={id} value={id}>

@@ -5,6 +5,11 @@ use crate::AppState;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Bumped on every invalidate so a load that started before the write cannot
+/// put its pre-change copy back into the cache.
+static CACHE_VERSION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
@@ -143,6 +148,7 @@ impl Settings {
 pub fn load_cached(state: &AppState) -> Settings {
     // Removing the value marks a concurrent invalidate, so a race cannot put
     // pre-change settings back into the cache.
+    let version = CACHE_VERSION.load(Ordering::Acquire);
     let stale = if let Ok(mut cache) = state.settings.write() {
         match cache.take() {
             Some(settings) => return settings,
@@ -158,7 +164,7 @@ pub fn load_cached(state: &AppState) -> Settings {
     if stale {
         if let Ok(mut cache) = state.settings.write() {
             // Only fill a slot the invalidate did not claim while loading.
-            if cache.is_none() {
+            if cache.is_none() && CACHE_VERSION.load(Ordering::Acquire) == version {
                 *cache = Some(loaded.clone());
             }
         }
@@ -168,6 +174,7 @@ pub fn load_cached(state: &AppState) -> Settings {
 
 /// Call after any write to the settings row.
 pub fn invalidate(state: &AppState) {
+    CACHE_VERSION.fetch_add(1, Ordering::AcqRel);
     if let Ok(mut cache) = state.settings.write() {
         *cache = None;
     }

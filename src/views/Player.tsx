@@ -1221,10 +1221,12 @@ export function PlayerView() {
     send("speed", speedRef.current);
     // A fresh mpv starts playing: keep a paused switch or retry paused. An
     // unpaused one is already correct, and sending it would look ignored.
-    if (pausedRef.current) send(PAUSE_ACTION, true);
+    // mpv sets pause itself at eof, which is not the viewer's choice: a switch
+    // or retry after the credits must not open frozen.
+    if (pausedRef.current && !local?.ended) send(PAUSE_ACTION, true);
     send("video-mode", videoMode);
     pushSubStyle();
-  }, [local?.muted, pushSubStyle, send, videoMode]);
+  }, [local?.ended, local?.muted, pushSubStyle, send, videoMode]);
 
   // Playback can end behind the overlay. When the store clears the player we
   // return to the title instead of leaving a dead screen behind.
@@ -1446,7 +1448,7 @@ export function PlayerView() {
     fsNow.current = false;
     setFullscreen(false);
     delete document.documentElement.dataset.fullscreen;
-    void api.window.fullscreen(false);
+    void api.window.fullscreen(false).catch(() => undefined);
   }, []);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
@@ -1640,6 +1642,9 @@ export function PlayerView() {
         ? subTracks.findIndex((track) => track.id === local.activeSub)
         : -1;
     const next = from + 1 >= subTracks.length ? null : subTracks[from + 1].id;
+    // The addon row must not stay marked active while an embedded track plays.
+    setLoadedSub(null);
+    setSelectedLang(null);
     send("sub", next);
   }, [local?.activeSub, send, subTracks]);
 
@@ -1933,6 +1938,7 @@ export function PlayerView() {
     setLoadedSub(null);
     frameCache.current.clear();
     frameBucket.current = 0;
+    lastRetry.current = 0;
   }, [session?.key]);
 
   // Warm the addon subtitle hunt while the episode plays, so the panel opens
@@ -2163,6 +2169,8 @@ export function PlayerView() {
           (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) &&
             !(target instanceof HTMLInputElement && target.type === "range")));
       if (typing) return;
+      // A right-click menu owns the keyboard while it is up.
+      if (ctxMenu) return;
       const key = event.key;
       // A focused range input owns its arrows; seeking from here would fight it.
       if (target instanceof HTMLInputElement && target.type === "range") {
@@ -2269,6 +2277,7 @@ export function PlayerView() {
     bump,
     busy,
     btnMenu,
+    ctxMenu,
     changeSpeed,
     changeVolume,
     cycleAudio,
@@ -2294,7 +2303,7 @@ export function PlayerView() {
     if (!playing) return;
     const onWheel = (event: WheelEvent) => {
       // Panels own their scrolling; only the bare picture takes the wheel.
-      if (surface || locked) return;
+      if (surface || locked || ctxMenu) return;
       // One step per gesture beat, or a trackpad floods the engine.
       const at = Date.now();
       if (at - wheelAt.current < 60) return;
@@ -2304,7 +2313,7 @@ export function PlayerView() {
     };
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => window.removeEventListener("wheel", onWheel);
-  }, [changeVolume, locked, playing, surface]);
+  }, [changeVolume, ctxMenu, locked, playing, surface]);
 
   const loadSubtitleFile = useCallback(async () => {
     if (!isTauri()) {

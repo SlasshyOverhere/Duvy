@@ -113,8 +113,11 @@ export function SearchView({ query }: { query?: string }) {
   };
 
   useEffect(() => {
-    setValue(query ?? "");
     setActiveQuery(query ?? "");
+    // The debounce writes the trimmed query back into the route; rewriting the
+    // field from it would eat a space the user just typed.
+    if (document.activeElement === input.current) return;
+    setValue(query ?? "");
   }, [query]);
 
   // Stremio searches as you type; the debounce keeps it to one request.
@@ -124,8 +127,7 @@ export function SearchView({ query }: { query?: string }) {
     if (next === activeQuery) return;
     const timer = window.setTimeout(() => {
       setActiveQuery(next);
-      // Put the committed query in history so Back returns to these results
-      // instead of a blank search screen.
+      // Replace, not push: one entry per settled query, so Back still leaves.
       navigate({ name: "search", query: next || undefined }, { replace: true });
     }, 250);
     return () => window.clearTimeout(timer);

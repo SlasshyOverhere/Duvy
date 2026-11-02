@@ -1208,7 +1208,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
-        const memory = rememberedSource(session.key);
+        let memory = rememberedSource(session.key);
         const stored = progressFor(session.key);
         const resume =
           settings?.autoResume && !fromStart
@@ -1223,6 +1223,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             source = memory;
           } catch {
             url = null;
+            // Do not hand the dead source back to the picker.
+            memory = null;
           }
         }
         if (!source) {
@@ -1321,7 +1323,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode ?? null,
           episodeTitle: entry.episodeTitle ?? null,
         };
-        const memory = rememberedSource(session.key);
+        let memory = rememberedSource(session.key);
         let source: StreamOption | null = null;
         let url: string | null = null;
         if (memory) {
@@ -1331,6 +1333,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             source = memory;
           } catch {
             url = null;
+            // Do not hand the dead source back to the picker.
+            memory = null;
           }
         }
         if (!source) {

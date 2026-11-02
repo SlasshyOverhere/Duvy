@@ -59,8 +59,10 @@ export function saveFeed(feed: HomeFeed): void {
 /** Concurrent callers for the same addon set share one fetch. */
 export function loadFeed(key: string, fetchFeed: () => Promise<HomeFeed>): Promise<HomeFeed> {
   if (inFlight?.key === key) return inFlight.promise;
-  const promise = fetchFeed()
+    const promise = fetchFeed()
     .then((feed) => {
+      // A fetch for an older addon set must not overwrite the newer cache.
+      if (inFlight?.promise !== promise) return feed;
       saveFeed(feed);
       return feed;
     })

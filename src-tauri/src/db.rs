@@ -653,7 +653,7 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
              -- so the completed entry has to go.
              AND NOT EXISTS (
                SELECT 1 FROM progress p
-               WHERE p.key = w.key
+               WHERE (p.key = w.key OR p.meta_id = w.key)
                  AND p.duration > 0
                  AND p.position < p.duration * ?1
                  AND p.updated_at > w.updated_at

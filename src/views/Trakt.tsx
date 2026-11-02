@@ -38,11 +38,13 @@ export function TraktView() {
   const [result, setResult] = useState<SyncResult | null>(null);
   const polling = useRef(false);
   const working = useRef(false);
-  const savingPref = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api.trakt.status());
+      const next = await api.trakt.status();
+      setStatus(next);
+      // A pending device code outlives this screen; pick the wait back up.
+      if (!next.connected && next.userCode) setCode((current) => current ?? next.userCode);
     } catch (e) {
       setError(message(e));
     }
@@ -170,15 +172,11 @@ export function TraktView() {
   };
 
   const setScrobble = async (value: boolean) => {
-    if (savingPref.current) return;
-    savingPref.current = true;
     setError(null);
     try {
       await saveSettings({ traktScrobble: value });
     } catch (e) {
       setError(message(e));
-    } finally {
-      savingPref.current = false;
     }
   };
 

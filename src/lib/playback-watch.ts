@@ -148,6 +148,8 @@ export function sample(watch: Watch, next: Sample): Issue[] {
         (sent.kind === "pause" && next.paused === sent.from.paused) ||
         (sent.kind === "seek" &&
           next.duration > 0 &&
+          // A seek shorter than the tolerance cannot be judged ignored.
+          Math.abs(sent.to - sent.from.position) >= 2 &&
           Math.abs(next.position - sent.from.position) < 2) ||
         (sent.kind === "speed" && Math.abs(next.speed - sent.to) > 0.01) ||
         (sent.kind === "volume" && Math.abs(next.volume - sent.to) > VOLUME_SLACK);

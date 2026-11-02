@@ -53,13 +53,14 @@ fn cached(key: f64) -> Option<String> {
 }
 
 fn remember(key: f64, data: String, generation: u64) {
-    // A clear while the decode ran dropped every frame it could belong to.
-    if GENERATION.load(Ordering::Acquire) != generation {
-        return;
-    }
     let Ok(mut entries) = cache().lock() else {
         return;
     };
+    // A clear while the decode ran dropped every frame it could belong to.
+    // Checked under the lock so it cannot slip in between the check and the push.
+    if GENERATION.load(Ordering::Acquire) != generation {
+        return;
+    }
     entries.retain(|(seen, _)| *seen != key);
     entries.push((key, data));
     if entries.len() > CACHE_LIMIT {

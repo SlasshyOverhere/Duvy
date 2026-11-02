@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
@@ -180,14 +180,29 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           candidate.season === seriesProgress.season &&
           (candidate.episode ?? candidate.number) === seriesProgress.episode,
       );
-    const video = stored || firstEpisode(details);
+    const nextUnwatched =
+      details.type === "series"
+        ? [...details.videos]
+            .sort(
+              (a, b) =>
+                (a.season ?? 1) - (b.season ?? 1) ||
+                (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
+            )
+            .find(
+              (candidate) =>
+                !watched.some(
+                  (mark) => mark.key === buildSession(details, candidate).key,
+                ),
+            )
+        : undefined;
+    const video = stored || nextUnwatched || firstEpisode(details);
     const entry = video ? progressFor(buildSession(details, video).key) : undefined;
     return {
       video,
       position: entry?.position ?? 0,
       label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
-  }, [details, seriesProgress, progressFor, buildSession]);
+  }, [details, seriesProgress, progressFor, buildSession, watched]);
 
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
@@ -218,8 +233,11 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     setDrawer({ video: target });
   };
 
+  const starting = useRef(false);
   const startStream = async (stream: StreamOption) => {
-    if (!details || !drawer) return;
+    if (!details || !drawer || starting.current) return;
+    // A second click would swap the engine under the first open.
+    starting.current = true;
     const session = buildSession(details, drawer.video);
     const stored = settings?.autoResume ? progressFor(session.key) : undefined;
     // A finished session restarts instead of opening on its last seconds.
@@ -238,6 +256,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       setDrawer(null);
     } catch (error) {
       notify(error instanceof Error ? error.message : "That source could not be opened.", "error");
+    } finally {
+      starting.current = false;
     }
   };
 

@@ -161,6 +161,8 @@ export function HomeView() {
       // Same rule as the row above: the newest row decides the title.
       if (seen.has(entry.metaId)) continue;
       seen.add(entry.metaId);
+      if (entry.duration <= 0 || entry.position <= 5) continue;
+      if (progressPercent(entry.position, entry.duration) >= 90) continue;
       if (!marked.has(entry.key)) map.set(entry.metaId, entry);
     }
     return map;
