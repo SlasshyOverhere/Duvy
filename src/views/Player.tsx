@@ -23,7 +23,7 @@ import type {
   Track,
   Video,
 } from "../lib/types";
-import { Icon, Spinner, type IconName } from "../components/ui";
+import { ContextMenu, Icon, Spinner, type IconName } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -282,6 +282,15 @@ function sameSource(a: StreamOption | null, b: StreamOption): boolean {
     (a.infoHash ?? "") === (b.infoHash ?? "") &&
     (a.fileIdx ?? -1) === (b.fileIdx ?? -1)
   );
+}
+
+/** The torrent address behind the source that is playing, when it has one. */
+function magnetFor(stream: StreamOption | null): string | null {
+  if (!stream) return null;
+  const raw = stream.url ?? "";
+  if (/^magnet:/i.test(raw)) return raw;
+  if (!stream.infoHash) return null;
+  return `magnet:?xt=urn:btih:${stream.infoHash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`;
 }
 
 /** Hands focus back to the control that opened a dialog when it goes away. */
@@ -1080,6 +1089,7 @@ export function PlayerView() {
     buildSession,
     resolveStream,
     playingSource,
+    playingUrl,
     progressFor,
     progressByKey,
     leavePlayer,
@@ -1132,6 +1142,7 @@ export function PlayerView() {
   const [thumbBroken, setThumbBroken] = useState(false);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [markMsg, setMarkMsg] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
@@ -2553,11 +2564,25 @@ export function PlayerView() {
     setChrome(true);
   };
 
+  const torrent = magnetFor(playingSource);
+  const copy = (text: string, what: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => notify(`${what} copied`))
+      .catch(() => notify("Could not copy that", "error"));
+  };
+
   return (
     <div
       ref={rootRef}
       className={`pv${chrome ? " pv--awake" : ""}${locked ? " pv--locked" : ""}${surface ? " pv--panel" : ""}`}
       onPointerMove={bump}
+      onContextMenu={(event) => {
+        // The locked screen ignores input, and mpv's own menu is not a thing here.
+        if (locked) return;
+        event.preventDefault();
+        setCtxMenu({ x: event.clientX, y: event.clientY });
+      }}
       onFocusCapture={() => {
         if (!locked) setChrome(true);
       }}
@@ -3168,6 +3193,42 @@ export function PlayerView() {
             <span style={{ width: `${volumeFill}%` }} />
           </span>
         </div>
+      ) : null}
+
+      {ctxMenu ? (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          title={title}
+          onClose={() => setCtxMenu(null)}
+          actions={[
+            { label: "Copy content name", onSelect: () => copy(title, "Name") },
+            ...(playingUrl
+              ? [
+                  {
+                    label: "Copy direct link",
+                    onSelect: () => copy(playingUrl, "Direct link"),
+                  },
+                ]
+              : []),
+            ...(torrent
+              ? [
+                  {
+                    label: "Copy torrent address",
+                    onSelect: () => copy(torrent, "Torrent address"),
+                  },
+                ]
+              : []),
+            ...(duration
+              ? [
+                  {
+                    label: `Copy timestamp (${formatTime(shownPosition)})`,
+                    onSelect: () => copy(formatTime(shownPosition), "Timestamp"),
+                  },
+                ]
+              : []),
+          ]}
+        />
       ) : null}
     </div>
   );

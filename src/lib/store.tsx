@@ -104,6 +104,8 @@ interface Store {
   resolveStream: (stream: StreamOption) => Promise<string>;
   /** The source behind what is playing now; the next episode prefers its pack. */
   playingSource: StreamOption | null;
+  /** The exact link mpv opened, after debrid or the local engine resolved it. */
+  playingUrl: string | null;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -365,6 +367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [watched, setWatched] = useState<WatchedItem[]>([]);
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -1039,6 +1042,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const snapshot = await api.player.open(request);
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
+        setPlayingUrl(request.url);
         playerRef.current = snapshot;
         watch.current = createWatch(Date.now());
         lastTick.current = null;
@@ -1413,6 +1417,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       buildSession,
       resolveStream,
       playingSource,
+      playingUrl,
     }),
     [
       booting,
@@ -1453,6 +1458,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       buildSession,
       resolveStream,
       playingSource,
+      playingUrl,
     ],
   );
 
