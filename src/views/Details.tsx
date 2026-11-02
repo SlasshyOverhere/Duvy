@@ -44,6 +44,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     toggleLibrary,
     inLibrary,
     progress,
+    watched,
     progressFor,
     resumeEntry,
     notify,
@@ -124,13 +125,18 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     };
   }, [details]);
 
-  const seriesProgress = useMemo(
-    () =>
+  const seriesProgress = useMemo(() => {
+    // A whole-title mark, or an episode already finished, is not a resume
+    // target: picking it would restart something the viewer has seen.
+    if (watched.some((mark) => mark.key === id)) return null;
+    return (
       progress
         .filter((entry) => entry.metaId === id)
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null,
-    [progress, id],
-  );
+        .filter((entry) => !watched.some((mark) => mark.key === entry.key))
+        .filter((entry) => progressPercent(entry.position, entry.duration) < 90)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+    );
+  }, [progress, id, watched]);
 
   const seasons = useMemo(
     () => [...new Set((details?.videos ?? []).map((video) => video.season ?? 1))].sort((a, b) => a - b),
@@ -193,7 +199,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           ? progressFor(buildSession(details, target).key)
           : null
         : progressFor(details.id);
-    if (entry) {
+    // Auto-resume off means Play starts from the top, same as every other
+    // Play button; the resume label follows the same switch.
+    if (entry && settings?.autoResume) {
       void resumeEntry(entry);
       return;
     }

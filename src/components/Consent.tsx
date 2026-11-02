@@ -9,8 +9,12 @@ import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
  * agreed, and the same switch lives in Settings, Privacy.
  */
 export function CrashReporting() {
-  const { settings, appInfo, saveSettings } = useApp();
+  const { settings, appInfo, saveSettings, notify } = useApp();
   const choice = settings?.telemetry ?? null;
+  const answer = (telemetry: boolean) =>
+    void saveSettings({ telemetry }).catch((error) =>
+      notify(error instanceof Error ? error.message : String(error), "error"),
+    );
 
   useEffect(() => {
     if (!appInfo) return;
@@ -42,7 +46,31 @@ export function CrashReporting() {
 
   return (
     <div className="consent">
-      <div className="consent-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div
+        className="consent-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consent-title"
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const items = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled)"),
+          );
+          if (!items.length) return;
+          const first = items[0];
+          const last = items[items.length - 1];
+          if (!event.currentTarget.contains(document.activeElement)) {
+            event.preventDefault();
+            (event.shiftKey ? last : first).focus();
+          } else if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+      >
         <h2 id="consent-title">Send crash reports?</h2>
         <p>
           When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A
@@ -60,14 +88,14 @@ export function CrashReporting() {
             type="button"
             className="btn btn-primary"
             autoFocus
-            onClick={() => void saveSettings({ telemetry: true })}
+            onClick={() => answer(true)}
           >
             Send reports
           </button>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void saveSettings({ telemetry: false })}
+            onClick={() => answer(false)}
           >
             No thanks
           </button>

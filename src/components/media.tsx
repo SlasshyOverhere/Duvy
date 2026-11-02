@@ -68,10 +68,9 @@ function PosterMenu({
   const current = marked ? undefined : hit;
 
   const setWatched = (next: boolean) => {
-    // Unmarking has to hit the key that is actually marked; once a whole show
-    // is marked, the newest playhead is a different key.
-    const mark = watched.find((row) => row.metaId === item.id);
-    const key = next ? current?.key ?? item.id : mark?.key ?? item.id;
+    // Marking finishes the newest playhead. Unmarking the title passes its own
+    // id, which clears every episode row for it on the backend.
+    const key = next ? current?.key ?? item.id : item.id;
     void markWatched(key, item.id, next)
       .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
@@ -132,6 +131,8 @@ export const PosterCard = memo(function PosterCard({
 }) {
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // A replaced poster is a new image: give it a chance after an earlier error.
+  useEffect(() => setFailed(false), [item.poster]);
   const gradient = placeholderGradient(item.name);
   const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
   const shape = item.posterShape?.toLowerCase();
@@ -334,6 +335,8 @@ export function ContinueCard({
 }) {
   const [failed, setFailed] = useState(false);
   const [gone, setGone] = useState(false);
+  // A new image deserves a new attempt after an old one 404'd.
+  useEffect(() => setFailed(false), [poster, background]);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
   const raw = progressPercent(position, duration);

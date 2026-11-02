@@ -43,7 +43,7 @@ export function TopBar() {
         target?.isContentEditable;
       if (
         (event.key === "/" && !typing) ||
-        (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))
+        (!typing && event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))
       ) {
         // Navigating again from search would stack an entry and drop the query.
         if (route.name === "search") return;

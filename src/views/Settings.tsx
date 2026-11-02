@@ -375,6 +375,11 @@ function BufferField({
 
   const read = () => Math.min(65536, Math.max(1, Math.round(Number(draft)) || 1));
   const commit = () => {
+    // An empty field is a paused edit (say, clicking the unit), not a value.
+    if (draft.trim() === "") {
+      setDraft(String(value));
+      return;
+    }
     const next = read();
     setDraft(String(next));
     if (next !== value) onChange(next, unit);
@@ -403,7 +408,10 @@ function BufferField({
       <select
         value={unit}
         aria-label={`${label} unit`}
-        onChange={(event) => onChange(read(), event.target.value)}
+        onChange={(event) =>
+          // An empty draft keeps the committed number, not a coerced 1.
+          onChange(draft.trim() === "" ? value : read(), event.target.value)
+        }
       >
         {BUFFER_UNITS.map(([id, text]) => (
           <option key={id} value={id}>

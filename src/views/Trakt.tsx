@@ -77,8 +77,9 @@ export function TraktView() {
       } catch (e) {
         if (stopped) return;
         stop();
+        // The status read would clear the error we just set, so keep the
+        // failure until the user retries.
         setError(message(e));
-        void refresh();
       } finally {
         polling.current = false;
       }
@@ -230,7 +231,14 @@ export function TraktView() {
             >
               {code}
             </code>
-            <Button icon="external" onClick={() => void openExternal(status.verificationUrl || ACTIVATE)}>
+            <Button
+              icon="external"
+              onClick={() =>
+                void openExternal(status.verificationUrl || ACTIVATE).catch(() =>
+                  setError("Could not open that link"),
+                )
+              }
+            >
               Open trakt.tv/activate
             </Button>
           </div>
@@ -258,7 +266,13 @@ export function TraktView() {
           <h2>Connect</h2>
           <p className="settings-hint">
             Trakt does not issue a shared API key. Create a free API app at{" "}
-            <button type="button" className="link-button" onClick={() => void openExternal(APPS)}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() =>
+                void openExternal(APPS).catch(() => setError("Could not open that link"))
+              }
+            >
               trakt.tv/oauth/applications
             </button>
             , set its redirect URI to <code>urn:ietf:wg:oauth:2.0:oob</code>, then paste the client id

@@ -11,7 +11,7 @@ const SECRET_KEY =
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>\\]+/gi;
 const MAGNET_IN_TEXT = /magnet:\?[^\s"'<>]+/gi;
-const HOME_IN_TEXT = /[A-Za-z]:\\Users\\[^\\\s"']+/g;
+const HOME_IN_TEXT = /(?:[A-Za-z]:\\Users\\|\/(?:Users|home)\/)[^\\\/\s"']+/g;
 
 /** Nothing useful ever hides past this; it only inflates the event. */
 const MAX_TEXT = 500;

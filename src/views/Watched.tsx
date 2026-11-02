@@ -71,7 +71,7 @@ function Thumb({ src, seed }: { src?: string | null; seed: string }) {
 // Everything finished, one card per title. The calendar is the default because
 // "when did I watch this" is the question a watched list usually answers.
 export function WatchedView() {
-  const { navigate } = useApp();
+  const { navigate, watched: marks } = useApp();
   const [items, setItems] = useState<WatchedItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -97,7 +97,8 @@ export function WatchedView() {
     return () => {
       alive = false;
     };
-  }, [attempt]);
+    // A mark change elsewhere (a card menu, the player) refreshes this list.
+  }, [attempt, marks]);
 
   const week = useMemo(() => {
     const year = month.getFullYear();

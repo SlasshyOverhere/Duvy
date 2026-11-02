@@ -32,8 +32,13 @@ fn cache() -> &'static Mutex<Vec<(f64, String)>> {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Bumped by [`clear`]: a capture that started before the switch must not land
+/// in the cache (or be joined) for the new source.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// A new source means every cached frame belongs to the old one.
 pub fn clear() {
+    GENERATION.fetch_add(1, Ordering::AcqRel);
     if let Ok(mut entries) = cache().lock() {
         entries.clear();
     }
@@ -47,7 +52,11 @@ fn cached(key: f64) -> Option<String> {
         .map(|(_, data)| data.clone())
 }
 
-fn remember(key: f64, data: String) {
+fn remember(key: f64, data: String, generation: u64) {
+    // A clear while the decode ran dropped every frame it could belong to.
+    if GENERATION.load(Ordering::Acquire) != generation {
+        return;
+    }
     let Ok(mut entries) = cache().lock() else {
         return;
     };
@@ -86,10 +95,16 @@ pub fn base64(bytes: &[u8]) -> String {
 /// `data:image/jpeg;base64,...` for the requested time, cached per bucket.
 pub async fn preview(source: &str, seconds: f64) -> Result<String, String> {
     let key = bucket(seconds);
+    let generation = GENERATION.load(Ordering::Acquire);
     if let Some(hit) = cached(key) {
-        return Ok(hit);
+        // A clear that landed during the read invalidated what it returned.
+        if GENERATION.load(Ordering::Acquire) == generation {
+            return Ok(hit);
+        }
     }
-    let id = key.to_bits();
+    // The source is part of the key: a decode still running from before a
+    // switch must not answer for the new one.
+    let id = (generation, key.to_bits());
     // One decode per bucket: a second hover waits for the first instead of
     // starting another decoder.
     let waiter = {
@@ -99,7 +114,9 @@ pub async fn preview(source: &str, seconds: f64) -> Result<String, String> {
             None => {
                 // The first decode may have finished between the two locks.
                 if let Some(hit) = cached(key) {
-                    return Ok(hit);
+                    if GENERATION.load(Ordering::Acquire) == generation {
+                        return Ok(hit);
+                    }
                 }
                 let (tx, _) = tokio::sync::broadcast::channel(1);
                 map.insert(id, tx);
@@ -119,7 +136,7 @@ pub async fn preview(source: &str, seconds: f64) -> Result<String, String> {
     }
     let result = capture(source, key).await;
     if let Ok(data) = &result {
-        remember(key, data.clone());
+        remember(key, data.clone(), generation);
     }
     if let Some(tx) = inflight().lock().await.remove(&id) {
         let _ = tx.send(result.clone());
@@ -129,9 +146,9 @@ pub async fn preview(source: &str, seconds: f64) -> Result<String, String> {
 
 type Job = tokio::sync::broadcast::Sender<Result<String, String>>;
 
-static INFLIGHT: OnceLock<tokio::sync::Mutex<HashMap<u64, Job>>> = OnceLock::new();
+static INFLIGHT: OnceLock<tokio::sync::Mutex<HashMap<(u64, u64), Job>>> = OnceLock::new();
 
-fn inflight() -> &'static tokio::sync::Mutex<HashMap<u64, Job>> {
+fn inflight() -> &'static tokio::sync::Mutex<HashMap<(u64, u64), Job>> {
     INFLIGHT.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
 }
 

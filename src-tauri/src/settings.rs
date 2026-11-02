@@ -141,17 +141,27 @@ impl Settings {
 
 /// Hot callers: one DB read plus a DPAPI decrypt is too much per tick.
 pub fn load_cached(state: &AppState) -> Settings {
-    if let Ok(cache) = state.settings.read() {
-        if let Some(settings) = cache.as_ref() {
-            return settings.clone();
+    // Removing the value marks a concurrent invalidate, so a race cannot put
+    // pre-change settings back into the cache.
+    let stale = if let Ok(mut cache) = state.settings.write() {
+        match cache.take() {
+            Some(settings) => return settings,
+            None => true,
         }
-    }
+    } else {
+        false
+    };
     let loaded = match state.db.0.lock() {
         Ok(conn) => Settings::load(&conn),
         Err(poisoned) => Settings::load(&poisoned.into_inner()),
     };
-    if let Ok(mut cache) = state.settings.write() {
-        *cache = Some(loaded.clone());
+    if stale {
+        if let Ok(mut cache) = state.settings.write() {
+            // Only fill a slot the invalidate did not claim while loading.
+            if cache.is_none() {
+                *cache = Some(loaded.clone());
+            }
+        }
     }
     loaded
 }

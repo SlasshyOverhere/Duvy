@@ -46,8 +46,9 @@ const RETRIES: [u64; 3] = [60, 300, 900];
 /// The release the last check found, so install starts downloading at once.
 static CHECKED: Mutex<Option<Update>> = Mutex::new(None);
 
-/// The package the announcement already fetched, so "Update now" only installs.
-static PACKAGE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// The package the announcement already fetched, with the version it belongs
+/// to, so "Update now" only installs bytes that match the release it installs.
+static PACKAGE: Mutex<Option<(String, Vec<u8>)>> = Mutex::new(None);
 
 /// One download or install at a time: a second caller waits instead of racing.
 static WORK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -160,7 +161,7 @@ pub async fn update_prefetch(app: AppHandle) -> Result<(), String> {
     };
     let bytes = download(&app, &update).await?;
     let mut slot = PACKAGE.lock().map_err(|_| "Update state is unavailable.")?;
-    *slot = Some(bytes);
+    *slot = Some((update.version.clone(), bytes));
     Ok(())
 }
 
@@ -177,10 +178,10 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
             .await?
             .ok_or("Duvy is already up to date.")?,
     };
-    // The prefetch usually beat the click; a missing package just downloads.
+    // The prefetch usually beat the click; a missing or stale package downloads.
     let bytes = match PACKAGE.lock().ok().and_then(|mut slot| slot.take()) {
-        Some(bytes) => bytes,
-        None => download(&app, &update).await?,
+        Some((version, bytes)) if version == update.version => bytes,
+        _ => download(&app, &update).await?,
     };
     update.install(bytes).map_err(|e| e.to_string())
 }

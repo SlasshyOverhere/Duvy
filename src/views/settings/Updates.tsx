@@ -17,7 +17,11 @@ export function Updates() {
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [installed, setInstalled] = useState(false);
   const [progress, setProgress] = useState<{ got: number; total: number | null } | null>(null);
+
+  // A newer release found after an install gets a working button again.
+  useEffect(() => setInstalled(false), [update?.version]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -61,6 +65,7 @@ export function Updates() {
     try {
       await api.updates.install();
       setNote("Installed. Restart Duvy to finish.");
+      setInstalled(true);
       setInstalling(false);
     } catch (error) {
       setNote(errorMessage(error));
@@ -69,7 +74,9 @@ export function Updates() {
   };
 
   const share =
-    progress?.total != null ? Math.min(100, (progress.got / progress.total) * 100) : null;
+    progress?.total != null && progress.total > 0
+      ? Math.min(100, (progress.got / progress.total) * 100)
+      : null;
   const desktop = isTauri();
 
   return (
@@ -136,7 +143,7 @@ export function Updates() {
             <Button
               variant="primary"
               icon="download"
-              disabled={!desktop || installing}
+              disabled={!desktop || installing || installed}
               onClick={() => void install()}
             >
               {installing ? "Installing" : "Install and restart"}

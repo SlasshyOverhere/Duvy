@@ -68,6 +68,7 @@ function Poster({
   onOpen: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [item.image]);
   const canPlay = playable(item);
 
   return (
@@ -227,6 +228,8 @@ export function MediaServers() {
   };
 
   const play = async (serverId: string, item: ServerItem) => {
+    // One resolve at a time: a second click would race the first to the player.
+    if (playing) return;
     setPlaying(item.id);
     setError(null);
     try {
@@ -336,7 +339,7 @@ export function MediaServers() {
                       <Poster
                         key={item.id}
                         item={item}
-                        playing={playing === item.id}
+                        playing={playing !== null}
                         onPlay={() => void play(server.id, item)}
                         onOpen={() => void open(item)}
                       />

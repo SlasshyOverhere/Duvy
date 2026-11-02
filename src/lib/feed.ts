@@ -7,7 +7,18 @@ const RECO_CACHE = "recos.v2";
 // Memory copy for the session; the store alone still costs a parse per visit.
 let memory: HomeFeed | null = null;
 let memoryAt = 0;
-let inFlight: Promise<HomeFeed> | null = null;
+// Keyed by the addon set: a feed for the old set must not answer a new one.
+let inFlight: { key: string; promise: Promise<HomeFeed> } | null = null;
+
+function validRow(row: unknown): row is HomeRow {
+  const candidate = row as HomeRow | null;
+  return Boolean(
+    candidate &&
+      typeof candidate.id === "string" &&
+      typeof candidate.title === "string" &&
+      Array.isArray(candidate.items),
+  );
+}
 
 export function cachedFeed(): HomeFeed | null {
   if (memory) return memory;
@@ -16,7 +27,8 @@ export function cachedFeed(): HomeFeed | null {
     if (!raw) return null;
     // A store written by an older build or another tool must not crash the home.
     const parsed = JSON.parse(raw) as HomeFeed | null;
-    return parsed && Array.isArray(parsed.rows) ? parsed : null;
+    if (!parsed || !Array.isArray(parsed.rows)) return null;
+    return { ...parsed, rows: parsed.rows.filter(validRow) };
   } catch {
     return null;
   }
@@ -44,17 +56,19 @@ export function saveFeed(feed: HomeFeed): void {
   }
 }
 
-/** One fetch at a time: concurrent callers share the same promise. */
-export function loadFeed(fetchFeed: () => Promise<HomeFeed>): Promise<HomeFeed> {
-  inFlight ??= fetchFeed()
+/** Concurrent callers for the same addon set share one fetch. */
+export function loadFeed(key: string, fetchFeed: () => Promise<HomeFeed>): Promise<HomeFeed> {
+  if (inFlight?.key === key) return inFlight.promise;
+  const promise = fetchFeed()
     .then((feed) => {
       saveFeed(feed);
       return feed;
     })
     .finally(() => {
-      inFlight = null;
+      if (inFlight?.promise === promise) inFlight = null;
     });
-  return inFlight;
+  inFlight = { key, promise };
+  return promise;
 }
 
 /// The last recommendation rows, so the search screen opens filled.
@@ -64,7 +78,7 @@ export function cachedRecos(): HomeRow[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     // Anything but a row list would reach `.map` on the search screen.
-    return Array.isArray(parsed) ? (parsed as HomeRow[]) : [];
+    return Array.isArray(parsed) ? parsed.filter(validRow) : [];
   } catch {
     return [];
   }

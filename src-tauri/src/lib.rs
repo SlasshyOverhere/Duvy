@@ -473,6 +473,14 @@ pub fn http_client() -> reqwest::Client {
             {
                 return attempt.error("refusing to redirect from https to http");
             }
+            // Every hop is re-checked: validate_target only sees the first one.
+            let host = match attempt.url().host_str() {
+                Some(host) => host,
+                None => return attempt.error("redirect target has no host"),
+            };
+            if crate::addons::is_blocked_host(host) {
+                return attempt.error("refusing to redirect to an internal address");
+            }
             attempt.follow()
         }))
         .build()

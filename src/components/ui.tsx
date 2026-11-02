@@ -518,7 +518,9 @@ export function ContextMenu({
         items[next]?.focus();
       }}
     >
-      <p className="ctx-title">{title}</p>
+      <p className="ctx-title" role="presentation">
+        {title}
+      </p>
       {actions.map((action) => (
         <button
           key={action.label}

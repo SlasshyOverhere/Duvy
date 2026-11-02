@@ -624,6 +624,52 @@ fn playing_again_drops_the_watched_mark() {
 }
 
 #[test]
+fn a_show_mark_covers_every_episode_of_the_show() {
+    let (conn, path) = temp_database();
+    for (key, episode, position) in [("tt8:1:1", 1, 600.0), ("tt8:1:2", 2, 300.0)] {
+        db::save_progress(
+            &conn,
+            &db::ProgressItem {
+                key: key.into(),
+                meta_id: "tt8".into(),
+                media_type: "series".into(),
+                name: "A Show".into(),
+                poster: None,
+                background: None,
+                season: Some(1),
+                episode: Some(episode),
+                episode_title: None,
+                position,
+                duration: 1000.0,
+                updated_at: 0,
+            },
+        )
+        .expect("progress");
+    }
+    conn.execute("UPDATE progress SET updated_at = 10 WHERE key = 'tt8:1:1'", [])
+        .unwrap();
+    conn.execute("UPDATE progress SET updated_at = 20 WHERE key = 'tt8:1:2'", [])
+        .unwrap();
+    assert_eq!(db::list_continue_watching(&conn).unwrap().len(), 1);
+
+    // The media menu marks the title itself, not an episode key.
+    db::set_watched(&conn, "tt8", "tt8", true).expect("show mark");
+    assert!(
+        db::list_continue_watching(&conn).unwrap().is_empty(),
+        "a show mark must hide every episode of the show"
+    );
+
+    // Unwatching the title clears every mark, while the unfinished playhead
+    // stays: that is where the viewer actually was.
+    db::set_watched(&conn, "tt8", "tt8", false).expect("unwatch");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    assert!(db::get_progress(&conn, "tt8:1:1").unwrap().is_some());
+    assert!(db::get_progress(&conn, "tt8:1:2").unwrap().is_some());
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
     let (conn, path) = temp_database();
     db::save_progress(

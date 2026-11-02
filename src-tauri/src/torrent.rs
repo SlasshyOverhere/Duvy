@@ -19,6 +19,7 @@ use librqbit_dualstack_sockets::{BindOpts, TcpListener};
 use serde::Serialize;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tauri::{Manager, State};
@@ -26,6 +27,9 @@ use tokio::sync::Mutex;
 
 /// How long the picker waits for metadata before giving up on a source.
 const METADATA_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Names every run's folder so a swap never reuses the previous files.
+static START_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -105,27 +109,37 @@ pub async fn start(
         .join("torrent-cache");
 
     let _guard = lifecycle().lock().await;
-    let previous = { engine().lock().await.take() };
-    if let Some(previous) = previous {
-        previous.shutdown().await;
-    }
+    let seq = START_SEQ.fetch_add(1, Ordering::Relaxed);
+    // Each run gets its own folder so a new source can be prepared while the
+    // old one is still playing. Only a launch that succeeds replaces it.
+    let dir = cache.join(format!("run-{seq}"));
 
-    let running = match launch(&source, file_hint.as_deref(), cache.clone(), cache_mb).await {
+    let running = match launch(&source, file_hint.as_deref(), dir.clone(), cache_mb).await {
         Ok(running) => running,
         Err(error) => {
             // A failed launch must not leave a partial cache behind.
-            let _ = remove_cache(&cache);
+            let _ = remove_cache(&dir);
             return Err(error);
         }
     };
     let url = running.url.clone();
-    *engine().lock().await = Some(running);
+    let previous = { engine().lock().await.replace(running) };
+    // The swap is done; tearing the old engine down outside the lock keeps
+    // stop/stats responsive while it finishes.
+    drop(_guard);
+    if let Some(previous) = previous {
+        previous.shutdown().await;
+    }
     Ok(url)
 }
 
 /// Tears down the engine if one is running. Idempotent.
 pub async fn shutdown() -> Result<(), String> {
-    let _guard = lifecycle().lock().await;
+    // A start may hold this for the whole metadata timeout. Waiting on it
+    // would freeze stop for 45s; the start itself swaps the engine out.
+    let Ok(_guard) = tokio::time::timeout(Duration::from_secs(5), lifecycle().lock()).await else {
+        return Ok(());
+    };
     let running = { engine().lock().await.take() };
     if let Some(running) = running {
         running.shutdown().await;
@@ -324,7 +338,8 @@ fn normalize_source(source: &str) -> Result<String, String> {
         return Ok(source.to_string());
     }
     if source.len() == 40 && source.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(source.to_ascii_lowercase());
+        // The engine only accepts a magnet (or a .torrent URL), never the hash.
+        return Ok(format!("magnet:?xt=urn:btih:{}", source.to_ascii_lowercase()));
     }
     Err("Unsupported torrent source: expected a magnet link or a 40-character info hash".into())
 }
@@ -477,11 +492,11 @@ mod tests {
         let hash = "CAB507494D02EBB1178B38F2E9D7BE299C86B862";
         assert_eq!(
             normalize_source(hash).unwrap(),
-            "cab507494d02ebb1178b38f2e9d7be299c86b862"
+            "magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862"
         );
         assert_eq!(
             normalize_source("  cab507494d02ebb1178b38f2e9d7be299c86b862  ").unwrap(),
-            "cab507494d02ebb1178b38f2e9d7be299c86b862"
+            "magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862"
         );
     }
 

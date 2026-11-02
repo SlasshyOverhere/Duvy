@@ -12,6 +12,11 @@ use std::time::Duration;
 use tauri::State;
 
 const KEY_BLOB: &str = "servers";
+
+/// Serialises load-modify-store so a slow add cannot resurrect a removed server.
+static WRITE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Keeps two adds in the same millisecond from sharing an id.
+static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 const TIMEOUT: Duration = Duration::from_secs(15);
 const CLIENT: &str =
     r#"MediaBrowser Client="Duvy", Device="Desktop", DeviceId="duvy", Version="0.1.0""#;
@@ -314,23 +319,31 @@ pub async fn srv_add(
         .await
         .unwrap_or_else(|| host_label(&url));
 
-    let mut servers = load(state.inner())?;
-    servers.push(Stored {
-        // Two adds inside one millisecond are impossible from the UI.
-        id: format!("{kind}-{}", db::now()),
-        kind: kind.to_string(),
-        name,
-        url,
-        username,
-        token,
-        user_id,
-    });
-    store(state.inner(), &servers)?;
+    let servers = {
+        let _guard = WRITE.lock().await;
+        let mut servers = load(state.inner())?;
+        servers.push(Stored {
+            id: format!(
+                "{kind}-{}-{}",
+                db::now(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ),
+            kind: kind.to_string(),
+            name,
+            url,
+            username,
+            token,
+            user_id,
+        });
+        store(state.inner(), &servers)?;
+        servers
+    };
     Ok(public(&servers))
 }
 
 #[tauri::command]
 pub async fn srv_remove(id: String, state: State<'_, AppState>) -> Result<Vec<Server>, String> {
+    let _guard = WRITE.lock().await;
     let mut servers = load(state.inner())?;
     servers.retain(|server| server.id != id);
     store(state.inner(), &servers)?;
@@ -354,10 +367,10 @@ pub async fn srv_items(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let url = if let Some(parent) = parent_id {
+    let base = if let Some(parent) = parent_id {
         // Children of a show are seasons, children of a season are episodes.
         format!(
-            "{}/Users/{}/Items?ParentId={}&IncludeItemTypes=Season,Episode&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
+            "{}/Users/{}/Items?ParentId={}&IncludeItemTypes=Season,Episode&Fields=ProductionYear,SeriesName&SortBy=SortName",
             server.url,
             esc(&server.user_id),
             esc(&parent)
@@ -369,35 +382,56 @@ pub async fn srv_items(
             _ => "Movie,Series",
         };
         format!(
-            "{}/Users/{}/Items?Recursive=true&IncludeItemTypes={types}&Fields=ProductionYear,SeriesName&SortBy=SortName&Limit=200",
+            "{}/Users/{}/Items?Recursive=true&IncludeItemTypes={types}&Fields=ProductionYear,SeriesName&SortBy=SortName",
             server.url,
             esc(&server.user_id)
         )
     };
-    let request = token_request(
-        &server.kind,
-        state.http.get(url).timeout(TIMEOUT),
-        &server.token,
-    );
-    let reply = request
-        .send()
-        .await
-        .map_err(|error| unreachable(&server.kind, &error))?;
+    // A big library does not fit one page; walk it until a short page.
+    const PAGE: usize = 200;
+    const MAX_PAGES: usize = 20;
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for page in 0..MAX_PAGES {
+        let url = format!("{base}&StartIndex={}&Limit={PAGE}", page * PAGE);
+        let request = token_request(
+            &server.kind,
+            state.http.get(url).timeout(TIMEOUT),
+            &server.token,
+        );
+        let reply = request
+            .send()
+            .await
+            .map_err(|error| unreachable(&server.kind, &error))?;
 
-    let status = reply.status();
-    if !status.is_success() {
-        return Err(format!(
-            "{} answered {status}. The saved session may have expired; remove the server and add it again.",
-            label(&server.kind)
-        ));
+        let status = reply.status();
+        if !status.is_success() {
+            return Err(format!(
+                "{} answered {status}. The saved session may have expired; remove the server and add it again.",
+                label(&server.kind)
+            ));
+        }
+        let value: Value = reply.json().await.map_err(|error| {
+            format!(
+                "{} sent an unreadable library reply: {error}",
+                label(&server.kind)
+            )
+        })?;
+        let batch = parse_items(&server.url, &value);
+        let count = batch.len();
+        let mut fresh = 0;
+        for item in batch {
+            if seen.insert(item.id.clone()) {
+                items.push(item);
+                fresh += 1;
+            }
+        }
+        // Servers that ignore StartIndex would repeat page one forever.
+        if fresh == 0 || count < PAGE {
+            break;
+        }
     }
-    let value: Value = reply.json().await.map_err(|error| {
-        format!(
-            "{} sent an unreadable library reply: {error}",
-            label(&server.kind)
-        )
-    })?;
-    Ok(parse_items(&server.url, &value))
+    Ok(items)
 }
 
 #[tauri::command]

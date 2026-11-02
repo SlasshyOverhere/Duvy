@@ -36,6 +36,7 @@ const SUB_STYLE_KEY = "duvy.subtitleStyle";
 const VIDEO_MODE_KEY = "duvy.videoMode";
 const VOLUME_KEY = "duvy.volume";
 const MAX_VOLUME = 200;
+const PAUSE_ACTION = "pause";
 const OFF = "__off__";
 const SUB_COLORS = [
   { value: "#ffffff", label: "White" },
@@ -1155,6 +1156,7 @@ export function PlayerView() {
   const volRef = useRef(readVolume());
   const speedRef = useRef(1);
   const posRef = useRef(0);
+  const pausedRef = useRef(false);
   const hudTimer = useRef<number | null>(null);
   const hudOutTimer = useRef<number | null>(null);
   const volOsdTimer = useRef<number | null>(null);
@@ -1217,6 +1219,9 @@ export function PlayerView() {
     send("volume", volRef.current);
     send("mute", Boolean(local?.muted));
     send("speed", speedRef.current);
+    // A fresh mpv starts playing: keep a paused switch or retry paused. An
+    // unpaused one is already correct, and sending it would look ignored.
+    if (pausedRef.current) send(PAUSE_ACTION, true);
     send("video-mode", videoMode);
     pushSubStyle();
   }, [local?.muted, pushSubStyle, send, videoMode]);
@@ -1321,6 +1326,7 @@ export function PlayerView() {
   const position = local?.position ?? 0;
   // The override wins until a tick settles it.
   const paused = pending.paused ?? local?.paused ?? false;
+  pausedRef.current = paused;
   const muted = pending.muted ?? local?.muted ?? false;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
@@ -1805,16 +1811,19 @@ export function PlayerView() {
     try {
       const url = await resolveStream(source);
       if (!alive.current) return false;
-      return await playRequest({
+      const opened = await playRequest({
         url,
         title: local?.title || session.name,
         startAt: posRef.current,
         session,
       });
+      // The retry opened a new mpv, which knows none of the preferences.
+      if (opened) pushPlaybackPrefs();
+      return opened;
     } catch {
       return false;
     }
-  }, [local?.title, playRequest, playingSource, resolveStream]);
+  }, [local?.title, playRequest, playingSource, pushPlaybackPrefs, resolveStream]);
 
   useEffect(() => {
     if (!dropped || failed || retrying.current) return;
@@ -2040,12 +2049,12 @@ export function PlayerView() {
   // Markers move the playhead through the same path the skip buttons use. The
   // check is local, so it costs nothing per tick.
   useEffect(() => {
-    if (!markers || loading || scrub != null) return;
+    if (!markers || loading || paused || scrub != null) return;
     const segment = findSkip(markers, position, duration);
     if (!segment || fired.current[segment.kind]) return;
     fired.current[segment.kind] = true;
     seekTo(segment.at, false);
-  }, [markers, position, duration, loading, scrub, seekTo]);
+  }, [markers, position, duration, loading, paused, scrub, seekTo]);
 
   // The thumb stays where it was dropped until the seek echo catches up; a
   // refused seek expires on the next tick after the hold window.

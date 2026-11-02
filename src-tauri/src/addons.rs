@@ -114,9 +114,22 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn resource_for(&self, name: &str, media_type: &str, id: &str) -> bool {
-        self.resources
-            .iter()
-            .any(|r| r.name() == name && r.supports_type(media_type) && r.supports_id(id))
+        self.resources.iter().any(|r| {
+            if r.name() != name || !r.supports_type(media_type) || !r.supports_id(id) {
+                return false;
+            }
+            // A resource with no list of its own inherits the manifest-wide
+            // `idPrefixes`; without that, every id looks supported.
+            match r {
+                ResourceRef::Detailed {
+                    id_prefixes: None, ..
+                } => self
+                    .id_prefixes
+                    .as_ref()
+                    .map_or(true, |prefixes| prefixes.iter().any(|p| id.starts_with(p))),
+                _ => true,
+            }
+        })
     }
 }
 
@@ -301,6 +314,8 @@ pub(crate) fn is_blocked_host(host: &str) -> bool {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_link_local() || v4.is_unspecified(),
         Ok(std::net::IpAddr::V6(v6)) => {
             v6.is_unspecified()
+                // fe80::/10
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
                 || v6.to_ipv4_mapped()
                     .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
         }
@@ -314,10 +329,12 @@ pub fn normalize_addon_url(input: &str) -> String {
     if raw.is_empty() {
         return raw;
     }
-    if let Some(rest) = raw.strip_prefix("stremio://") {
-        raw = format!("https://{rest}");
+    // A pasted scheme may be any case; the check below is what matters.
+    if raw.get(..10).is_some_and(|prefix| prefix.eq_ignore_ascii_case("stremio://")) {
+        raw = format!("https://{}", &raw[10..]);
     }
-    if !raw.starts_with("http://") && !raw.starts_with("https://") {
+    let lower = raw.to_ascii_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
         raw = format!("https://{raw}");
     }
     let mut trimmed = raw.trim_end_matches('/').to_string();

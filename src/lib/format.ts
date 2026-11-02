@@ -24,6 +24,8 @@ export function formatTime(seconds: number, forceHours = false): string {
 export function timeAgo(timestamp: number): string {
   if (!timestamp) return "";
   const diff = Date.now() - timestamp;
+  // A clock skew or a future row is a date, not "just now" forever.
+  if (diff < -60000) return new Date(timestamp).toLocaleDateString();
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;

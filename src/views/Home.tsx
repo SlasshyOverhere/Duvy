@@ -92,7 +92,7 @@ export function HomeView() {
     let alive = true;
     setLoading(true);
     setError(null);
-    loadFeed(() => api.home())
+    loadFeed(addonSignature, () => api.home())
       .then((result) => {
         if (!alive) return;
         feedSig = addonSignature;

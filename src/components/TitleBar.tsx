@@ -94,7 +94,10 @@ export function WindowControls({ variant = "app" }: { variant?: "app" | "player"
   useEffect(() => {
     if (!fullscreen || !shellControls) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void toggleFullscreen();
+      if (event.key !== "Escape") return;
+      // A modal owns Escape while it is up; exiting fullscreen too is a surprise.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      void toggleFullscreen();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

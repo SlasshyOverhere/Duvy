@@ -16,6 +16,15 @@ export function AppMenu() {
     const onMenu = (event: MouseEvent) => {
       // A view already claimed this click, so its menu is the one to show.
       if (event.defaultPrevented) return;
+      // Text fields keep the native menu: paste and cut live there.
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
       event.preventDefault();
       setSelection(String(window.getSelection() ?? "").trim());
       setAt({ x: event.clientX, y: event.clientY });

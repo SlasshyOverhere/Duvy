@@ -199,7 +199,11 @@ pub async fn details(
     // Synced rows sometimes carry the wrong kind; the id is what counts.
     for kind in [media_type, other(media_type)] {
         if let Ok(Some(found)) = tokio::time::timeout(cap, cinemeta(client, imdb, kind)).await {
-            return Some(found);
+            // Cinemeta answers an unknown id with a nameless stub. Accepting
+            // it would hide the TMDB fallback behind a blank title page.
+            if found.name != imdb {
+                return Some(found);
+            }
         }
     }
     None

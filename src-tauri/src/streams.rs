@@ -165,7 +165,7 @@ pub fn find_size(text: &str) -> Option<String> {
 pub fn find_seeders(text: &str) -> Option<i64> {
     let normalised = text.replace(['\u{1F464}', '\u{1F465}'], "seeders:");
     let lower = normalised.to_lowercase();
-    for marker in ["seeders:", "seeds:", "seeders ", "👤"] {
+    for marker in ["seeders:", "seeds:", "seeders "] {
         if let Some(pos) = lower.find(marker) {
             let rest = &lower[pos + marker.len()..];
             let digits: String = rest

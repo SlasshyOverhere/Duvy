@@ -89,13 +89,16 @@ export function sample(watch: Watch, next: Sample): Issue[] {
   };
 
   if (next.playing && !next.paused && !next.ended) {
-    // The anchor is the last sample the playhead actually moved in, so a seek
-    // resets it instead of leaving an older, larger position behind it.
-    const anchor = watch.samples.reduce(
-      (last, item) =>
-        Math.abs(item.position - next.position) >= STALL_MIN_DELTA ? item : last,
-      watch.samples[0],
-    );
+    // Walk back over the current run of playing samples at this position. A
+    // pause ends the run: time spent paused is not a stall.
+    let index = watch.samples.length - 1;
+    while (index > 0) {
+      const item = watch.samples[index - 1];
+      if (!item.playing || item.paused || item.ended) break;
+      if (Math.abs(item.position - next.position) >= STALL_MIN_DELTA) break;
+      index -= 1;
+    }
+    const anchor = watch.samples[index];
     if (next.at - anchor.at >= STALL_MS) {
       fire("stall", "Playback is playing but the position never moves", {
         position: round(next.position),
@@ -120,7 +123,9 @@ export function sample(watch: Watch, next: Sample): Issue[] {
 
   const previous = watch.samples[watch.samples.length - 2];
   if (previous && !next.ended && next.position + JUMP_BACK < previous.position) {
-    const seeking = watch.action?.kind === "seek" && next.at - watch.action.at < ACTION_GIVE_UP_MS;
+    const seeking =
+      (watch.action?.kind === "seek" || watch.action?.kind === "seek-rel") &&
+      next.at - watch.action.at < ACTION_GIVE_UP_MS;
     if (!seeking) {
       fire("position-jump", "Playback position jumped backwards without a seek", {
         from: round(previous.position),

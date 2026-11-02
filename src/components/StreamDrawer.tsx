@@ -60,7 +60,7 @@ export function StreamDrawer({
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
+  const drag = useRef({ down: false, moved: false, movedAt: 0, x: 0, left: 0 });
   const [edges, setEdges] = useState({ left: false, right: false });
 
   // Which edges still hide chips, so the row can say so and offer a step arrow.
@@ -91,7 +91,13 @@ export function StreamDrawer({
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
     const node = filtersRef.current;
     if (!node) return;
-    drag.current = { down: true, moved: false, x: event.clientX, left: node.scrollLeft };
+    drag.current = {
+      down: true,
+      moved: false,
+      movedAt: drag.current.movedAt,
+      x: event.clientX,
+      left: node.scrollLeft,
+    };
   };
 
   const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -110,10 +116,15 @@ export function StreamDrawer({
 
   const endDrag = () => {
     drag.current.down = false;
+    if (drag.current.moved) {
+      drag.current.moved = false;
+      drag.current.movedAt = performance.now();
+    }
   };
 
   const chooseFilter = (next: string) => {
-    if (drag.current.moved) {
+    // Only the click that ends a pan is swallowed; a later keyboard pick works.
+    if (drag.current.moved || performance.now() - drag.current.movedAt < 350) {
       drag.current.moved = false;
       return;
     }
@@ -243,6 +254,13 @@ export function StreamDrawer({
       if (!items.length) return;
       const first = items[0];
       const last = items[items.length - 1];
+      // A click on plain drawer text sends focus to the body, which would let
+      // the next Tab walk into the page behind the modal.
+      if (!node.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === node)) {
         event.preventDefault();
         last.focus();
@@ -318,7 +336,11 @@ export function StreamDrawer({
               <button
                 type="button"
                 className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
-                onClick={() => targets.forEach((target) => load(target.key))}
+                onClick={() => {
+                  // Retire every in-flight answer so an old one cannot land last.
+                  runId.current += 1;
+                  targets.forEach((target) => load(target.key));
+                }}
                 aria-label="Refresh sources"
                 title="Refresh sources"
               >

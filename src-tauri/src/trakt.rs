@@ -853,11 +853,27 @@ fn merge_playback(
     Ok(applied)
 }
 
+/// What the library or a playhead says a title is, for rows that only carry an id.
+fn local_media_type(conn: &Connection, meta_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT media_type FROM library WHERE id = ?1
+         UNION ALL
+         SELECT media_type FROM progress WHERE meta_id = ?1
+         LIMIT 1",
+        params![meta_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
 /// Local watched rows Trakt does not know about yet, split into the two
 /// `/sync/history` arrays.
 fn pending_history(
     conn: &Connection,
     remote: &HashSet<String>,
+    last_sync: i64,
 ) -> Result<(Vec<Value>, Vec<Value>), String> {
     let mut stmt = conn
         .prepare("SELECT key, meta_id, updated_at FROM watched WHERE watched = 1")
@@ -876,7 +892,9 @@ fn pending_history(
     let mut episodes = Vec::new();
     for row in rows {
         let (key, meta_id, watched_at) = row.map_err(|e| e.to_string())?;
-        if remote.contains(&key) {
+        // Only rows written since the last sync are news to Trakt. Re-sending
+        // an older row would undo an unwatch made on trakt.tv.
+        if remote.contains(&key) || watched_at <= last_sync {
             continue;
         }
         let (_, season, episode) = split_key(&key);
@@ -890,7 +908,16 @@ fn pending_history(
                     episodes.push(episode_entry(&ids, season, episode, watched_at));
                 }
             }
-            _ => movies.push(movie_entry(&ids, watched_at)),
+            _ => {
+                // A show marked watched has no episode to name. Pushing it as a
+                // movie would record the wrong thing on Trakt, so it waits for
+                // a real episode.
+                let series = key == meta_id
+                    && local_media_type(conn, &meta_id).is_some_and(|kind| kind == "series");
+                if !series {
+                    movies.push(movie_entry(&ids, watched_at));
+                }
+            }
         }
     }
     Ok((movies, episodes))
@@ -938,7 +965,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
         let index = library_index(&conn)?;
         let (mut pulled, remote_keys) = merge_watched(&conn, &movies, &shows, &index)?;
         pulled += merge_playback(&conn, &playback, &index)?;
-        let pending = pending_history(&conn, &remote_keys)?;
+        let pending = pending_history(&conn, &remote_keys, store.last_sync)?;
         (pulled, pending)
     };
 

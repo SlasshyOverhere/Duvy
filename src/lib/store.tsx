@@ -72,7 +72,7 @@ interface Store {
   /** Non-null from the click until the source is resolved; the player opens at once. */
   starting: StartingArt | null;
   cancelStart: () => void;
-  navigate: (route: Route) => void;
+  navigate: (route: Route, options?: { replace?: boolean }) => void;
   back: () => void;
   /** Leave the player for the playing title, without stacking a second copy. */
   leavePlayer: () => void;
@@ -179,7 +179,7 @@ const FINISHED_SHARE = 0.9;
 const INFO_HASH = /^(?:[0-9a-fA-F]{40}|[A-Za-z2-7]{32})$/;
 
 /** Controls the watchdog checks for effect; style pushes are not actions. */
-const WATCHED_CONTROLS = new Set(["pause", "seek", "speed", "volume"]);
+const WATCHED_CONTROLS = new Set(["pause", "seek", "seek-rel", "speed", "volume"]);
 
 /** A snapshot in the shape the playback rules read. */
 function toSample(snap: PlayerSnapshot): Sample {
@@ -482,10 +482,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const leavePlayer = useCallback(() => {
     if (routeRef.current.name !== "player") return;
     const session = lastSession.current;
+    const base = playerBase.current;
+    // A sessionless open (a local file) returns to the screen it started from.
     const target: Route = session
       ? { name: "details", id: session.metaId, type: session.type }
-      : { name: "home" };
-    const base = playerBase.current;
+      : base ?? { name: "home" };
     playerBase.current = null;
     const sameScreen =
       base != null &&
@@ -517,6 +518,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     window.history.replaceState({ route: { name: "home" }, depth: 0 }, "");
     const onPop = (event: PopStateEvent) => {
+      // A history move cancels a start still in flight: the user left it.
+      startToken.current += 1;
+      pending.current = null;
       const state = event.state as { route?: Route; depth?: number } | null;
       const saved = state?.route;
       const next: Route = validRoute(saved) ? saved : { name: "home" };
@@ -548,9 +552,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLibrary(await api.library.list());
   }, []);
 
+  const progressReq = useRef(0);
+
   const refreshProgress = useCallback(async () => {
+    // Last request wins: a slower earlier read must not overwrite rows a mark
+    // or a sync just wrote.
+    const token = (progressReq.current += 1);
     try {
       const [rows, marks] = await Promise.all([api.progress.list(), api.watched.list()]);
+      if (token !== progressReq.current) return;
       setProgress(rows);
       setWatched(marks);
       progressFails.current = 0;
@@ -579,6 +589,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ]);
         if (!alive) return;
         if (info.status === "rejected") throw info.reason;
+        // Every screen and every save depends on settings; a silent default
+        // would leave Settings spinning forever and writes failing.
+        if (loadedSettings.status === "rejected") throw loadedSettings.reason;
         setAppInfo(info.value);
         if (loadedSettings.status === "fulfilled") setSettings(loadedSettings.value);
         if (loadedAddons.status === "fulfilled") setAddons(loadedAddons.value);
@@ -764,6 +777,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             clearFrameWatchdog();
             setPlayer(null);
             playerRef.current = null;
+            // The addon stickiness and the copied link belong to the closed
+            // session, not the next title that happens to be opened.
+            setPlayingSource(null);
+            setPlayingUrl(null);
             if (diedEarly) {
               note("closed before first frame", { afterMs, generation });
               report(new Error("Player closed before the first frame"), {
@@ -873,6 +890,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const markWatched = useCallback(
     async (key: string, metaId: string, watched: boolean) => {
       note("mark watched", { key, metaId, watched });
+      // Callers own the failure: they must not report success on a rejected mark.
       await api.progress.setWatched(key, metaId, watched);
       if (watched) {
         const rows = progress.filter((row) => row.metaId === metaId);
@@ -1038,8 +1056,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         startAt: Math.round(request.startAt ?? 0),
         session: request.session?.key ?? null,
       });
+      const token = startToken.current;
       try {
         const snapshot = await api.player.open(request);
+        // Back was pressed while the source was opening: do not steal the
+        // screen (or leave an mpv running) for a start the user cancelled.
+        if (startToken.current !== token) {
+          // Not a failure close: the screen the user went back to owns the UI.
+          stopRequested.current = true;
+          void api.player.stop().catch(() => {});
+          return false;
+        }
+        lastSession.current = request.session ?? null;
         playerGen.current = Math.max(playerGen.current, snapshot.generation ?? 0);
         setPlayer(snapshot);
         setPlayingUrl(request.url);
@@ -1057,7 +1085,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (error) {
         note("open failed", { error: errorMessage(error) });
-        notify(errorMessage(error), "error");
+        // A cancelled start already returned to its screen; its failure is not
+        // something the user should see as a toast.
+        if (startToken.current === token) notify(errorMessage(error), "error");
         return false;
       } finally {
         opening.current = false;
@@ -1216,6 +1246,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!found) throw noSourceError(options, settings?.p2pConsent ?? false);
           url = await resolveStream(found);
           source = found;
+          // Resolving can take a while (torrent metadata); Back meanwhile wins.
+          if (startToken.current !== token) return;
         }
         if (!url || !source) {
           note("hunt resolved nothing", { session: session.key });
@@ -1306,7 +1338,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (startToken.current !== token) return;
           if (details && entry.type === "series" && details.videos.length === 0) {
             setStarting(null);
-            navigate({ name: "details", id: entry.metaId, type: entry.type });
+            // Replace the start screen's entry: Back must not land on it again.
+            navigate({ name: "details", id: entry.metaId, type: entry.type }, { replace: true });
             return;
           }
           const sources = await api.streams({
@@ -1327,6 +1360,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!found) throw noSourceError(sources, settings?.p2pConsent ?? false);
           url = await resolveStream(found);
           source = found;
+          if (startToken.current !== token) return;
         }
         if (!url || !source) {
           note("resume resolved nothing", { session: session.key });

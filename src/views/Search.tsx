@@ -122,12 +122,44 @@ export function SearchView({ query }: { query?: string }) {
     if (ime) return;
     const next = value.trim();
     if (next === activeQuery) return;
-    const timer = window.setTimeout(() => setActiveQuery(next), 250);
+    const timer = window.setTimeout(() => {
+      setActiveQuery(next);
+      // Put the committed query in history so Back returns to these results
+      // instead of a blank search screen.
+      navigate({ name: "search", query: next || undefined }, { replace: true });
+    }, 250);
     return () => window.clearTimeout(timer);
-  }, [value, activeQuery, ime]);
+  }, [value, activeQuery, ime, navigate]);
 
   useEffect(() => {
     input.current?.focus();
+  }, []);
+
+  // Registered before the first search: an addon chunk that lands early must
+  // not be dropped, or the spinner waits for a done event nobody sees.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<{ query: string; items: MetaPreview[]; done?: boolean }>(
+      "search:addons",
+      (event) => {
+        if (event.payload.query !== activeRef.current) return;
+        setResults((prev) => mergeResults(prev, event.payload.items));
+        if (event.payload.done ?? true) setWaiting(false);
+      },
+    )
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No event bridge: the metadata results still land.
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -166,32 +198,6 @@ export function SearchView({ query }: { query?: string }) {
       alive = false;
     };
   }, [activeQuery, attempt]);
-
-  // Addon catalogs finish later and land here.
-  useEffect(() => {
-    if (!isTauri()) return;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen<{ query: string; items: MetaPreview[]; done?: boolean }>(
-      "search:addons",
-      (event) => {
-        if (event.payload.query !== activeRef.current) return;
-        setResults((prev) => mergeResults(prev, event.payload.items));
-        if (event.payload.done ?? true) setWaiting(false);
-      },
-    )
-      .then((stop) => {
-        if (disposed) stop();
-        else unlisten = stop;
-      })
-      .catch(() => {
-        // No event bridge: the metadata results still land.
-      });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
 
   // Recommendations follow the watch history, so they are refetched every visit.
   // Held back while a search is running: the burst is a dozen metadata calls.

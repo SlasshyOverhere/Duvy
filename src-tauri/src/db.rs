@@ -414,8 +414,8 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
            -- One left over from an earlier run must not outrank playback
            -- that happened after it.
            AND key NOT IN (
-             SELECT w.key FROM watched w
-             JOIN progress p ON p.key = w.key
+             SELECT p.key FROM watched w
+             JOIN progress p ON p.key = w.key OR p.meta_id = w.key
              WHERE w.watched = 1 AND w.updated_at > p.updated_at
            )
          ORDER BY updated_at DESC
@@ -590,8 +590,20 @@ pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -
         // Watched also counts progress finished at FINISHED_AT, so the playhead
         // has to go with the mark or the title stays in Watched.
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
-        tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+        // A mark on the title itself covers every episode of it. Finished
+        // playheads go with it; an unfinished one still belongs in Continue
+        // Watching, so unwatching does not lose where the viewer was.
+        if key == meta_id {
+            tx.execute("DELETE FROM watched WHERE meta_id = ?1", params![meta_id])?;
+            tx.execute(
+                "DELETE FROM progress
+                  WHERE meta_id = ?1 AND duration > 0 AND position >= duration * ?2",
+                params![meta_id, FINISHED_AT],
+            )?;
+        } else {
+            tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
+            tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+        }
         tx.commit()?;
     }
     Ok(())

@@ -1422,13 +1422,16 @@ pub async fn player_open(
     if let Ok(dir) = app.path().app_data_dir() {
         crate::playback_log::init(&dir);
     }
-    // Only the host is logged: stream URLs carry tokens in their path.
-    let source = request
-        .url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .unwrap_or("local file");
+    // Only the host is logged: stream URLs carry tokens in their path, and a
+    // hand-written URL may carry credentials in its userinfo.
+    let source = url::Url::parse(&request.url)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .host_str()
+                .map(|host| parsed.port().map_or_else(|| host.to_string(), |port| format!("{host}:{port}")))
+        })
+        .unwrap_or_else(|| "local file".to_string());
     crate::playback_log::begin(format!(
         "play requested: {} [{source}]",
         request.title.chars().take(64).collect::<String>()
@@ -1466,7 +1469,15 @@ pub async fn player_open(
     // Frames cached for the previous source are meaningless now.
     crate::frame::clear();
     let snapshot = player.snapshot();
-    *state.player.lock().map_err(|_| "player is busy")? = Some(player);
+    // Two opens racing: the loser's process must not survive the swap.
+    if let Some(mut displaced) = state
+        .player
+        .lock()
+        .map_err(|_| "player is busy")?
+        .replace(player)
+    {
+        displaced.kill();
+    }
     Ok(snapshot)
 }
 
@@ -1556,7 +1567,15 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
         // the only chance the UI gets to drop the snapshot and re-read progress.
         let _ = app.emit("player:closed", generation);
     }
-    let _ = crate::torrent::shutdown().await;
+    // Only tear the engine down if no new player claimed the slot while this
+    // one was being killed; otherwise the new stream's own engine dies.
+    let still_closed = {
+        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        guard.is_none()
+    };
+    if still_closed {
+        let _ = crate::torrent::shutdown().await;
+    }
     Ok(())
 }
 
@@ -1593,6 +1612,8 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
     // needs it off too, so it only comes back with neither.
     set_window_shadow(&app, !on && !crate::player_is_live(&app));
     if !crate::set_fullscreen(host, on) {
+        // The shadow was turned off for a fullscreen that never happened.
+        set_window_shadow(&app, !crate::player_is_live(&app));
         return Err("The window could not go fullscreen".into());
     }
     // The style swap moves the outer window but not the child web layer, so the

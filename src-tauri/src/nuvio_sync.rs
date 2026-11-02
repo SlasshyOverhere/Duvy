@@ -471,13 +471,16 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
         .await
         .map_err(|e| format!("Could not load profile {target}: {e}"))?;
 
-    session.profile = target;
-    session.last_sync = db::now();
     {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        // Reload under the lock: a sign-out during the network round trip must
+        // not be overwritten by the session snapshot taken before it.
+        let mut fresh = load_session(&conn);
+        fresh.profile = target;
+        fresh.last_sync = db::now();
         db::clear_history(&conn).map_err(|e| e.to_string())?;
         merge_pulled(&conn, &pulled)?;
-        save_session(&conn, &session)?;
+        save_session(&conn, &fresh)?;
     }
     merge_addons(state, &pulled.addons).await?;
     enrich(state).await
@@ -547,6 +550,17 @@ fn local_key(content_id: &str, season: i64, episode: i64) -> String {
     } else {
         content_id.to_string()
     }
+}
+
+/// Read `season`/`episode` back out of a `meta:season:episode` key.
+fn key_episode(key: &str) -> (Option<i64>, Option<i64>) {
+    let mut parts = key.rsplitn(3, ':');
+    let episode = parts.next().and_then(|s| s.parse::<i64>().ok());
+    let season = parts.next().and_then(|s| s.parse::<i64>().ok());
+    if parts.next().is_none() {
+        return (None, None);
+    }
+    (season.filter(|s| *s > 0), episode.filter(|e| *e > 0))
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
@@ -1060,7 +1074,8 @@ fn local_progress(conn: &Connection) -> Result<Vec<Value>, String> {
 fn local_watched(conn: &Connection) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT w.key, w.meta_id, w.updated_at, p.season, p.episode, p.media_type,
+            "SELECT w.key, w.meta_id, w.updated_at, p.season, p.episode,
+                    COALESCE(p.media_type, l.media_type),
                     COALESCE(p.name, l.name, w.meta_id)
              FROM watched w
              LEFT JOIN progress p ON p.key = w.key
@@ -1071,8 +1086,12 @@ fn local_watched(conn: &Connection) -> Result<Vec<Value>, String> {
     let rows = stmt
         .query_map([], |row| {
             let key: String = row.get(0)?;
-            let season: Option<i64> = row.get(3)?;
-            let episode: Option<i64> = row.get(4)?;
+            // A mark without a progress row (watched on another device) still
+            // names its episode in the key; without this it re-syncs as a
+            // whole-show mark and collapses every episode into one.
+            let (key_season, key_episode) = key_episode(&key);
+            let season: Option<i64> = row.get::<_, Option<i64>>(3)?.or(key_season);
+            let episode: Option<i64> = row.get::<_, Option<i64>>(4)?.or(key_episode);
             let media_type: Option<String> = row.get(5)?;
             Ok(json!({
                 "content_id": row.get::<_, String>(1)?,

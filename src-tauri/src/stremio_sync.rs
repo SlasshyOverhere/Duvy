@@ -531,11 +531,7 @@ async fn push_addons(
     let mut descriptors = Vec::new();
     for addon in addons {
         let url = crate::addons::normalize_addon_url(&addon.url);
-        if url.is_empty()
-            || !addon.enabled
-            || !seen.insert(url.clone())
-            || !addon.manifest.is_object()
-        {
+        if url.is_empty() || !seen.insert(url.clone()) || !addon.manifest.is_object() {
             continue;
         }
         let mut descriptor = by_url.remove(&url).unwrap_or_else(|| {
@@ -556,9 +552,21 @@ async fn push_addons(
             if let Some(flags) = flags.as_object_mut() {
                 flags.entry("official").or_insert(json!(false));
                 flags.entry("protected").or_insert(json!(false));
+                // The local switch is the truth for an addon we hold.
+                flags.insert("disabled".into(), json!(!addon.enabled));
             }
         }
         descriptors.push(descriptor);
+    }
+    // Addons that only exist remotely (disabled here, or added on another
+    // device) stay on the account, in their existing order, instead of being
+    // erased by the PUT.
+    for row in remote {
+        if let Some(url) = descriptor_url(row) {
+            if let Some(descriptor) = by_url.remove(&url) {
+                descriptors.push(descriptor);
+            }
+        }
     }
 
     if descriptors.is_empty() {
@@ -721,9 +729,19 @@ fn library_record(
         if let Some(state) = state.as_object_mut() {
             let offset = (progress.position * 1000.0) as i64;
             let duration = (progress.duration * 1000.0) as i64;
+            // The remote count is the history: never replace it with this
+            // playhead, and only count a finish the remote has not seen yet.
+            let ms = |key: &str| {
+                state
+                    .get(key)
+                    .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+                    .unwrap_or(0)
+            };
+            let already = ms("timeOffset");
+            let watched = ms("timeWatched");
             state.insert("timeOffset".into(), json!(offset));
             state.insert("duration".into(), json!(duration));
-            state.insert("timeWatched".into(), json!(offset));
+            state.insert("timeWatched".into(), json!(watched.max(offset)));
             state.insert("lastWatched".into(), Value::String(updated));
             if progress.key.starts_with(&format!("{}:", progress.meta_id)) {
                 state.insert("video_id".into(), Value::String(progress.key.clone()));
@@ -733,7 +751,11 @@ fn library_record(
                     .get("timesWatched")
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
-                state.insert("timesWatched".into(), json!(times + 1));
+                // Every sync pushes the same finished position; only the pass
+                // that first sees it finished may add a view.
+                if already * 10 < duration * 9 {
+                    state.insert("timesWatched".into(), json!(times + 1));
+                }
                 if progress.media_type == "movie" {
                     state.insert("flaggedWatched".into(), json!(1));
                 }

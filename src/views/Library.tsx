@@ -41,7 +41,10 @@ export function LibraryView() {
   const confirmRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const openerRef = useRef<HTMLButtonElement | null>(null);
+  // The confirm block replaces the opening button, so the live node is looked
+  // up by id instead of holding a reference to the one that unmounted.
+  const openerRef = useRef<string | null>(null);
+  const removeRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const counts: Record<Filter, number> = {
     all: library.length,
@@ -61,8 +64,13 @@ export function LibraryView() {
   // Focus the confirmation so keyboard users land on the decision they opened,
   // then hand focus back to the control that opened it on cancel.
   useEffect(() => {
-    if (confirming) confirmRef.current?.focus();
-    else openerRef.current?.focus();
+    if (confirming) {
+      confirmRef.current?.focus();
+      return;
+    }
+    if (!openerRef.current) return;
+    removeRefs.current.get(openerRef.current)?.focus();
+    openerRef.current = null;
   }, [confirming]);
 
   const summary =
@@ -212,8 +220,12 @@ export function LibraryView() {
                     type="button"
                     className="library-remove"
                     aria-label={`Remove ${item.name} from your library`}
-                    onClick={(event) => {
-                      openerRef.current = event.currentTarget;
+                    ref={(node) => {
+                      if (node) removeRefs.current.set(item.id, node);
+                      else removeRefs.current.delete(item.id);
+                    }}
+                    onClick={() => {
+                      openerRef.current = item.id;
                       setConfirming(item.id);
                     }}
                   >
