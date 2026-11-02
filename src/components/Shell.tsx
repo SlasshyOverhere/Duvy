@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { motion } from "motion/react";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import { WindowControls } from "./TitleBar";
 import { Icon, IconButton, type IconName } from "./ui";
@@ -86,12 +85,7 @@ export function TopBar() {
               title={item.label}
             >
               {active ? (
-                <motion.span
-                  layout
-                  layoutId="dock-pill"
-                  className="dock-pill"
-                  transition={{ type: "tween", duration: 0.2, ease: [0.22, 0.68, 0.32, 1] }}
-                />
+                <span className="dock-pill" aria-hidden="true" />
               ) : null}
               <Icon name={item.icon} size={19} />
               <span className="dock-label">{item.label}</span>
