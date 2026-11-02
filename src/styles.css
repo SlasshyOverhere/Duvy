@@ -1126,9 +1126,6 @@ button.pill:hover {
   background: var(--glass-wash), var(--surface-2);
   cursor: pointer;
   isolation: isolate;
-  outline: 2px solid transparent;
-  outline-offset: 3px;
-  transition: outline-color 0.16s var(--ease);
 }
 
 /* The rim has to sit above the artwork, so it is drawn, not a border. */
@@ -1162,9 +1159,12 @@ button.pill:hover {
 }
 
 /* Hover is tonal: the artwork brightens and the play mark arrives. The accent
-   ring belongs to keyboard focus only. */
-.poster-frame:focus-within {
-  outline-color: var(--accent);
+   ring belongs to keyboard focus only; it is drawn on the rim because an
+   outline outside the frame is clipped by the card's paint containment. */
+.poster-frame:focus-within::after {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 1px 0 var(--glass-edge-soft);
 }
 
 .poster-frame img {
