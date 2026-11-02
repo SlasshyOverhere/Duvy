@@ -224,6 +224,15 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
     (audio, subs, active_audio, active_sub)
 }
 
+/// Rebuild the track list and the selected ids from mpv's current state.
+fn refresh_tracks(mpv: &Mpv, snap: &mut Snapshot) {
+    let (audio, subs, active_audio, active_sub) = parse_tracks(&read_tracks(mpv));
+    snap.audio_tracks = audio;
+    snap.sub_tracks = subs;
+    snap.active_audio = active_audio;
+    snap.active_sub = active_sub;
+}
+
 /// mpv reports tracks as `eng`, `en`, `English` or `und`; all become a name.
 fn language_name(code: &str) -> Option<&'static str> {
     let raw = code.trim().to_lowercase();
@@ -642,6 +651,9 @@ impl Player {
             (9, "media-title", Format::String),
             (10, "demuxer-cache-time", Format::Double),
             (11, "chapter-list/count", Format::Int64),
+            // A track switch keeps the count, so it needs its own signal.
+            (12, "aid", Format::String),
+            (13, "sid", Format::String),
         ] {
             if let Err(error) = events.observe_property(name, format, id) {
                 crate::playback_log::mark(format!("playback failed: {error}"));
@@ -972,13 +984,10 @@ fn spawn_events(
                                 snap.paused = true;
                             }
                         }
-                        "track-list/count" => {
-                            let (audio, subs, active_audio, active_sub) =
-                                parse_tracks(&read_tracks(&mpv));
-                            snap.audio_tracks = audio;
-                            snap.sub_tracks = subs;
-                            snap.active_audio = active_audio;
-                            snap.active_sub = active_sub;
+                        // mpv reports a switch as an aid/sid change, not as a
+                        // new track list, so re-read it or the UI never moves.
+                        "track-list/count" | "aid" | "sid" => {
+                            refresh_tracks(&mpv, &mut snap);
                         }
                         "chapter-list/count" => snap.chapters = parse_chapters(&read_chapters(&mpv)),
                         _ => {}
