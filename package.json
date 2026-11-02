@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-libmpv.ps1 && tauri dev --config src-tauri/tauri.dev.conf.json",
     "check": "tsc --noEmit",
     "test": "bun scripts/player.check.ts && bun scripts/regression.check.ts && bun scripts/telemetry.check.ts"
   },
