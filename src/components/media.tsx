@@ -32,7 +32,8 @@ const OPEN_LAYER: CSSProperties = {
   padding: 0,
   border: 0,
   background: "transparent",
-  outlineOffset: -2,
+  // The frame draws the focus ring; a second square one inside it reads wrong.
+  outline: "none",
 };
 
 /** Keyboard path for the right-click menu: ContextMenu key or Shift+F10. */

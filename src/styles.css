@@ -504,13 +504,37 @@ select {
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge-soft);
+  /* Transform-only: the pill used to be measured every frame while the bar
+     resized, which is what made the labels feel like they dragged. */
+  animation: dock-pill-in 0.16s var(--ease);
 }
 
-/* Labels are part of the bar: a bar that resizes under the cursor is the
-   glitch, so nothing about the dock changes on hover. */
+@keyframes dock-pill-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.82);
+  }
+}
+
+/* Names appear when the dock is reached, so the bar stays icon-sized. */
 .dock-label {
   display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition:
+    max-width 0.14s var(--ease),
+    margin-left 0.14s var(--ease),
+    opacity 0.1s linear;
+}
+
+.dock:hover .dock-label,
+.dock:focus-within .dock-label {
+  max-width: 90px;
   margin-left: 8px;
+  opacity: 1;
 }
 
 .topbar-left {
@@ -1126,9 +1150,6 @@ button.pill:hover {
   background: var(--glass-wash), var(--surface-2);
   cursor: pointer;
   isolation: isolate;
-  outline: 2px solid transparent;
-  outline-offset: 3px;
-  transition: outline-color 0.16s var(--ease);
 }
 
 /* The rim has to sit above the artwork, so it is drawn, not a border. */
@@ -1162,9 +1183,12 @@ button.pill:hover {
 }
 
 /* Hover is tonal: the artwork brightens and the play mark arrives. The accent
-   ring belongs to keyboard focus only. */
-.poster-frame:focus-within {
-  outline-color: var(--accent);
+   ring belongs to keyboard focus only; it is drawn on the rim because an
+   outline outside the frame is clipped by the card's paint containment. */
+.poster-frame:focus-within::after {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 1px 0 var(--glass-edge-soft);
 }
 
 .poster-frame img {
@@ -5478,6 +5502,11 @@ input[type="range"]::-webkit-slider-thumb {
     var(--glass-shadow);
 }
 
+/* The menu holds focus itself so no row reads as picked before an arrow key. */
+.ctx:focus-visible {
+  outline: none;
+}
+
 @keyframes ctx-in {
   from {
     opacity: 0;
@@ -5514,8 +5543,6 @@ input[type="range"]::-webkit-slider-thumb {
 .ctx-item:focus-visible {
   background: rgba(255, 255, 255, 0.07);
   color: var(--text);
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 
 .ctx-item:disabled {

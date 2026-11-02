@@ -453,9 +453,9 @@ export function ContextMenu({
       top: Math.max(8, Math.min(y, window.innerHeight - box.height - 8)),
     });
     // preventScroll: focusing must not fire the scroll listener that closes the menu.
-    node
-      .querySelector<HTMLButtonElement>(".ctx-item:not(:disabled)")
-      ?.focus({ preventScroll: true });
+    // The menu itself takes focus: focusing the first row would paint it as
+    // picked before the user has chosen anything.
+    node.focus({ preventScroll: true });
   }, [x, y]);
 
   useEffect(
@@ -492,6 +492,7 @@ export function ContextMenu({
       role="menu"
       aria-label={title}
       className="ctx"
+      tabIndex={-1}
       style={{ left: at.left, top: at.top }}
       onContextMenu={(event) => event.preventDefault()}
       // Portals bubble through the React tree, so a click here would also hit
@@ -510,7 +511,11 @@ export function ContextMenu({
         if (!items.length) return;
         const index = items.indexOf(document.activeElement as HTMLButtonElement);
         const step = event.key === "ArrowDown" ? 1 : -1;
-        items[(index + step + items.length) % items.length]?.focus();
+        // Nothing is focused when the menu opens, so down starts at the top and
+        // up starts at the bottom.
+        const next =
+          index < 0 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
+        items[next]?.focus();
       }}
     >
       <p className="ctx-title">{title}</p>
