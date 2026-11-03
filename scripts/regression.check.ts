@@ -253,6 +253,23 @@ run("continue watching compares exact episode keys", () => {
   return out;
 });
 
+run("continue watching advances a finished episode", () => {
+  const out: string[] = [];
+  const home = read("src/views/Home.tsx");
+  // A finished episode must resolve its next one, not vanish from the row.
+  if (!/nextUpCache/.test(home) || !/queue\[at \+ 1\]/.test(home)) {
+    out.push("Home.tsx drops a finished episode instead of resolving the next one");
+  }
+  if (!/next=\{next\}/.test(home)) {
+    out.push("Home.tsx never marks a resolved next episode as next up");
+  }
+  const card = read("src/components/media.tsx");
+  if (!/Next up/.test(card) || !/next \? null :/.test(card)) {
+    out.push("ContinueCard still shows a remaining-time bar on a next-up card");
+  }
+  return out;
+});
+
 run("auto-advance keeps the playing addon", () => {
   const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
   if (!pick) return ["store.tsx: pickSource() not found"];

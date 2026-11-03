@@ -11,6 +11,17 @@ const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
 let feedSig = "";
 
+/** Next episode after a finished one, or null when the show is over. */
+const nextUpCache = new Map<string, ProgressItem | null>();
+
+function cachedNextUp(): Map<string, ProgressItem> {
+  const map = new Map<string, ProgressItem>();
+  for (const [key, entry] of nextUpCache) {
+    if (entry) map.set(key, entry);
+  }
+  return map;
+}
+
 // Six of the row's top twenty, drawn per feed, so a launch does not open on the
 // same poster three days running. The row itself still starts at number one.
 function pickFeatured(items: MetaPreview[]): MetaPreview[] {
@@ -83,6 +94,7 @@ export function HomeView() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [slide, setSlide] = useState(0);
+  const [nextUp, setNextUp] = useState<Map<string, ProgressItem>>(cachedNextUp);
 
   useEffect(() => {
     if (attempt === 0 && fresh) {
@@ -133,24 +145,98 @@ export function HomeView() {
     if (slide >= featured.length) setSlide(0);
   }, [featured.length, slide]);
 
-  // Continue watching off live store state, so a mark or a clear lands without
-  // reloading the whole feed.
-  const continuing = useMemo(() => {
+  // The newest row per title decides what the card shows. A finished episode
+  // is kept until its next one is resolved, so the show never drops off the row.
+  const latestRows = useMemo(() => {
     const seen = new Set<string>();
-    const marked = new Set(watched.map((mark) => mark.key));
     const rows: ProgressItem[] = [];
     for (const row of progress) {
-      // The newest row picks the title before the filters run. Skipping it and
-      // taking the next episode is how the card used to move backwards.
       if (seen.has(row.metaId)) continue;
       seen.add(row.metaId);
       if (row.duration <= 0 || row.position <= 5) continue;
-      if (progressPercent(row.position, row.duration) >= 90) continue;
-      if (marked.has(row.key)) continue;
       rows.push(row);
     }
+    return rows;
+  }, [progress]);
+
+  // Continue watching off live store state, so a mark or a clear lands without
+  // reloading the whole feed.
+  const continuing = useMemo(() => {
+    const marked = new Set(watched.map((mark) => mark.key));
+    const rows: { entry: ProgressItem; next: boolean }[] = [];
+    for (const row of latestRows) {
+      const finished =
+        marked.has(row.key) || progressPercent(row.position, row.duration) >= 90;
+      if (!finished) {
+        rows.push({ entry: row, next: false });
+        continue;
+      }
+      if (row.type !== "series") continue;
+      const next = nextUp.get(row.key);
+      if (next) rows.push({ entry: next, next: true });
+    }
     return rows.slice(0, 30);
-  }, [progress, watched]);
+  }, [latestRows, watched, nextUp]);
+
+  // A finished episode needs the next one from the catalog; it is not in the
+  // progress row. Cache per episode so a refresh never refetches a known title.
+  useEffect(() => {
+    const finishedKeys = new Set(watched.map((mark) => mark.key));
+    const pending = latestRows.filter(
+      (row) =>
+        row.type === "series" &&
+        (finishedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90) &&
+        !nextUpCache.has(row.key),
+    );
+    if (pending.length === 0) {
+      setNextUp(cachedNextUp());
+      return;
+    }
+    let alive = true;
+    void Promise.allSettled(
+      pending.map(async (row) => {
+        const details = await api.details(row.metaId, row.type);
+        const queue = [...details.videos].sort(
+          (a, b) =>
+            (a.season ?? 0) - (b.season ?? 0) ||
+            (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
+        );
+        const at = queue.findIndex(
+          (video) =>
+            video.season === row.season &&
+            (video.episode ?? video.number) === row.episode,
+        );
+        const video = at >= 0 ? queue[at + 1] : undefined;
+        const season = video?.season ?? null;
+        const episode = video ? (video.episode ?? video.number ?? null) : null;
+        nextUpCache.set(
+          row.key,
+          video && season != null && episode != null
+            ? {
+                key: `${row.metaId}:${season}:${episode}`,
+                metaId: row.metaId,
+                type: row.type,
+                name: row.name,
+                poster: row.poster,
+                background: video.thumbnail ?? row.background ?? row.poster,
+                season,
+                episode,
+                episodeTitle: video.title ?? null,
+                position: 0,
+                duration: 0,
+                updatedAt: row.updatedAt,
+              }
+            : null,
+        );
+      }),
+    ).then(() => {
+      if (!alive) return;
+      setNextUp(cachedNextUp());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [latestRows, watched]);
 
   // One map for the card progress bars, so a row of cards costs no scans.
   const resumeProgress = useMemo(() => {
@@ -220,10 +306,11 @@ export function HomeView() {
             title="Continue watching"
             detail={<span className="row-detail">Pick up where you left off</span>}
           >
-            {continuing.map((entry) => (
+            {continuing.map(({ entry, next }) => (
               <ContinueCard
                 key={entry.key}
                 entry={entry}
+                next={next}
                 name={entry.name}
                 poster={entry.poster}
                 background={entry.background}
