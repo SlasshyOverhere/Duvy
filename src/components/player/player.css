@@ -1749,6 +1749,36 @@
   flex: 1 1 auto;
 }
 
+/* ---- skip intro / outro -------------------------------------------------- */
+
+.pv .pv-skip {
+  position: absolute;
+  left: 2rem;
+  bottom: 132px;
+  z-index: 4;
+  height: 2.6rem;
+  padding: 0 1.2rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pv-wash), var(--pv-panel);
+  box-shadow:
+    inset 0 1px 0 var(--pv-spec),
+    inset 0 0 0 1px var(--pv-edge),
+    var(--pv-shadow);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.pv .pv-skip:hover {
+  background: var(--pv-control-hover), var(--pv-panel);
+}
+
+.pv--panel .pv-skip {
+  display: none;
+}
+
 /* ---- narrow window: fold the action row into a popup -------------------- */
 
 @media (max-width: 1000px) {
@@ -1794,6 +1824,11 @@
     right: 12px;
     bottom: 116px;
     width: calc(100vw - 24px);
+  }
+
+  .pv .pv-skip {
+    left: 12px;
+    bottom: 116px;
   }
 }
 

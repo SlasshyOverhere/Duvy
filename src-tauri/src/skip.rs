@@ -45,11 +45,7 @@ fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
 }
 
 /// The segment to skip and the timestamp to seek to.
-///
-/// The intro fires from half a second before its start until two seconds
-/// before its end, and lands on that end. The padding keeps a seek from landing
-/// back on the marker. The outro is never skipped: dragging into the credits
-/// would throw the viewer at the end of the file.
+/// The player only offers a skip button; nothing here moves the playhead.
 pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String, f64)> {
     if !duration.is_finite() || duration <= 0.0 || !position.is_finite() {
         return None;
@@ -57,13 +53,18 @@ pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String,
 
     if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end) {
         let end = end.min(duration);
-        // A stale marker near the end of the file would skip to the credits.
         if end < duration - 2.0
             && end - start > 2.0
             && position >= start - 0.5
-            && position <= end - 2.0
+            && position < end
         {
             return Some(("intro".to_string(), end));
+        }
+    }
+
+    if let Some(start) = entry.outro_start {
+        if start > 0.0 && start < duration - 2.0 && position >= start - 0.5 {
+            return Some(("outro".to_string(), duration - 1.0));
         }
     }
 
@@ -194,26 +195,31 @@ mod tests {
     }
 
     #[test]
-    fn intro_fires_on_open_and_lands_on_its_end() {
+    fn intro_offers_its_end_while_inside_the_window() {
         assert_eq!(
             apply(&entry((10.0, 70.0), None), 10.4, 1440.0),
+            Some(("intro".to_string(), 70.0))
+        );
+        assert_eq!(
+            apply(&entry((10.0, 70.0), None), 69.9, 1440.0),
             Some(("intro".to_string(), 70.0))
         );
     }
 
     #[test]
-    fn intro_stops_firing_once_the_window_closes() {
+    fn intro_stops_offering_once_the_window_closes() {
         let skip = entry((10.0, 70.0), None);
         assert_eq!(apply(&skip, 9.0, 1440.0), None);
-        assert_eq!(apply(&skip, 68.1, 1440.0), None);
+        assert_eq!(apply(&skip, 70.0, 1440.0), None);
     }
 
     #[test]
-    fn the_outro_never_skips_on_its_own() {
-        // Credits are part of the episode: seeking into them must not end it.
+    fn the_outro_offers_the_end_of_the_file() {
         let skip = entry((10.0, 70.0), Some(1350.0));
-        assert_eq!(apply(&skip, 1350.0, 1440.0), None);
-        assert_eq!(apply(&skip, 1400.0, 1440.0), None);
+        assert_eq!(
+            apply(&skip, 1350.0, 1440.0),
+            Some(("outro".to_string(), 1439.0))
+        );
     }
 
     #[test]
