@@ -1164,9 +1164,6 @@ export function PlayerView() {
   // One engine write per frame, however fast the slider is dragged.
   const volFrame = useRef(0);
   const wheelAt = useRef(0);
-  // A segment jumps once per playback session, even if the tick lands inside
-  // the window again.
-  const fired = useRef<{ intro: boolean; outro: boolean }>({ intro: false, outro: false });
   // Trakt scrobble bookkeeping: the last action sent for which key, when, and
   // how far in, so repeated states and idle ticks are not sent twice.
   const traktRef = useRef<{ key: string | null; action: string; at: number; pct: number }>({
@@ -1373,6 +1370,8 @@ export function PlayerView() {
       !dropped &&
       (local?.ended || (nextAt != null && position >= nextAt)),
   );
+  // Offered while the playhead sits inside a marker; never applied on its own.
+  const skipSegment = findSkip(markers, position, duration);
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -1472,27 +1471,19 @@ export function PlayerView() {
   }, [paused, send]);
 
   const seekTo = useCallback(
-    (target: number, user = true) => {
-      // A user going back before the intro re-arms the skip for it; the
-      // auto-skip path must not.
-      if (user && markers?.introStart != null && target < markers.introStart) {
-        fired.current = { intro: false, outro: false };
-      }
+    (target: number) => {
       // The last second reads as the end of the file, so it is not a target.
       const upper = duration > 0 ? Math.max(0, duration - 1) : Number.POSITIVE_INFINITY;
       send("seek", Math.min(upper, Math.max(0, target)));
     },
-    [duration, markers, send],
+    [duration, send],
   );
 
   const seekRel = useCallback(
     (delta: number) => {
-      if (markers?.introStart != null && posRef.current + delta < markers.introStart) {
-        fired.current = { intro: false, outro: false };
-      }
       send("seek-rel", delta);
     },
-    [markers, send],
+    [send],
   );
 
   // Every seek-bar move stamps the hold, so a release gets a fresh window.
@@ -1937,7 +1928,6 @@ export function PlayerView() {
   // community timestamps, so most shows skip without any setup.
   const imdbId = details?.imdbId ?? null;
   useEffect(() => {
-    fired.current = { intro: false, outro: false };
     setMarkers(null);
     setMarkMsg(null);
     const key = session?.key;
@@ -2036,16 +2026,6 @@ export function PlayerView() {
       if (last.key && last.action !== "stop") pushScrobble(last.key, "stop");
     };
   }, [traktOn, traktKey, pushScrobble]);
-
-  // Markers move the playhead through the same path the skip buttons use. The
-  // check is local, so it costs nothing per tick.
-  useEffect(() => {
-    if (!markers || loading || scrub != null) return;
-    const segment = findSkip(markers, position, duration);
-    if (!segment || fired.current[segment.kind]) return;
-    fired.current[segment.kind] = true;
-    seekTo(segment.at, false);
-  }, [markers, position, duration, loading, scrub, seekTo]);
 
   // The thumb stays where it was dropped until the seek echo catches up; a
   // refused seek expires on the next tick after the hold window.
@@ -3046,6 +3026,16 @@ export function PlayerView() {
             </div>
           </div>
         </section>
+      ) : null}
+
+      {skipSegment && !failed && !locked ? (
+        <button
+          type="button"
+          className="pv-skip"
+          onClick={() => seekTo(skipSegment.at)}
+        >
+          {skipSegment.kind === "intro" ? "Skip intro" : "Skip outro"}
+        </button>
       ) : null}
 
       {local.ended && !nextEpisode && !failed && !dropped ? (

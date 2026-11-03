@@ -166,15 +166,17 @@ run("a dropped stream is retried, not declared over", () => {
   return out;
 });
 
-run("the outro is never skipped automatically", () => {
+run("skip markers only offer a button", () => {
   const out: string[] = [];
   const front = read("src/components/player/skip.ts");
-  const back = read("src-tauri/src/skip.rs");
-  if (/kind:\s*"outro"/.test(front)) {
-    out.push("skip.ts still returns an outro segment, so seeking into the credits ends the episode");
+  if (!/kind:\s*"intro"\s*\|\s*"outro"/.test(front)) {
+    out.push("skip.ts does not offer both intro and outro segments");
   }
-  if (/"outro"\.to_string\(\)/.test(back)) {
-    out.push("skip.rs still seeks to the end of the file on the outro marker");
+  if (/fired\.current\[segment\.kind\]/.test(playerView)) {
+    out.push("Player.tsx still moves the playhead automatically");
+  }
+  if (!/pv-skip/.test(playerView)) {
+    out.push("Player.tsx has no skip button");
   }
   return out;
 });
