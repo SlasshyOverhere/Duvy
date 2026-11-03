@@ -321,6 +321,7 @@ export function ContinueCard({
   subtitle,
   position,
   duration,
+  next = false,
   onOpen,
 }: {
   entry: ProgressItem;
@@ -330,6 +331,7 @@ export function ContinueCard({
   subtitle?: string;
   position: number;
   duration: number;
+  next?: boolean;
   onOpen: () => void;
 }) {
   const [failed, setFailed] = useState(false);
@@ -351,7 +353,7 @@ export function ContinueCard({
   };
 
   const actions: ContextAction[] = [
-    { label: "Resume", icon: "play", onSelect: onOpen },
+    { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onOpen },
     {
       label: "Start from beginning",
       icon: "replay10",
@@ -411,15 +413,19 @@ export function ContinueCard({
         <span className="continue-name">{name}</span>
         {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
       </span>
-      {Number.isFinite(left) && left > 0 ? (
+      {next ? (
+        <span className="continue-left">Next up</span>
+      ) : Number.isFinite(left) && left > 0 ? (
         <span className="continue-left">{remainingLabel(left)}</span>
       ) : null}
       <span className="continue-play">
         <Icon name="play" size={16} />
       </span>
-      <span className="continue-progress">
-        <span style={{ width: `${Math.max(2, percent)}%` }} />
-      </span>
+      {next ? null : (
+        <span className="continue-progress">
+          <span style={{ width: `${Math.max(2, percent)}%` }} />
+        </span>
+      )}
       {menu ? (
         <ContextMenu
           x={menu.x}
