@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Badge, Button, Icon, Loading } from "../../components/ui";
+import { errorMessage } from "../../lib/format";
 import { useApp } from "../../lib/store";
 
 type Server = {
@@ -24,10 +25,6 @@ type ServerItem = {
 };
 
 type Kind = "jellyfin" | "emby";
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function kindLabel(kind: string) {
   return kind === "emby" ? "Emby" : "Jellyfin";
@@ -135,7 +132,7 @@ export function MediaServers() {
       setServers(await invoke<Server[]>("srv_list"));
       setError(null);
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -167,7 +164,7 @@ export function MediaServers() {
       if (token !== request.current) return;
       setItems(next);
     } catch (e) {
-      if (token === request.current) setBrowseError(message(e));
+      if (token === request.current) setBrowseError(errorMessage(e));
     } finally {
       if (token === request.current) setBrowsing(false);
     }
@@ -183,7 +180,7 @@ export function MediaServers() {
       setPassword("");
       closeBrowse();
     } catch (e) {
-      setAddError(message(e));
+      setAddError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -197,7 +194,7 @@ export function MediaServers() {
       setServers(await invoke<Server[]>("srv_remove", { id }));
       if (browseId === id) closeBrowse();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -237,7 +234,7 @@ export function MediaServers() {
       // The store owns the player screen and its one-at-a-time guard.
       await playRequest({ url: streamUrl, title: playTitle(item) });
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setPlaying(null);
     }
