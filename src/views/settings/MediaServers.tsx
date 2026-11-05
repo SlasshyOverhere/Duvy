@@ -18,7 +18,6 @@ type ServerItem = {
   kind: string;
   year: number | null;
   image: string;
-  seriesId?: string | null;
   seriesName?: string | null;
   season?: number | null;
   episode?: number | null;
