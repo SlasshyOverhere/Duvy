@@ -751,24 +751,17 @@ fn upsert_watched(
     } else {
         db::now()
     };
-    let local: Option<i64> = conn
-        .query_row(
-            "SELECT updated_at FROM watched WHERE key = ?1",
-            params![key],
-            |r| r.get(0),
+    // The upsert itself refuses an older remote write, so one statement does
+    // the compare and the write.
+    let changed = conn
+        .execute(
+            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
+             ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
+             WHERE excluded.updated_at >= watched.updated_at",
+            params![key, meta_id, watched_at],
         )
-        .optional()
         .map_err(|e| e.to_string())?;
-    if !should_apply(local, watched_at) {
-        return Ok(false);
-    }
-    conn.execute(
-        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
-        params![key, meta_id, watched_at],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(true)
+    Ok(changed > 0)
 }
 
 fn merge_watched(
