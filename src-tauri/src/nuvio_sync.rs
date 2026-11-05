@@ -887,22 +887,24 @@ async fn enrich(state: &AppState) -> Result<(), String> {
         return Ok(());
     }
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for (meta_id, name, poster, background) in filled {
         let _ = db::set_progress_meta(
-            &conn,
+            &tx,
             &meta_id,
             &name,
             poster.as_deref(),
             background.as_deref(),
         );
         let _ = db::set_library_meta(
-            &conn,
+            &tx,
             &meta_id,
             &name,
             poster.as_deref(),
             background.as_deref(),
         );
     }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
