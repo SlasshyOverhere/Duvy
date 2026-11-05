@@ -109,27 +109,6 @@ pub fn status(state: State<'_, AppState>) -> Result<TraktStatus, String> {
     Ok(status_of(&load(&state)?))
 }
 
-/// Saves the API app credentials without starting the device flow.
-///
-/// Registration lives in `lib.rs` (owned elsewhere); `begin` also accepts the
-/// pair so the UI works without this command being wired up yet.
-#[allow(dead_code)]
-#[tauri::command]
-pub fn set_client(
-    state: State<'_, AppState>,
-    client_id: String,
-    client_secret: String,
-) -> Result<(), String> {
-    let client_id = client_id.trim().to_string();
-    let client_secret = client_secret.trim().to_string();
-    if client_id.is_empty() || client_secret.is_empty() {
-        return Err("Both the Trakt client id and client secret are required.".into());
-    }
-    let mut store = load(&state)?;
-    apply_client(&mut store, client_id, client_secret);
-    save(&state, &store)
-}
-
 fn apply_client(store: &mut Store, client_id: String, client_secret: String) {
     store.client_id = client_id;
     store.client_secret = client_secret;
@@ -1029,10 +1008,7 @@ fn checked((status, value): (u16, Value)) -> Result<Value, String> {
 
 /// Feeds the player's `start` / `pause` / `stop` events to Trakt.
 ///
-/// Not wired to `player.rs` in this build; the player only needs to call this
-/// with its resume key and percentage. `key` is a local key, so episodes carry
-/// their show meta id.
-#[allow(dead_code)]
+/// `key` is a local resume key, so episodes carry their show meta id.
 #[tauri::command]
 pub async fn scrobble(
     state: State<'_, AppState>,

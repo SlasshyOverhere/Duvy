@@ -616,7 +616,6 @@ pub fn run() {
             commands::stremio_sign_out,
             commands::stremio_sync_now,
             commands::sync_all,
-            trakt::set_client,
             trakt::scrobble,
             debrid::check_cache,
             skip::skip_get,
