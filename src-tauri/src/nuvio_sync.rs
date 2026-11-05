@@ -21,7 +21,7 @@
 use crate::AppState;
 use crate::db;
 use crate::settings::Settings;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -948,39 +948,32 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         }
         // A remote position past the end would resume beyond the file.
         let position = position.clamp(0.0, duration);
-        let existing: Option<(String, i64)> = conn
-            .query_row(
-                "SELECT name, updated_at FROM progress WHERE key = ?1",
-                params![key],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+        // The upsert already skips a local row that is ahead, so one write
+        // replaces the read-then-write round trip.
+        let changed = conn
+            .execute(
+                "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
+                                       episode, episode_title, position, duration, updated_at)
+                 VALUES (?1, ?2, ?3, ?2, NULL, NULL, ?4, ?5, NULL, ?6, ?7, ?8)
+                 ON CONFLICT(key) DO UPDATE SET
+                   position = excluded.position, duration = excluded.duration,
+                   updated_at = excluded.updated_at,
+                   season = COALESCE(progress.season, excluded.season),
+                   episode = COALESCE(progress.episode, excluded.episode)
+                 WHERE excluded.updated_at >= progress.updated_at",
+                params![
+                    key,
+                    content_id,
+                    content_type(row),
+                    if season > 0 { Some(season) } else { None },
+                    if episode > 0 { Some(episode) } else { None },
+                    position,
+                    duration,
+                    if updated > 0 { updated } else { db::now() },
+                ],
             )
-            .optional()
             .map_err(|e| e.to_string())?;
-        if let Some((_, local_updated)) = &existing
-            && *local_updated > updated
-        {
-            continue;
-        }
-        conn.execute(
-            "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
-                                   episode, episode_title, position, duration, updated_at)
-             VALUES (?1, ?2, ?3, ?2, NULL, NULL, ?4, ?5, NULL, ?6, ?7, ?8)
-             ON CONFLICT(key) DO UPDATE SET
-               position = ?6, duration = ?7, updated_at = ?8,
-               season = COALESCE(progress.season, ?4), episode = COALESCE(progress.episode, ?5)",
-            params![
-                key,
-                content_id,
-                content_type(row),
-                if season > 0 { Some(season) } else { None },
-                if episode > 0 { Some(episode) } else { None },
-                position,
-                duration,
-                if updated > 0 { updated } else { db::now() },
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        applied += changed as i64;
     }
     Ok(applied)
 }
@@ -996,34 +989,23 @@ fn merge_watched(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let episode = int(row, "episode");
         let key = local_key(&content_id, season, episode);
         let watched_at = to_ms(int(row, "watched_at"));
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT updated_at FROM watched WHERE key = ?1",
-                params![key],
-                |r| r.get(0),
+        let changed = conn
+            .execute(
+                "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
+                 WHERE excluded.updated_at >= watched.updated_at",
+                params![
+                    key,
+                    content_id,
+                    if watched_at > 0 {
+                        watched_at
+                    } else {
+                        db::now()
+                    }
+                ],
             )
-            .optional()
             .map_err(|e| e.to_string())?;
-        if let Some(local_updated) = existing
-            && local_updated > watched_at
-        {
-            continue;
-        }
-        conn.execute(
-            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-             ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
-            params![
-                key,
-                content_id,
-                if watched_at > 0 {
-                    watched_at
-                } else {
-                    db::now()
-                }
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        applied += changed as i64;
     }
     Ok(applied)
 }
@@ -1036,17 +1018,6 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
             continue;
         }
         let added_at = to_ms(int(row, "added_at"));
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT added_at FROM library WHERE id = ?1",
-                params![content_id],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        if existing.is_some() {
-            continue;
-        }
         let name = {
             let title = text(row, "title");
             if title.is_empty() {
@@ -1055,21 +1026,24 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
                 title
             }
         };
-        conn.execute(
-            "INSERT INTO library (id, media_type, name, poster, background, added_at, meta)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
-             ON CONFLICT(id) DO NOTHING",
-            params![
-                content_id,
-                content_type(row),
-                name,
-                row.get("poster").and_then(Value::as_str),
-                row.get("background").and_then(Value::as_str),
-                if added_at > 0 { added_at } else { db::now() },
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        // ON CONFLICT DO NOTHING already keeps an existing row, so the read
+        // that used to guard it is gone.
+        let changed = conn
+            .execute(
+                "INSERT INTO library (id, media_type, name, poster, background, added_at, meta)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
+                 ON CONFLICT(id) DO NOTHING",
+                params![
+                    content_id,
+                    content_type(row),
+                    name,
+                    row.get("poster").and_then(Value::as_str),
+                    row.get("background").and_then(Value::as_str),
+                    if added_at > 0 { added_at } else { db::now() },
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        applied += changed as i64;
     }
     Ok(applied)
 }
