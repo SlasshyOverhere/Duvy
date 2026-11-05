@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "../lib/bridge";
 import { cachedRecos, saveRecos } from "../lib/feed";
@@ -223,14 +223,55 @@ export function SearchView({ query }: { query?: string }) {
   const series = results.filter((item) => item.type === "series");
   const other = results.filter((item) => item.type !== "movie" && item.type !== "series");
 
-  const card = (item: MetaPreview) => (
-    <PosterCard
-      key={`${item.id}-${item.type}`}
-      item={item}
-      caption
-      onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-      onPlay={() => void playItem(item)}
-    />
+  // Typing re-renders this view, so the result grids hold stable elements:
+  // React then skips the card subtree on every keystroke.
+  const resultRows = useMemo(() => {
+    const card = (item: MetaPreview) => (
+      <PosterCard
+        key={`${item.id}-${item.type}`}
+        item={item}
+        caption
+        onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+        onPlay={() => void playItem(item)}
+      />
+    );
+    return (
+      <>
+        {movies.length ? (
+          <Row title="Popular - Movie" detail={<span className="row-detail">{movies.length}</span>}>
+            {movies.map(card)}
+          </Row>
+        ) : null}
+        {series.length ? (
+          <Row title="Popular - Series" detail={<span className="row-detail">{series.length}</span>}>
+            {series.map(card)}
+          </Row>
+        ) : null}
+        {other.length ? (
+          <Row title="More results" detail={<span className="row-detail">{other.length}</span>}>
+            {other.map(card)}
+          </Row>
+        ) : null}
+      </>
+    );
+  }, [movies, series, other, navigate, playItem]);
+
+  const recoRows = useMemo(
+    () =>
+      recos.map((row) => (
+        <Row key={row.id} title={row.title}>
+          {row.items.map((item) => (
+            <PosterCard
+              key={`${item.id}-${item.type}`}
+              item={item}
+              caption
+              onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              onPlay={() => void playItem(item)}
+            />
+          ))}
+        </Row>
+      )),
+    [recos, navigate, playItem],
   );
 
   return (
@@ -347,42 +388,11 @@ export function SearchView({ query }: { query?: string }) {
               />
             )
           ) : (
-            <>
-              {movies.length ? (
-                <Row
-                  title="Popular - Movie"
-                  detail={<span className="row-detail">{movies.length}</span>}
-                >
-                  {movies.map(card)}
-                </Row>
-              ) : null}
-              {series.length ? (
-                <Row
-                  title="Popular - Series"
-                  detail={<span className="row-detail">{series.length}</span>}
-                >
-                  {series.map(card)}
-                </Row>
-              ) : null}
-              {other.length ? (
-                <Row
-                  title="More results"
-                  detail={<span className="row-detail">{other.length}</span>}
-                >
-                  {other.map(card)}
-                </Row>
-              ) : null}
-            </>
+            resultRows
           )}
         </div>
       ) : recos.length > 0 ? (
-        <div className="search-discover">
-          {recos.map((row) => (
-            <Row key={row.id} title={row.title}>
-              {row.items.map(card)}
-            </Row>
-          ))}
-        </div>
+        <div className="search-discover">{recoRows}</div>
       ) : recoState === "loading" ? (
         <Loading variant="rows" label="Cooking up your recommendations" />
       ) : recoState === "error" ? (
