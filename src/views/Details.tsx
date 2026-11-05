@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
@@ -212,15 +212,61 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     openSources(null);
   };
 
-  const openSources = (video: Video | null) => {
-    if (!details) return;
-    const target = video ?? (details.type === "series" ? resumeTarget.video : null);
-    if (details.type === "series" && !target) {
-      notify("This show has no episodes listed yet.", "error");
-      return;
-    }
-    setDrawer({ video: target });
-  };
+  const openSources = useCallback(
+    (video: Video | null) => {
+      if (!details) return;
+      const target = video ?? (details.type === "series" ? resumeTarget.video : null);
+      if (details.type === "series" && !target) {
+        notify("This show has no episodes listed yet.", "error");
+        return;
+      }
+      setDrawer({ video: target });
+    },
+    [details, resumeTarget.video, notify],
+  );
+
+  // Rebuilt only when the season, the progress or the title changes, so a
+  // progress tick elsewhere never re-keys a hundred episode cards.
+  const episodeRows = useMemo(() => {
+    if (!details) return null;
+    return episodes.map((video) => {
+      const key = buildSession(details, video).key;
+      const entry = progressFor(key);
+      const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
+      return (
+        <button
+          key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
+          type="button"
+          className="episode"
+          onClick={() => openSources(video)}
+        >
+          <span className="episode-thumb">
+            {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
+            <span className="episode-play">
+              <Icon name="play" size={16} />
+            </span>
+          </span>
+          <span className="episode-body">
+            <span className="episode-top">
+              <span className="episode-num">{episodeCode(video)}</span>
+              <span className="episode-title">{video.title ?? "Untitled episode"}</span>
+              {entry ? (
+                <span className="episode-seen">
+                  {percent >= 90 ? `Watched ${timeAgo(entry.updatedAt)}` : "In progress"}
+                </span>
+              ) : null}
+            </span>
+            <span className="episode-overview">{video.overview ?? ""}</span>
+            {percent > 0 ? (
+              <span className="episode-progress">
+                <span style={{ width: `${percent}%` }} />
+              </span>
+            ) : null}
+          </span>
+        </button>
+      );
+    });
+  }, [details, episodes, openSources, progressFor, buildSession]);
 
   const startStream = async (stream: StreamOption) => {
     if (!details || !drawer) return;
@@ -418,45 +464,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             </div>
           </div>
 
-          <div className="episode-list">
-            {episodes.map((video) => {
-              const key = buildSession(details, video).key;
-              const entry = progressFor(key);
-              const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
-              return (
-                <button
-                  key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
-                  type="button"
-                  className="episode"
-                  onClick={() => openSources(video)}
-                >
-                  <span className="episode-thumb">
-                    {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
-                    <span className="episode-play">
-                      <Icon name="play" size={16} />
-                    </span>
-                  </span>
-                  <span className="episode-body">
-                    <span className="episode-top">
-                      <span className="episode-num">{episodeCode(video)}</span>
-                      <span className="episode-title">{video.title ?? "Untitled episode"}</span>
-                      {entry ? (
-                        <span className="episode-seen">
-                          {percent >= 90 ? `Watched ${timeAgo(entry.updatedAt)}` : "In progress"}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="episode-overview">{video.overview ?? ""}</span>
-                    {percent > 0 ? (
-                      <span className="episode-progress">
-                        <span style={{ width: `${percent}%` }} />
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <div className="episode-list">{episodeRows}</div>
         </section>
       ) : null}
 
