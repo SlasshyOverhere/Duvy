@@ -575,30 +575,28 @@ async fn push_library(
     progress: &[db::ProgressItem],
     remote: &[Value],
 ) -> Result<i64, String> {
-    let remote_by_id: HashMap<String, Value> = remote
+    let remote_by_id: HashMap<String, &Value> = remote
         .iter()
         .filter_map(|row| {
             let id = text(row, "_id");
-            (!id.is_empty()).then(|| (id, row.clone()))
+            (!id.is_empty()).then_some((id, row))
         })
         .collect();
 
-    let mut newest: HashMap<String, db::ProgressItem> = HashMap::new();
+    let mut newest: HashMap<String, &db::ProgressItem> = HashMap::new();
     for item in progress {
-        newest
-            .entry(item.meta_id.clone())
-            .or_insert_with(|| item.clone());
+        newest.entry(item.meta_id.clone()).or_insert(item);
     }
 
     let mut covered = HashSet::new();
     let mut changes = Vec::new();
     for item in library {
         covered.insert(item.id.clone());
-        let remote_row = remote_by_id.get(&item.id);
+        let remote_row = remote_by_id.get(&item.id).copied();
         let remote_updated = remote_row
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
-        let progress = newest.get(&item.id);
+        let progress = newest.get(&item.id).copied();
         match progress {
             Some(p) if remote_updated <= p.updated_at => {}
             Some(_) => continue,
@@ -623,7 +621,7 @@ async fn push_library(
         if covered.contains(&id) {
             continue;
         }
-        let remote_row = remote_by_id.get(&id);
+        let remote_row = remote_by_id.get(&id).copied();
         let remote_updated = remote_row
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
@@ -640,7 +638,7 @@ async fn push_library(
                 poster: progress.poster.as_deref(),
                 added_at: progress.updated_at,
             },
-            Some(&progress),
+            Some(progress),
         ));
     }
 
