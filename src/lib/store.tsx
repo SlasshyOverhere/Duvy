@@ -48,8 +48,8 @@ export type Route =
   | { name: "details"; id: string; type: string }
   | { name: "player" };
 
-export type ToastTone = "info" | "success" | "error";
-export interface Toast {
+type ToastTone = "info" | "success" | "error";
+interface Toast {
   id: number;
   text: string;
   tone: ToastTone;
@@ -125,7 +125,7 @@ export function usePlayer(): PlayerSnapshot | null {
   return useContext(PlayerContext);
 }
 
-export function sessionFor(details: Details, video: Video | null): PlaybackSession {
+function sessionFor(details: Details, video: Video | null): PlaybackSession {
   const season = video?.season ?? null;
   const episode = video?.episode ?? video?.number ?? null;
   return {

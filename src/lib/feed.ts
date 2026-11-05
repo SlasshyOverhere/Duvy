@@ -27,14 +27,7 @@ export function feedAge(): number | null {
   return memory ? Date.now() - memoryAt : null;
 }
 
-/** The in-memory feed when it is younger than `maxAgeMs`, otherwise null. */
-export function cachedFeedFresh(maxAgeMs: number): HomeFeed | null {
-  const age = feedAge();
-  if (memory && age !== null && age <= maxAgeMs) return memory;
-  return null;
-}
-
-export function saveFeed(feed: HomeFeed): void {
+function saveFeed(feed: HomeFeed): void {
   memory = feed;
   memoryAt = Date.now();
   try {

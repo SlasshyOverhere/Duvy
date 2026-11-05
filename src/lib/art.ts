@@ -30,14 +30,6 @@ function writeArt(all: Record<string, string>) {
   }
 }
 
-export function rememberLogo(metaId: string | null | undefined, logo: string | null | undefined) {
-  if (!metaId || !usableLogo(logo)) return;
-  const all = readArt();
-  if (all[metaId] === logo) return;
-  all[metaId] = logo;
-  writeArt(all);
-}
-
 /** One read and one write for a whole feed instead of one per card. */
 export function rememberLogos(
   entries: Array<{ id: string | null | undefined; logo: string | null | undefined }>,
