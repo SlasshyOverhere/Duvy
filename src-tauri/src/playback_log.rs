@@ -71,10 +71,10 @@ pub fn mark(label: impl AsRef<str>) {
     eprintln!("[playback] {line}");
 
     let path = (*lock(&FILE)).clone();
-    if let Some(path) = path {
-        if let Ok(mut handle) = OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(handle, "{line}");
-        }
+    if let Some(path) = path
+        && let Ok(mut handle) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(handle, "{line}");
     }
 }
 
@@ -104,6 +104,9 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("play requested"));
         assert!(lines[1].contains("mpv process started"));
-        assert!(lines[1].contains("+"), "second line reports the gap: {lines:?}");
+        assert!(
+            lines[1].contains("+"),
+            "second line reports the gap: {lines:?}"
+        );
     }
 }

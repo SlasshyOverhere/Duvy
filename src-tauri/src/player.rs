@@ -5,14 +5,14 @@
 //! transparent, so playback never leaves the window and the WebView stays
 //! completely out of the decode path.
 
+use crate::AppState;
 use crate::db::{self, ProgressItem};
 use crate::models::PlaybackSession;
 use crate::settings::Settings;
-use crate::AppState;
 use libmpv2::events::{Event, PropertyData};
 use libmpv2::{Format, Mpv};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -144,7 +144,10 @@ fn bool_value(value: Option<&Value>, what: &str) -> Result<bool, String> {
 
 /// mpv colours are `#RRGGBB` or `#AARRGGBB`.
 fn color_value<'a>(value: Option<&'a Value>, what: &str) -> Result<&'a str, String> {
-    let text = value.and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    let text = value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
     let digits = text.strip_prefix('#').unwrap_or_default();
     if matches!(digits.len(), 6 | 8) && digits.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(text);
@@ -186,7 +189,11 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 .unwrap_or(false);
             let label = track_label(
                 kind,
-                if kind == "audio" { audio.len() } else { subs.len() },
+                if kind == "audio" {
+                    audio.len()
+                } else {
+                    subs.len()
+                },
                 title.as_deref(),
                 lang.as_deref(),
             );
@@ -371,14 +378,14 @@ fn codec_name(codec: &str) -> Option<String> {
 }
 
 fn channel_layout(name: Option<&str>, count: i64) -> Option<String> {
-    if let Some(raw) = name.map(str::trim).filter(|s| !s.is_empty()) {
-        if !raw.eq_ignore_ascii_case("unknown") {
-            return Some(match raw.to_lowercase().as_str() {
-                "mono" => "Mono".to_string(),
-                "stereo" => "Stereo".to_string(),
-                _ => raw.to_string(),
-            });
-        }
+    if let Some(raw) = name.map(str::trim).filter(|s| !s.is_empty())
+        && !raw.eq_ignore_ascii_case("unknown")
+    {
+        return Some(match raw.to_lowercase().as_str() {
+            "mono" => "Mono".to_string(),
+            "stereo" => "Stereo".to_string(),
+            _ => raw.to_string(),
+        });
     }
     match count {
         1 => Some("Mono".into()),
@@ -424,15 +431,15 @@ fn track_details(
     }
     let haystack = label.to_lowercase();
     let mut parts = Vec::new();
-    if let Some(layout) = channel_layout(channels, channel_count) {
-        if !haystack.contains(&layout.to_lowercase()) {
-            parts.push(layout);
-        }
+    if let Some(layout) = channel_layout(channels, channel_count)
+        && !haystack.contains(&layout.to_lowercase())
+    {
+        parts.push(layout);
     }
-    if let Some(codec) = codec.and_then(codec_name) {
-        if !haystack.contains(&codec.to_lowercase()) {
-            parts.push(codec);
-        }
+    if let Some(codec) = codec.and_then(codec_name)
+        && !haystack.contains(&codec.to_lowercase())
+    {
+        parts.push(codec);
     }
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
@@ -541,7 +548,10 @@ impl Player {
 
         let (forward_mb, forward_secs) =
             forward_cache(settings.buffer_forward_value, &settings.buffer_forward_unit);
-        let backward_mb = back_cache(settings.buffer_backward_value, &settings.buffer_backward_unit);
+        let backward_mb = back_cache(
+            settings.buffer_backward_value,
+            &settings.buffer_backward_unit,
+        );
         let start = request.start_at.unwrap_or(0.0);
 
         // Keep a log next to the database: when a stream refuses to play on a
@@ -802,10 +812,7 @@ impl Player {
             "sub-ass-override" => {
                 // ASS tracks keep their own styling until a control is moved.
                 let custom = bool_value(value.as_ref(), "Subtitle style override")?;
-                apply(mpv.set_property(
-                    "sub-ass-override",
-                    if custom { "force" } else { "no" },
-                ))
+                apply(mpv.set_property("sub-ass-override", if custom { "force" } else { "no" }))
             }
             "sub-font-size" => {
                 let size = number_value(value.as_ref(), "Subtitle font size")?;
@@ -989,7 +996,9 @@ fn spawn_events(
                         "track-list/count" | "aid" | "sid" => {
                             refresh_tracks(&mpv, &mut snap);
                         }
-                        "chapter-list/count" => snap.chapters = parse_chapters(&read_chapters(&mpv)),
+                        "chapter-list/count" => {
+                            snap.chapters = parse_chapters(&read_chapters(&mpv))
+                        }
                         _ => {}
                     }
                     drop(snap);
@@ -1240,10 +1249,10 @@ fn spawn_ticker(
             ticks += 1;
             // mpv adds its render window a moment after start-up; keep the web
             // layer above it until the window tree settles.
-            if let Some(host) = host {
-                if ticks <= 8 {
-                    crate::raise_webview(host);
-                }
+            if let Some(host) = host
+                && ticks <= 8
+            {
+                crate::raise_webview(host);
             }
             // The cheap tick is taken under the lock; the full snapshot is only
             // cloned on the ticks that will actually be emitted.
@@ -1273,12 +1282,10 @@ fn spawn_ticker(
             }
             // Save every 5s, but only when the picture moved: a paused player
             // was rewriting the same row ten times a minute.
-            if ticks % 10 == 0 {
+            if ticks.is_multiple_of(10) {
                 let due = match last_saved {
                     Some((position, paused, ended)) => {
-                        (state.0 - position).abs() > 0.5
-                            || state.1 != paused
-                            || state.2 != ended
+                        (state.0 - position).abs() > 0.5 || state.1 != paused || state.2 != ended
                     }
                     None => true,
                 };
@@ -1343,8 +1350,8 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 #[cfg(test)]
 mod tests {
     use super::{
-        back_cache, bool_value, color_value, ended_early, forward_cache, number_value,
-        parse_chapters, parse_tracks, validate_media_url, Snapshot,
+        Snapshot, back_cache, bool_value, color_value, ended_early, forward_cache, number_value,
+        parse_chapters, parse_tracks, validate_media_url,
     };
     use serde_json::json;
 
@@ -1439,7 +1446,10 @@ mod tests {
         assert_eq!(active_sub, None);
         assert_eq!(audio.len(), 3);
         assert_eq!(audio[0].label, "English (Surround)");
-        assert_eq!(audio[0].details.as_deref(), Some("5.1 · Dolby Digital Plus"));
+        assert_eq!(
+            audio[0].details.as_deref(),
+            Some("5.1 · Dolby Digital Plus")
+        );
         assert_eq!(audio[1].label, "Hindi (Dubbed)");
         assert_eq!(audio[1].details.as_deref(), Some("Stereo · Dolby Digital"));
         assert_eq!(audio[2].label, "Japanese");

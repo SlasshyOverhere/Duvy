@@ -3,15 +3,15 @@
 //! The plugin owns the release feed and signature check; this module decides
 //! when to look, what to tell the user, and when to stay quiet.
 
+use serde::Serialize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::settings::Settings;
 use crate::AppState;
+use crate::settings::Settings;
 
 /// A release newer than the running build.
 #[derive(Serialize, Clone)]
@@ -129,13 +129,7 @@ async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
                     return;
                 }
                 last = Some(Instant::now());
-                let _ = handle.emit(
-                    "update:progress",
-                    Progress {
-                        downloaded,
-                        total,
-                    },
-                );
+                let _ = handle.emit("update:progress", Progress { downloaded, total });
             },
             || {},
         )
@@ -173,9 +167,7 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     // trip made the download look stalled before the first byte arrived.
     let update = match cached() {
         Some(update) => update,
-        None => fetch(&app)
-            .await?
-            .ok_or("Duvy is already up to date.")?,
+        None => fetch(&app).await?.ok_or("Duvy is already up to date.")?,
     };
     // The prefetch usually beat the click; a missing package just downloads.
     let bytes = match PACKAGE.lock().ok().and_then(|mut slot| slot.take()) {
@@ -202,10 +194,10 @@ pub fn watch(app: AppHandle) {
                 match update_check(app.clone()).await {
                     Ok(found) => {
                         failures = 0;
-                        if let Some(found) = found {
-                            if found.version != current.ignored_update_version {
-                                announce(&app, &found);
-                            }
+                        if let Some(found) = found
+                            && found.version != current.ignored_update_version
+                        {
+                            announce(&app, &found);
                         }
                     }
                     Err(_) => {
@@ -243,7 +235,7 @@ fn announce(app: &AppHandle, info: &UpdateInfo) {
 
 #[cfg(test)]
 mod tests {
-    use super::{retry_after, RECHECK};
+    use super::{RECHECK, retry_after};
     use std::time::Duration;
 
     #[test]

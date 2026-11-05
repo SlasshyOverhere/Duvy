@@ -109,19 +109,20 @@ pub fn detect_quality(text: &str) -> (String, i64) {
                 "CAM" | "CAMRIP" | "HQCAM" | "HDCAM" | "TELESYNC" | "TS" | "HDTS"
             )
         });
-    let (label, weight) = if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
-        ("4K".to_string(), 50)
-    } else if upper.contains("1080P") {
-        ("1080p".to_string(), 40)
-    } else if upper.contains("720P") {
-        ("720p".to_string(), 26)
-    } else if upper.contains("480P") || upper.contains("360P") {
-        ("480p".to_string(), 12)
-    } else if ripped {
-        ("CAM".to_string(), -40)
-    } else {
-        ("Auto".to_string(), 20)
-    };
+    let (label, weight) =
+        if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
+            ("4K".to_string(), 50)
+        } else if upper.contains("1080P") {
+            ("1080p".to_string(), 40)
+        } else if upper.contains("720P") {
+            ("720p".to_string(), 26)
+        } else if upper.contains("480P") || upper.contains("360P") {
+            ("480p".to_string(), 12)
+        } else if ripped {
+            ("CAM".to_string(), -40)
+        } else {
+            ("Auto".to_string(), 20)
+        };
 
     if label == "CAM" || label == "Auto" {
         return (label, weight);
@@ -147,12 +148,12 @@ pub fn find_size(text: &str) -> Option<String> {
                     return Some(format!("{} {}", number, unit));
                 }
                 // Handle "1.4 GB" where the unit is a separate word.
-                if number.is_empty() {
-                    if let Some(prev) = index.checked_sub(1).and_then(|i| words.get(i)) {
-                        let prev = prev.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
-                        if prev.parse::<f64>().is_ok() {
-                            return Some(format!("{} {}", prev, unit));
-                        }
+                if number.is_empty()
+                    && let Some(prev) = index.checked_sub(1).and_then(|i| words.get(i))
+                {
+                    let prev = prev.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
+                    if prev.parse::<f64>().is_ok() {
+                        return Some(format!("{} {}", prev, unit));
                     }
                 }
             }
@@ -190,7 +191,13 @@ fn detect_languages(text: &str) -> Vec<String> {
     // "MULTi" style spellings.
     tokens = tokens
         .into_iter()
-        .map(|t| if t.starts_with("MULTI") { "MULTI".to_string() } else { t })
+        .map(|t| {
+            if t.starts_with("MULTI") {
+                "MULTI".to_string()
+            } else {
+                t
+            }
+        })
         .collect();
 
     let mut found: Vec<String> = Vec::new();
@@ -207,8 +214,10 @@ fn detect_badges(text: &str) -> Vec<String> {
     let upper = text.to_uppercase();
     let mut badges: Vec<String> = Vec::new();
     for (token, label, _) in QUALITY_TOKENS {
-        if matches!(*label, "HDR" | "DV" | "Atmos" | "DDP" | "TrueHD" | "x265" | "HEVC" | "10-bit")
-            && upper.contains(token)
+        if matches!(
+            *label,
+            "HDR" | "DV" | "Atmos" | "DDP" | "TrueHD" | "x265" | "HEVC" | "10-bit"
+        ) && upper.contains(token)
             && !badges.iter().any(|b| b == label)
         {
             badges.push((*label).to_string());
@@ -241,7 +250,6 @@ fn video_size(stream: &Stream) -> Option<u64> {
         .filter(|value| *value > 0)
 }
 
-
 /// `xt=urn:btih:<hash>` from a magnet link.
 fn magnet_hash(url: &str) -> Option<String> {
     let lower = url.to_ascii_lowercase();
@@ -264,7 +272,9 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
 
     let (quality, mut score) = detect_quality(&combined);
     let size_bytes = video_size(stream);
-    let size = size_bytes.map(format_bytes).or_else(|| find_size(&combined));
+    let size = size_bytes
+        .map(format_bytes)
+        .or_else(|| find_size(&combined));
     let seeders = find_seeders(&combined);
     let languages = detect_languages(&combined);
     let badges = detect_badges(&combined);
@@ -288,9 +298,10 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     let url = stream.url.clone();
     // A magnet/hash row is playable too: the torrent engine turns it into a
     // local HTTP stream at playback time.
-    let magnet = url
-        .as_deref()
-        .is_some_and(|u| u.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:")));
+    let magnet = url.as_deref().is_some_and(|u| {
+        u.get(..7)
+            .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
+    });
     let info_hash = stream
         .info_hash
         .clone()
@@ -412,7 +423,10 @@ mod tests {
         let option = normalize("A", &stream);
         assert_eq!(option.size.as_deref(), Some("17.9 GB"));
         assert_eq!(option.size_bytes, Some(19_170_000_000));
-        assert_eq!(option.title.as_deref(), Some("Movie 1080p\n\u{1F464} 12 \u{1F4BE} 1.2 GB"));
+        assert_eq!(
+            option.title.as_deref(),
+            Some("Movie 1080p\n\u{1F464} 12 \u{1F4BE} 1.2 GB")
+        );
     }
 
     // Titles from addons are arbitrary Unicode; parsing one must never slice a

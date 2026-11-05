@@ -8,11 +8,11 @@
 //! with `duration = 0` would be invisible. Add a duration lookup (library meta
 //! runtime) if new-device resume ever needs to appear here.
 
-use crate::{db, AppState};
+use crate::{AppState, db};
 use reqwest::Method;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use tauri::State;
 
@@ -87,7 +87,11 @@ fn status_of(store: &Store) -> TraktStatus {
         connected: !store.access_token.is_empty(),
         username: store.username.clone(),
         last_sync: store.last_sync,
-        user_code: if pending { store.user_code.clone() } else { String::new() },
+        user_code: if pending {
+            store.user_code.clone()
+        } else {
+            String::new()
+        },
         verification_url: if pending {
             if store.verification_url.is_empty() {
                 ACTIVATE.to_string()
@@ -240,8 +244,15 @@ async fn get_all(
         } else {
             format!("?page={page}&limit=100&{extra_query}")
         };
-        let (status, value, pages) =
-            send(http, Method::GET, &format!("{path}{query}"), client_id, Some(token), None).await?;
+        let (status, value, pages) = send(
+            http,
+            Method::GET,
+            &format!("{path}{query}"),
+            client_id,
+            Some(token),
+            None,
+        )
+        .await?;
         if !success(status) {
             return Err(http_error(status, &value));
         }
@@ -253,7 +264,7 @@ async fn get_all(
             Value::Null => {}
             _ => return Err("Trakt returned a response the sync cannot read.".into()),
         }
-        if pages.map_or(true, |total| page >= total) || page >= 50 {
+        if pages.is_none_or(|total| page >= total) || page >= 50 {
             break;
         }
         page += 1;
@@ -272,10 +283,10 @@ fn apply_tokens(store: &mut Store, value: &Value, now_secs: i64) -> Result<(), S
         .filter(|s| !s.is_empty())
         .ok_or("Trakt did not return an access token.")?;
     store.access_token = access.to_string();
-    if let Some(refresh) = value.get("refresh_token").and_then(Value::as_str) {
-        if !refresh.is_empty() {
-            store.refresh_token = refresh.to_string();
-        }
+    if let Some(refresh) = value.get("refresh_token").and_then(Value::as_str)
+        && !refresh.is_empty()
+    {
+        store.refresh_token = refresh.to_string();
     }
     let ttl = value
         .get("expires_in")
@@ -316,7 +327,15 @@ async fn ensure_token(state: &AppState, store: &mut Store) -> Result<String, Str
         "redirect_uri": REDIRECT,
         "grant_type": "refresh_token",
     });
-    let (status, value) = call(&state.http, Method::POST, "/oauth/token", &store.client_id, None, Some(&body)).await?;
+    let (status, value) = call(
+        &state.http,
+        Method::POST,
+        "/oauth/token",
+        &store.client_id,
+        None,
+        Some(&body),
+    )
+    .await?;
     if !success(status) {
         // A refused refresh token is dead for good; drop the session so the UI
         // offers a reconnect instead of failing every sync from now on.
@@ -428,10 +447,9 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
                 None,
             )
             .await
+                && success(code)
             {
-                if success(code) {
-                    store.username = text(&me, "username");
-                }
+                store.username = text(&me, "username");
             }
             save(&state, &store)?;
             Ok(status_of(&store))
@@ -535,10 +553,13 @@ fn ids_from_text(raw: &str) -> Ids {
             tmdb: None,
         };
     }
-    if let Some(rest) = raw.strip_prefix("tmdb:") {
-        if let Ok(tmdb) = rest.parse::<i64>() {
-            return Ids { imdb: None, tmdb: Some(tmdb) };
-        }
+    if let Some(rest) = raw.strip_prefix("tmdb:")
+        && let Ok(tmdb) = rest.parse::<i64>()
+    {
+        return Ids {
+            imdb: None,
+            tmdb: Some(tmdb),
+        };
     }
     Ids::default()
 }
@@ -551,13 +572,16 @@ fn ids_from_meta(meta: &Value) -> Ids {
             ids.merge(ids_from_text(imdb));
         }
         if let Some(tmdb) = object.get("tmdb").and_then(Value::as_i64) {
-            ids.merge(Ids { imdb: None, tmdb: Some(tmdb) });
+            ids.merge(Ids {
+                imdb: None,
+                tmdb: Some(tmdb),
+            });
         }
     }
-    if ids.is_empty() {
-        if let Some(id) = meta.get("id").and_then(Value::as_str) {
-            ids = ids_from_text(id);
-        }
+    if ids.is_empty()
+        && let Some(id) = meta.get("id").and_then(Value::as_str)
+    {
+        ids = ids_from_text(id);
     }
     ids
 }
@@ -571,11 +595,18 @@ fn ids_from_json(value: Option<&Value>) -> Ids {
 fn resolve_ids(conn: &Connection, meta_id: &str) -> Ids {
     let mut ids = ids_from_text(meta_id);
     let raw: Option<Option<String>> = conn
-        .query_row("SELECT meta FROM library WHERE id = ?1", params![meta_id], |r| r.get(0))
+        .query_row(
+            "SELECT meta FROM library WHERE id = ?1",
+            params![meta_id],
+            |r| r.get(0),
+        )
         .optional()
         .ok()
         .flatten();
-    if let Some(meta) = raw.flatten().and_then(|m| serde_json::from_str::<Value>(&m).ok()) {
+    if let Some(meta) = raw
+        .flatten()
+        .and_then(|m| serde_json::from_str::<Value>(&m).ok())
+    {
         ids.merge(ids_from_meta(&meta));
     }
     ids
@@ -588,7 +619,9 @@ fn split_key(key: &str) -> (String, Option<i64>, Option<i64>) {
     let episode = parts.next().and_then(|s| s.parse::<i64>().ok());
     let season = parts.next().and_then(|s| s.parse::<i64>().ok());
     match (parts.next(), season, episode) {
-        (Some(meta_id), Some(season), Some(episode)) => (meta_id.to_string(), Some(season), Some(episode)),
+        (Some(meta_id), Some(season), Some(episode)) => {
+            (meta_id.to_string(), Some(season), Some(episode))
+        }
         _ => (key.to_string(), None, None),
     }
 }
@@ -614,20 +647,24 @@ fn library_index(conn: &Connection) -> Result<HashMap<String, String>, String> {
             ids.merge(ids_from_meta(&meta));
         }
         if let Some(imdb) = ids.imdb {
-            index.entry(format!("imdb:{imdb}")).or_insert_with(|| id.clone());
+            index
+                .entry(format!("imdb:{imdb}"))
+                .or_insert_with(|| id.clone());
         }
         if let Some(tmdb) = ids.tmdb {
-            index.entry(format!("tmdb:{tmdb}")).or_insert_with(|| id.clone());
+            index
+                .entry(format!("tmdb:{tmdb}"))
+                .or_insert_with(|| id.clone());
         }
     }
     Ok(index)
 }
 
 fn local_for(ids: &Ids, index: &HashMap<String, String>) -> Option<String> {
-    if let Some(imdb) = &ids.imdb {
-        if let Some(id) = index.get(&format!("imdb:{imdb}")) {
-            return Some(id.clone());
-        }
+    if let Some(imdb) = &ids.imdb
+        && let Some(id) = index.get(&format!("imdb:{imdb}"))
+    {
+        return Some(id.clone());
     }
     ids.tmdb
         .and_then(|tmdb| index.get(&format!("tmdb:{tmdb}")).cloned())
@@ -695,7 +732,11 @@ fn parse_iso(raw: &str) -> Option<i64> {
     let body = raw.trim().trim_end_matches('Z');
     let (base, millis) = match body.split_once('.') {
         Some((base, fraction)) => {
-            let digits: String = fraction.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+            let digits: String = fraction
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .take(3)
+                .collect();
             let millis = format!("{digits:0<3}").parse::<i64>().ok()?;
             (base, millis)
         }
@@ -717,13 +758,26 @@ fn parse_iso(raw: &str) -> Option<i64> {
 
 /// Newest write wins; a tie goes to the remote row so both sides converge.
 fn should_apply(local_updated: Option<i64>, remote_updated: i64) -> bool {
-    local_updated.map_or(true, |local| remote_updated >= local)
+    local_updated.is_none_or(|local| remote_updated >= local)
 }
 
-fn upsert_watched(conn: &Connection, key: &str, meta_id: &str, watched_at: i64) -> Result<bool, String> {
-    let watched_at = if watched_at > 0 { watched_at } else { db::now() };
+fn upsert_watched(
+    conn: &Connection,
+    key: &str,
+    meta_id: &str,
+    watched_at: i64,
+) -> Result<bool, String> {
+    let watched_at = if watched_at > 0 {
+        watched_at
+    } else {
+        db::now()
+    };
     let local: Option<i64> = conn
-        .query_row("SELECT updated_at FROM watched WHERE key = ?1", params![key], |r| r.get(0))
+        .query_row(
+            "SELECT updated_at FROM watched WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
         .optional()
         .map_err(|e| e.to_string())?;
     if !should_apply(local, watched_at) {
@@ -824,8 +878,14 @@ fn merge_playback(
                 let Some(meta_id) = local_for(&ids, index).or_else(|| canonical_local(&ids)) else {
                     continue;
                 };
-                let season = row.get("episode").and_then(|e| e.get("season")).and_then(Value::as_i64);
-                let episode = row.get("episode").and_then(|e| e.get("number")).and_then(Value::as_i64);
+                let season = row
+                    .get("episode")
+                    .and_then(|e| e.get("season"))
+                    .and_then(Value::as_i64);
+                let episode = row
+                    .get("episode")
+                    .and_then(|e| e.get("number"))
+                    .and_then(Value::as_i64);
                 match (season, episode) {
                     (Some(season), Some(episode)) if season > 0 && episode > 0 => {
                         local_key(&meta_id, season, episode)
@@ -924,14 +984,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
         &token,
     )
     .await?;
-    let playback = get_all(
-        &state.http,
-        "/sync/playback",
-        "",
-        &store.client_id,
-        &token,
-    )
-    .await?;
+    let playback = get_all(&state.http, "/sync/playback", "", &store.client_id, &token).await?;
 
     let (pulled, pending) = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
@@ -1042,7 +1095,10 @@ mod tests {
 
     #[test]
     fn ids_are_read_from_stremio_ids() {
-        assert_eq!(ids_from_text("tt1234567").imdb.as_deref(), Some("tt1234567"));
+        assert_eq!(
+            ids_from_text("tt1234567").imdb.as_deref(),
+            Some("tt1234567")
+        );
         assert_eq!(ids_from_text("imdb:tt42").imdb.as_deref(), Some("tt42"));
         assert_eq!(ids_from_text("tmdb:1396").tmdb, Some(1396));
         assert!(ids_from_text("kitsu:120").is_empty());
@@ -1064,7 +1120,10 @@ mod tests {
         assert_eq!(split_key("tt123"), ("tt123".into(), None, None));
         assert_eq!(split_key("tmdb:1396"), ("tmdb:1396".into(), None, None));
         assert_eq!(split_key("tt123:2:5"), ("tt123".into(), Some(2), Some(5)));
-        assert_eq!(split_key("tmdb:1396:1:2"), ("tmdb:1396".into(), Some(1), Some(2)));
+        assert_eq!(
+            split_key("tmdb:1396:1:2"),
+            ("tmdb:1396".into(), Some(1), Some(2))
+        );
     }
 
     #[test]
@@ -1090,9 +1149,15 @@ mod tests {
 
     #[test]
     fn timestamps_round_trip() {
-        assert_eq!(parse_iso("2020-09-13T12:26:40.000Z"), Some(1_600_000_000_000));
+        assert_eq!(
+            parse_iso("2020-09-13T12:26:40.000Z"),
+            Some(1_600_000_000_000)
+        );
         assert_eq!(parse_iso(&iso(1_600_000_123_456)), Some(1_600_000_123_456));
-        assert_eq!(parse_iso("2024-02-29T00:00:00.000Z"), Some(1_709_164_800_000));
+        assert_eq!(
+            parse_iso("2024-02-29T00:00:00.000Z"),
+            Some(1_709_164_800_000)
+        );
         assert_eq!(parse_iso("not a date"), None);
     }
 
@@ -1138,7 +1203,11 @@ mod tests {
         assert_eq!(applied, 0);
         assert!(keys.contains("tt1"));
         let updated: i64 = conn
-            .query_row("SELECT updated_at FROM watched WHERE key = 'tt1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT updated_at FROM watched WHERE key = 'tt1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(updated, 1000000);
 
@@ -1151,7 +1220,11 @@ mod tests {
         assert_eq!(applied, 1);
         assert!(keys.contains("tt1"));
         let updated: i64 = conn
-            .query_row("SELECT updated_at FROM watched WHERE key = 'tt1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT updated_at FROM watched WHERE key = 'tt1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(updated, 1_001_000);
     }

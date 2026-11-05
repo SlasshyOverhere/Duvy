@@ -18,12 +18,12 @@
 //! just comes back on the next pull). Add tombstone pushes when sync_delete_*
 //! is wired to the library/progress commands.
 
+use crate::AppState;
 use crate::db;
 use crate::settings::Settings;
-use crate::AppState;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub const DEFAULT_BASE: &str = "https://api.nuvio.tv";
@@ -250,8 +250,11 @@ async fn request(
         }
         // Only an unavailable backend is worth retrying elsewhere; auth and
         // validation errors are ours to fix.
-        let transient =
-            retry_safe && matches!(status.as_u16(), 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524);
+        let transient = retry_safe
+            && matches!(
+                status.as_u16(),
+                502 | 503 | 504 | 520 | 521 | 522 | 523 | 524
+            );
         last_error = error_from(status.as_u16(), &text);
         if !transient {
             break;
@@ -267,7 +270,15 @@ async fn post(
     token: Option<&str>,
     body: &Value,
 ) -> Result<Value, String> {
-    request(http, settings, reqwest::Method::POST, path, token, Some(body)).await
+    request(
+        http,
+        settings,
+        reqwest::Method::POST,
+        path,
+        token,
+        Some(body),
+    )
+    .await
 }
 
 async fn get(
@@ -276,7 +287,15 @@ async fn get(
     path: &str,
     token: &str,
 ) -> Result<Value, String> {
-    request(http, settings, reqwest::Method::GET, path, Some(token), None).await
+    request(
+        http,
+        settings,
+        reqwest::Method::GET,
+        path,
+        Some(token),
+        None,
+    )
+    .await
 }
 
 async fn rpc(
@@ -286,7 +305,14 @@ async fn rpc(
     name: &str,
     body: Value,
 ) -> Result<Value, String> {
-    post(http, settings, &format!("/rest/v1/rpc/{name}"), Some(token), &body).await
+    post(
+        http,
+        settings,
+        &format!("/rest/v1/rpc/{name}"),
+        Some(token),
+        &body,
+    )
+    .await
 }
 
 /// One refresh at a time: GoTrue rotates the refresh token on use, so a second
@@ -401,7 +427,9 @@ pub async fn sign_in(
     let previous = account_identity(&session.user_id, &session.email);
     let user = value.get("user");
     let current = account_identity(
-        user.and_then(|u| u.get("id")).and_then(Value::as_str).unwrap_or_default(),
+        user.and_then(|u| u.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
         user.and_then(|u| u.get("email"))
             .and_then(Value::as_str)
             .unwrap_or(email),
@@ -416,7 +444,11 @@ pub async fn sign_in(
             db::clear_history(&conn).map_err(|e| e.to_string())?;
             session.last_sync = 0;
         }
-        (None, _) if !db::touched_ids(&conn).map_err(|e| e.to_string())?.is_empty() => {
+        (None, _)
+            if !db::touched_ids(&conn)
+                .map_err(|e| e.to_string())?
+                .is_empty() =>
+        {
             eprintln!("nuvio: no stored account identity, keeping local history as-is");
         }
         _ => {}
@@ -489,7 +521,14 @@ pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
         (Settings::load(&conn), load_session(&conn))
     };
     let token = ensure_token(state, &settings, &mut session).await?;
-    let value = rpc(&state.http, &settings, &token, "sync_pull_profiles", json!({})).await?;
+    let value = rpc(
+        &state.http,
+        &settings,
+        &token,
+        "sync_pull_profiles",
+        json!({}),
+    )
+    .await?;
     let mut list: Vec<NuvioProfile> = serde_json::from_value(value).unwrap_or_default();
     list.sort_by_key(|p| p.profile_index);
     Ok(list)
@@ -534,7 +573,7 @@ fn to_ms(at: i64) -> i64 {
 fn content_type(value: &Value) -> String {
     match text(value, "content_type").as_str() {
         "series" => "series".into(),
-        other if other.is_empty() => "movie".into(),
+        "" => "movie".into(),
         other => other.into(),
     }
 }
@@ -567,8 +606,9 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
     // Best-effort: a read-only addons table must not cost the history push.
-    report.addons_pushed =
-        push_addons(state, &settings, &token, pid, &pulled.addons).await.unwrap_or(0);
+    report.addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
+        .await
+        .unwrap_or(0);
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -698,11 +738,7 @@ fn addons_path(pid: i64) -> String {
 /// The manifest URL Nuvio stores for a row, normalised the way an install is.
 fn remote_addon_url(row: &Value) -> Option<String> {
     let url = crate::addons::normalize_addon_url(&text(row, "url"));
-    if url.is_empty() {
-        None
-    } else {
-        Some(url)
-    }
+    if url.is_empty() { None } else { Some(url) }
 }
 
 /// Installs addons the account has and this machine does not. Pull-only: local
@@ -721,7 +757,9 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
     };
     let mut added = 0;
     for row in rows {
-        let Some(url) = remote_addon_url(row) else { continue };
+        let Some(url) = remote_addon_url(row) else {
+            continue;
+        };
         if installed.iter().any(|known| known == &url) {
             continue;
         }
@@ -794,10 +832,12 @@ async fn push_addons(
 }
 
 fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
-    let mut report = SyncReport::default();
-    report.progress = merge_progress(conn, &pulled.progress)?;
-    report.watched = merge_watched(conn, &pulled.watched)?;
-    report.library = merge_library(conn, &pulled.library)?;
+    let report = SyncReport {
+        progress: merge_progress(conn, &pulled.progress)?,
+        watched: merge_watched(conn, &pulled.watched)?,
+        library: merge_library(conn, &pulled.library)?,
+        ..SyncReport::default()
+    };
     // Watched on another device and never played here: no progress row exists
     // to carry a name. Park a zero-length one so the enrich pass can title it.
     // Zero duration keeps it out of every progress and push query.
@@ -919,10 +959,10 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        if let Some((_, local_updated)) = &existing {
-            if *local_updated > updated {
-                continue;
-            }
+        if let Some((_, local_updated)) = &existing
+            && *local_updated > updated
+        {
+            continue;
         }
         conn.execute(
             "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
@@ -960,20 +1000,30 @@ fn merge_watched(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let key = local_key(&content_id, season, episode);
         let watched_at = to_ms(int(row, "watched_at"));
         let existing: Option<i64> = conn
-            .query_row("SELECT updated_at FROM watched WHERE key = ?1", params![key], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT updated_at FROM watched WHERE key = ?1",
+                params![key],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(|e| e.to_string())?;
-        if let Some(local_updated) = existing {
-            if local_updated > watched_at {
-                continue;
-            }
+        if let Some(local_updated) = existing
+            && local_updated > watched_at
+        {
+            continue;
         }
         conn.execute(
             "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
              ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
-            params![key, content_id, if watched_at > 0 { watched_at } else { db::now() }],
+            params![
+                key,
+                content_id,
+                if watched_at > 0 {
+                    watched_at
+                } else {
+                    db::now()
+                }
+            ],
         )
         .map_err(|e| e.to_string())?;
         applied += 1;
@@ -990,9 +1040,11 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         }
         let added_at = to_ms(int(row, "added_at"));
         let existing: Option<i64> = conn
-            .query_row("SELECT added_at FROM library WHERE id = ?1", params![content_id], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT added_at FROM library WHERE id = ?1",
+                params![content_id],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(|e| e.to_string())?;
         if existing.is_some() {
@@ -1000,7 +1052,11 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         }
         let name = {
             let title = text(row, "title");
-            if title.is_empty() { content_id.clone() } else { title }
+            if title.is_empty() {
+                content_id.clone()
+            } else {
+                title
+            }
         };
         conn.execute(
             "INSERT INTO library (id, media_type, name, poster, background, added_at, meta)

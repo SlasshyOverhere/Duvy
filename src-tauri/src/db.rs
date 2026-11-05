@@ -5,7 +5,7 @@
 //! both simpler and faster than a pool.
 
 use crate::secret;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -583,7 +583,12 @@ pub fn set_library_meta(
 // Watched
 // ---------------------------------------------------------------------------
 
-pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -> rusqlite::Result<()> {
+pub fn set_watched(
+    conn: &Connection,
+    key: &str,
+    meta_id: &str,
+    watched: bool,
+) -> rusqlite::Result<()> {
     if watched {
         mark_watched(conn, key, meta_id)?;
     } else {
@@ -701,8 +706,12 @@ pub fn touched_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 /// Headshots are keyed by title and name, because a lookup that missed is worth
 /// remembering too: an empty string means "asked, nothing found".
 pub fn people_photo(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT photo FROM people WHERE key = ?1", params![key], |r| r.get(0))
-        .optional()
+    conn.query_row(
+        "SELECT photo FROM people WHERE key = ?1",
+        params![key],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::Result<()> {
@@ -720,9 +729,11 @@ pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::
 
 pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
     let raw: Option<String> = conn
-        .query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
         .optional()?;
     Ok(raw
         .and_then(|s| secret::decode(&s))
@@ -774,7 +785,11 @@ mod reorder_tests {
         move_addon(&conn, "https://b", -1).unwrap();
         assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"]);
         move_addon(&conn, "https://b", -1).unwrap();
-        assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"], "top stays put");
+        assert_eq!(
+            urls(&conn),
+            ["https://b", "https://a", "https://c"],
+            "top stays put"
+        );
         move_addon(&conn, "https://a", 1).unwrap();
         assert_eq!(urls(&conn), ["https://b", "https://c", "https://a"]);
 

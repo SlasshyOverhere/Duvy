@@ -147,11 +147,7 @@ impl Drop for Cleanup {
 
 async fn capture(source: &str, at: f64) -> Result<String, String> {
     // One folder per call: concurrent previews cannot read each other's jpg.
-    let dir = std::env::temp_dir().join(format!(
-        "duvy-frame-{}-{}",
-        std::process::id(),
-        stamp()
-    ));
+    let dir = std::env::temp_dir().join(format!("duvy-frame-{}-{}", std::process::id(), stamp()));
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Could not create the preview folder: {e}"))?;
     let _cleanup = Cleanup(dir.clone());
@@ -206,7 +202,7 @@ fn grab(source: &str, at: f64, dir: &Path) -> Result<String, String> {
             Some(Ok(Event::EndFile(_) | Event::Shutdown)) => break,
             // A bad source fails the load instead of reaching EndFile.
             Some(Err(libmpv2::Error::Raw(-13))) => {
-                return Err("mpv could not decode a preview frame".into())
+                return Err("mpv could not decode a preview frame".into());
             }
             _ => {}
         }

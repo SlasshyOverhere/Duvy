@@ -51,11 +51,7 @@ async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
 }
 
 /// Cinemeta carries every episode in one document, so it owns the video list.
-async fn cinemeta(
-    client: &reqwest::Client,
-    imdb: &str,
-    media_type: &str,
-) -> Option<MetaDetails> {
+async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Option<MetaDetails> {
     let kind = if is_tv(media_type) { "series" } else { "movie" };
     let value = json(client, &format!("{CINEMETA}/{kind}/{imdb}.json"))
         .await
@@ -70,10 +66,10 @@ async fn cinemeta(
         .and_then(Value::as_array)
         .map(|list| {
             list.iter()
-                .filter_map(|item| {
+                .map(|item| {
                     let season = item.get("season").and_then(Value::as_i64);
                     let number = item.get("number").and_then(Value::as_i64);
-                    Some(Video {
+                    Video {
                         id: text(item.get("id")).unwrap_or_default(),
                         title: text(item.get("name")),
                         season,
@@ -84,7 +80,7 @@ async fn cinemeta(
                         released: text(item.get("released")),
                         available: Some(true),
                         rating: text(item.get("rating")),
-                    })
+                    }
                 })
                 .collect()
         })
@@ -179,11 +175,7 @@ async fn cinemeta(
 
 /// The other side of the movie/series split, for when an id was labelled wrong.
 fn other(media_type: &str) -> &'static str {
-    if is_tv(media_type) {
-        "movie"
-    } else {
-        "series"
-    }
+    if is_tv(media_type) { "movie" } else { "series" }
 }
 
 /// Best available record for an IMDb id, or `None` when nothing answers.
@@ -253,8 +245,7 @@ pub async fn headshot(client: &reqwest::Client, name: &str, title: &str) -> Opti
         .iter()
         .find(|entry| {
             !known.is_empty()
-                && text(entry.get("s"))
-                    .is_some_and(|line| bare(&line).contains(&known))
+                && text(entry.get("s")).is_some_and(|line| bare(&line).contains(&known))
         })
         .or_else(|| matches.first())?;
     text(pick.pointer("/i/imageUrl"))
@@ -265,6 +256,8 @@ pub async fn headshot(client: &reqwest::Client, name: &str, title: &str) -> Opti
 ///
 /// A fresh account can miss hundreds of rows, so the lookups run a few at a
 /// time instead of one after another: the same work in a fraction of the wait.
+type Filled = (usize, String, String, Option<String>, Option<String>);
+
 pub async fn fill_missing(
     client: &reqwest::Client,
     rows: Vec<(String, String)>,
@@ -276,7 +269,7 @@ pub async fn fill_missing(
         .filter(|(meta_id, _)| meta_id.starts_with("tt"))
         .enumerate();
     let mut set = tokio::task::JoinSet::new();
-    let mut filled: Vec<(usize, String, String, Option<String>, Option<String>)> = Vec::new();
+    let mut filled: Vec<Filled> = Vec::new();
     let mut failures = 0;
     loop {
         while set.len() < IN_FLIGHT && failures < 3 {

@@ -43,7 +43,7 @@ fn to_hex(bytes: &[u8]) -> String {
 
 fn from_hex(text: &str) -> Result<Vec<u8>, String> {
     let digits = text.as_bytes();
-    if digits.len() % 2 != 0 {
+    if !digits.len().is_multiple_of(2) {
         return Err("odd hex length".into());
     }
     digits
@@ -61,7 +61,7 @@ fn from_hex(text: &str) -> Result<Vec<u8>, String> {
 /// returns an empty blob, and `from_raw_parts` on a null pointer is UB.
 #[cfg(windows)]
 fn take_blob(output: windows_sys::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB) -> Vec<u8> {
-    use windows_sys::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows_sys::Win32::Foundation::{HLOCAL, LocalFree};
 
     if output.pbData.is_null() {
         return Vec::new();
@@ -77,7 +77,7 @@ fn take_blob(output: windows_sys::Win32::Security::Cryptography::CRYPT_INTEGER_B
 pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
-        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
     };
 
     let input = CRYPT_INTEGER_BLOB {
@@ -97,7 +97,9 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
         )
     };
     if ok == 0 {
-        return Err(format!("CryptProtectData failed ({})", unsafe { GetLastError() }));
+        return Err(format!("CryptProtectData failed ({})", unsafe {
+            GetLastError()
+        }));
     }
     let bytes = take_blob(output);
     Ok(bytes)
@@ -107,7 +109,7 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
-        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData,
     };
 
     let input = CRYPT_INTEGER_BLOB {
@@ -127,7 +129,9 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         )
     };
     if ok == 0 {
-        return Err(format!("CryptUnprotectData failed ({})", unsafe { GetLastError() }));
+        return Err(format!("CryptUnprotectData failed ({})", unsafe {
+            GetLastError()
+        }));
     }
     let bytes = take_blob(output);
     Ok(bytes)

@@ -301,7 +301,8 @@ pub(crate) fn is_blocked_host(host: &str) -> bool {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_link_local() || v4.is_unspecified(),
         Ok(std::net::IpAddr::V6(v6)) => {
             v6.is_unspecified()
-                || v6.to_ipv4_mapped()
+                || v6
+                    .to_ipv4_mapped()
                     .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
         }
         Err(_) => false,
@@ -394,7 +395,12 @@ pub fn stream_url(base: &str, media_type: &str, id: &str) -> String {
     )
 }
 
-pub fn subtitle_url(base: &str, media_type: &str, id: &str, extra: &BTreeMap<String, String>) -> String {
+pub fn subtitle_url(
+    base: &str,
+    media_type: &str,
+    id: &str,
+    extra: &BTreeMap<String, String>,
+) -> String {
     let media_type = encode_segment(media_type);
     let id = encode_segment(id);
     let segment = extra_segment(extra);

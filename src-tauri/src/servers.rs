@@ -5,7 +5,7 @@
 //! account record and never cross the command boundary: the UI only ever sees
 //! the public `Server` shape.
 
-use crate::{db, AppState};
+use crate::{AppState, db};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -129,8 +129,7 @@ fn token_request(
 fn parse_auth(value: &Value) -> Option<(String, String)> {
     let token = value.get("AccessToken")?.as_str()?.trim();
     let user_id = value.pointer("/User/Id")?.as_str()?.trim();
-    (!token.is_empty() && !user_id.is_empty())
-        .then(|| (token.to_string(), user_id.to_string()))
+    (!token.is_empty() && !user_id.is_empty()).then(|| (token.to_string(), user_id.to_string()))
 }
 
 /// Ids and tokens from a server reply are escaped before they go into a URL; an
@@ -431,9 +430,11 @@ pub async fn srv_stream(
     )
     .json(&serde_json::json!({ "UserId": server.user_id }));
     let source = match request.send().await {
-        Ok(reply) if reply.status().is_success() => {
-            reply.json::<Value>().await.ok().and_then(|value| media_source(&value))
-        }
+        Ok(reply) if reply.status().is_success() => reply
+            .json::<Value>()
+            .await
+            .ok()
+            .and_then(|value| media_source(&value)),
         _ => None,
     };
     Ok(stream_url(
@@ -482,7 +483,10 @@ mod tests {
         assert!(normalize_url("192.168.1.10:8096").is_err());
         assert!(normalize_url("   ").is_err());
         assert_eq!(host_label("http://192.168.1.10:8096"), "192.168.1.10:8096");
-        assert_eq!(host_label("https://media.example.com/jellyfin"), "media.example.com");
+        assert_eq!(
+            host_label("https://media.example.com/jellyfin"),
+            "media.example.com"
+        );
     }
 
     #[test]

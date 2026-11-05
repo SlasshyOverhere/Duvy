@@ -1,8 +1,8 @@
 //! Optional TMDB integration used for discovery rows, search and richer detail
 //! pages. Without a key the app works entirely from addon data.
 
-use crate::models::{CastMember, HomeRow, MetaDetails};
 use crate::addons::MetaPreview;
+use crate::models::{CastMember, HomeRow, MetaDetails};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -31,7 +31,9 @@ fn media_type_of(item: &Value) -> String {
     if let Some(kind) = item.get("media_type").and_then(|v| v.as_str()) {
         return kind.to_string();
     }
-    if item.get("first_air_date").is_some() || item.get("name").is_some() && item.get("title").is_none() {
+    if item.get("first_air_date").is_some()
+        || item.get("name").is_some() && item.get("title").is_none()
+    {
         "series".into()
     } else {
         "movie".into()
@@ -43,7 +45,11 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
     if media_type != "movie" && media_type != "series" && media_type != "tv" {
         return None;
     }
-    let media_type = if media_type == "tv" { "series".to_string() } else { media_type };
+    let media_type = if media_type == "tv" {
+        "series".to_string()
+    } else {
+        media_type
+    };
 
     // IMDb ids are what stream addons expect, so an `tt` id is kept as-is
     // instead of being wrapped in `tmdb:`.
@@ -90,7 +96,10 @@ pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
             .map(|s| s.to_string()),
         release_info: year_from(item),
         imdb_rating: None,
-        genres: item.get("genre_ids").and_then(|v| v.as_array()).map(|_| vec![]),
+        genres: item
+            .get("genre_ids")
+            .and_then(|v| v.as_array())
+            .map(|_| vec![]),
         runtime: None,
     })
 }
@@ -104,7 +113,10 @@ async fn fetch(client: &reqwest::Client, url: &str) -> Result<Value, String> {
         // The TMDB key rides in the query string, so the URL never goes into an error.
         .map_err(|e| format!("metadata request failed: {}", e.without_url()))?;
     if !response.status().is_success() {
-        return Err(format!("metadata source returned HTTP {}", response.status()));
+        return Err(format!(
+            "metadata source returned HTTP {}",
+            response.status()
+        ));
     }
     response
         .json::<Value>()
@@ -130,16 +142,29 @@ fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
     let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or("movie");
     Some(MetaPreview {
         id,
-        media_type: if kind == "series" { "series".into() } else { "movie".into() },
+        media_type: if kind == "series" {
+            "series".into()
+        } else {
+            "movie".into()
+        },
         name: item
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("Untitled")
             .to_string(),
-        poster: item.get("poster").and_then(|v| v.as_str()).map(str::to_string),
+        poster: item
+            .get("poster")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         poster_shape: Some("poster".into()),
-        background: item.get("background").and_then(|v| v.as_str()).map(str::to_string),
-        logo: item.get("logo").and_then(|v| v.as_str()).map(str::to_string),
+        background: item
+            .get("background")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        logo: item
+            .get("logo")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         description: item
             .get("description")
             .and_then(|v| v.as_str())
@@ -155,14 +180,11 @@ fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string),
-        genres: item
-            .get("genres")
-            .and_then(|v| v.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|g| g.as_str().map(str::to_string))
-                    .collect::<Vec<String>>()
-            }),
+        genres: item.get("genres").and_then(|v| v.as_array()).map(|list| {
+            list.iter()
+                .filter_map(|g| g.as_str().map(str::to_string))
+                .collect::<Vec<String>>()
+        }),
         runtime: None,
     })
 }
@@ -171,7 +193,10 @@ fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
 fn catalog_url(path: &str) -> String {
     // Paths arrive as "movie/top" or "/movie/top": one slash, and it has to be
     // there, or the whole catalog quietly 404s into an empty row.
-    format!("{CINEMETA_CATALOG}/{}.json", path.strip_prefix('/').unwrap_or(path))
+    format!(
+        "{CINEMETA_CATALOG}/{}.json",
+        path.strip_prefix('/').unwrap_or(path)
+    )
 }
 
 async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
@@ -234,7 +259,11 @@ pub async fn similar(
     genre: &str,
     exclude: &str,
 ) -> Vec<MetaPreview> {
-    let kind = if media_type == "series" { "series" } else { "movie" };
+    let kind = if media_type == "series" {
+        "series"
+    } else {
+        "movie"
+    };
     let path = format!("{kind}/top/genre={}", escape(genre));
     cinemeta_catalog(client, &path)
         .await
@@ -246,11 +275,31 @@ pub async fn similar(
 
 /// (row id, Cinemeta catalog, TMDB path, row title)
 const ROWS: &[(&str, &str, &str, &str)] = &[
-    ("/popular/all", "", "trending/all/week", "Trending this week"),
-    ("/popular/movie", "movie/top", "movie/popular", "Popular movies"),
+    (
+        "/popular/all",
+        "",
+        "trending/all/week",
+        "Trending this week",
+    ),
+    (
+        "/popular/movie",
+        "movie/top",
+        "movie/popular",
+        "Popular movies",
+    ),
     ("/popular/tv", "series/top", "tv/popular", "Popular shows"),
-    ("/movie/top_rated", "movie/imdbRating", "movie/top_rated", "Top rated movies"),
-    ("/tv/top_rated", "series/imdbRating", "tv/top_rated", "Top rated shows"),
+    (
+        "/movie/top_rated",
+        "movie/imdbRating",
+        "movie/top_rated",
+        "Top rated movies",
+    ),
+    (
+        "/tv/top_rated",
+        "series/imdbRating",
+        "tv/top_rated",
+        "Top rated shows",
+    ),
     ("/movie/upcoming", "", "movie/now_playing", "In cinemas"),
 ];
 
@@ -271,10 +320,15 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
                 cinemeta_catalog(&client, cinemeta_path).await
             };
             if items.is_empty() && !key.is_empty() {
-                items = get(&client, &key, &format!("/{tmdb_path}"), &[("language", "en-US")])
-                    .await
-                    .map(|value| items_of(&value))
-                    .unwrap_or_default();
+                items = get(
+                    &client,
+                    &key,
+                    &format!("/{tmdb_path}"),
+                    &[("language", "en-US")],
+                )
+                .await
+                .map(|value| items_of(&value))
+                .unwrap_or_default();
             }
             if items.is_empty() {
                 return (index, None);
@@ -319,7 +373,11 @@ pub async fn search(
             client,
             key,
             "/search/multi",
-            &[("query", query), ("include_adult", "false"), ("language", "en-US")],
+            &[
+                ("query", query),
+                ("include_adult", "false"),
+                ("language", "en-US"),
+            ],
         )
         .await?;
         items = items_of(&value);
@@ -343,7 +401,10 @@ pub async fn details(
         client,
         key,
         &format!("/{kind}/{tmdb_id}"),
-        &[("append_to_response", "credits,videos,external_ids"), ("language", "en-US")],
+        &[
+            ("append_to_response", "credits,videos,external_ids"),
+            ("language", "en-US"),
+        ],
     )
     .await?;
 
@@ -364,7 +425,11 @@ pub async fn details(
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|g| g.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .filter_map(|g| {
+                    g.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -429,7 +494,11 @@ pub async fn details(
 
     let details = MetaDetails {
         id: format!("tmdb:{media_type}:{tmdb_id}"),
-        media_type: if kind == "tv" { "series".into() } else { "movie".into() },
+        media_type: if kind == "tv" {
+            "series".into()
+        } else {
+            "movie".into()
+        },
         name,
         poster: value
             .get("poster_path")
@@ -480,10 +549,13 @@ pub async fn find_by_imdb(
     )
     .await?;
     for (key_name, kind) in [("movie_results", "movie"), ("tv_results", "series")] {
-        if let Some(first) = value.get(key_name).and_then(|v| v.as_array()).and_then(|a| a.first()) {
-            if let Some(id) = first.get("id").and_then(|v| v.as_i64()) {
-                return Ok(Some((kind.to_string(), id.to_string())));
-            }
+        if let Some(first) = value
+            .get(key_name)
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            && let Some(id) = first.get("id").and_then(|v| v.as_i64())
+        {
+            return Ok(Some((kind.to_string(), id.to_string())));
         }
     }
     Ok(None)
