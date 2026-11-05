@@ -43,11 +43,14 @@ export function LibraryView() {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
 
-  const counts: Record<Filter, number> = {
-    all: library.length,
-    movie: library.filter((item) => item.type === "movie").length,
-    series: library.filter((item) => item.type === "series").length,
-  };
+  const counts = useMemo<Record<Filter, number>>(() => {
+    const tally: Record<Filter, number> = { all: library.length, movie: 0, series: 0 };
+    for (const item of library) {
+      if (item.type === "movie") tally.movie += 1;
+      else tally.series += 1;
+    }
+    return tally;
+  }, [library]);
 
   const items = useMemo(() => {
     const filtered = tab === "all" ? library : library.filter((item) => item.type === tab);
