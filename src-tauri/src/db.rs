@@ -443,7 +443,7 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
     .optional()
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     write_progress(&tx, p)?;
@@ -618,7 +618,7 @@ fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result
     Ok(())
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn list_watched(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT key FROM watched WHERE watched = 1")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
