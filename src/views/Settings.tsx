@@ -1,17 +1,26 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { telemetryAvailable } from "../lib/telemetry";
 import { Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
-import { NuvioSync } from "./settings/NuvioSync";
-import { StremioSync } from "./settings/StremioSync";
-import { AddonsPanel } from "./Addons";
-import TraktView from "./Trakt";
-import DebridView from "./Debrid";
-import TorrentView from "./Torrent";
-import { MediaServers } from "./settings/MediaServers";
-import { Updates } from "./settings/Updates";
+
+// Panels are split per tab: opening Settings must not fetch the addon, Trakt,
+// debrid and torrent code before any of them is on screen.
+const NuvioSync = lazy(() =>
+  import("./settings/NuvioSync").then((m) => ({ default: m.NuvioSync })),
+);
+const StremioSync = lazy(() =>
+  import("./settings/StremioSync").then((m) => ({ default: m.StremioSync })),
+);
+const AddonsPanel = lazy(() => import("./Addons").then((m) => ({ default: m.AddonsPanel })));
+const TraktView = lazy(() => import("./Trakt"));
+const DebridView = lazy(() => import("./Debrid"));
+const TorrentView = lazy(() => import("./Torrent"));
+const MediaServers = lazy(() =>
+  import("./settings/MediaServers").then((m) => ({ default: m.MediaServers })),
+);
+const Updates = lazy(() => import("./settings/Updates").then((m) => ({ default: m.Updates })));
 
 type Section = {
   id: string;
@@ -579,6 +588,7 @@ export function SettingsView({ section }: { section?: string }) {
             <p>{active.blurb}</p>
           </header>
 
+          <Suspense fallback={<Loading label="Loading panel" variant="rows" />}>
           {tab === "general" ? (
             <>
               <Card title="Appearance">
@@ -955,6 +965,7 @@ export function SettingsView({ section }: { section?: string }) {
               </Button>
             </Card>
           ) : null}
+          </Suspense>
         </div>
       </div>
     </div>
