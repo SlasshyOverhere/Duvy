@@ -257,14 +257,14 @@ fn merge_addons(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         if !seen.insert(url.clone()) {
             continue;
         }
-        let manifest = row.get("manifest").cloned().unwrap_or(Value::Null);
-        let Ok(parsed) = serde_json::from_value::<crate::addons::Manifest>(manifest.clone()) else {
+        let manifest = row.get("manifest").unwrap_or(&Value::Null);
+        let Ok(parsed) = <crate::addons::Manifest as serde::Deserialize>::deserialize(manifest) else {
             continue;
         };
         if parsed.id.trim().is_empty() || parsed.name.trim().is_empty() {
             continue;
         }
-        db::upsert_addon(conn, &url, &parsed.id, &parsed.name, &manifest)
+        db::upsert_addon(conn, &url, &parsed.id, &parsed.name, manifest)
             .map_err(|e| e.to_string())?;
         let disabled = row
             .get("flags")

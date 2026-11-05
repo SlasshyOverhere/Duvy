@@ -754,7 +754,9 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
             }
             _ => continue,
         };
-        let Ok(manifest) = serde_json::from_value::<crate::addons::Manifest>(value.clone()) else {
+        let Ok(manifest) =
+            <crate::addons::Manifest as serde::Deserialize>::deserialize(&value)
+        else {
             continue;
         };
         if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
