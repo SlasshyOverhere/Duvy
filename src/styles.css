@@ -22,7 +22,6 @@
   --muted: #c6c6c6;
   --faint: #919191;
   --accent: #f0a53a;
-  --accent-2: #c97f1c;
   --accent-ink: #1b1206;
   --good: #74c69d;
   --warn: #f0a53a;
@@ -68,19 +67,16 @@
 
 :root[data-accent="violet"] {
   --accent: #b3a4f0;
-  --accent-2: #8574c9;
   --accent-ink: #150f24;
 }
 
 :root[data-accent="mint"] {
   --accent: #7fd6ac;
-  --accent-2: #4ba680;
   --accent-ink: #06170f;
 }
 
 :root[data-accent="rose"] {
   --accent: #f1879a;
-  --accent-2: #c95d70;
   --accent-ink: #22090e;
 }
 
