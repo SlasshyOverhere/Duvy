@@ -239,29 +239,34 @@ pub fn set_addon_enabled(conn: &Connection, url: &str, enabled: bool) -> rusqlit
 /// Swap an addon with its neighbour. Positions are flattened to row order first
 /// so rows that share a value still move exactly one step.
 pub fn move_addon(conn: &Connection, url: &str, delta: i32) -> rusqlite::Result<()> {
-    let addons = list_addons(conn)?;
-    let Some(index) = addons.iter().position(|a| a.url == url) else {
+    // Only the urls are needed here: parsing every manifest would be wasted work.
+    let mut stmt = conn.prepare("SELECT url FROM addons ORDER BY position, name")?;
+    let urls: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    drop(stmt);
+    let Some(index) = urls.iter().position(|u| u == url) else {
         return Ok(());
     };
     let target = index as i64 + delta as i64;
-    if delta == 0 || target < 0 || target as usize >= addons.len() {
+    if delta == 0 || target < 0 || target as usize >= urls.len() {
         return Ok(());
     }
     let target = target as usize;
     let tx = conn.unchecked_transaction()?;
-    for (slot, addon) in addons.iter().enumerate() {
+    for (slot, addon_url) in urls.iter().enumerate() {
         tx.execute(
             "UPDATE addons SET position = ?2 WHERE url = ?1",
-            params![addon.url, slot as i64],
+            params![addon_url, slot as i64],
         )?;
     }
     tx.execute(
         "UPDATE addons SET position = ?2 WHERE url = ?1",
-        params![addons[index].url, target as i64],
+        params![urls[index], target as i64],
     )?;
     tx.execute(
         "UPDATE addons SET position = ?2 WHERE url = ?1",
-        params![addons[target].url, index as i64],
+        params![urls[target], index as i64],
     )?;
     tx.commit()
 }
