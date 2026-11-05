@@ -728,11 +728,6 @@ fn parse_iso(raw: &str) -> Option<i64> {
 // Sync
 // ---------------------------------------------------------------------------
 
-/// Newest write wins; a tie goes to the remote row so both sides converge.
-fn should_apply(local_updated: Option<i64>, remote_updated: i64) -> bool {
-    local_updated.is_none_or(|local| remote_updated >= local)
-}
-
 fn upsert_watched(
     conn: &Connection,
     key: &str,
@@ -861,19 +856,15 @@ fn merge_playback(
             _ => continue,
         };
 
-        let Some(existing) = db::get_progress(conn, &key).map_err(|e| e.to_string())? else {
-            continue;
-        };
-        if existing.duration <= 0.0 || !should_apply(Some(existing.updated_at), paused_at) {
-            continue;
-        }
-        let position = (existing.duration * percent / 100.0).clamp(0.0, existing.duration);
-        conn.execute(
-            "UPDATE progress SET position = ?2, updated_at = ?3 WHERE key = ?1",
-            params![key, position, paused_at],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        let changed = conn
+            .execute(
+                "UPDATE progress
+                    SET position = MIN(duration * ?2 / 100.0, duration), updated_at = ?3
+                  WHERE key = ?1 AND duration > 0 AND updated_at <= ?3",
+                params![key, percent, paused_at],
+            )
+            .map_err(|e| e.to_string())?;
+        applied += changed as i64;
     }
     Ok(applied)
 }
@@ -1131,14 +1122,6 @@ mod tests {
         assert!(needs_refresh(now - 1, now));
         assert!(needs_refresh(0, now));
         assert_eq!(expiry_from(now, 90 * DAY_SECS), now + 90 * DAY_SECS);
-    }
-
-    #[test]
-    fn newest_write_wins() {
-        assert!(should_apply(None, 10));
-        assert!(!should_apply(Some(10), 9));
-        assert!(should_apply(Some(10), 11));
-        assert!(should_apply(Some(10), 10));
     }
 
     #[test]
