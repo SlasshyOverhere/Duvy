@@ -195,6 +195,13 @@ pub fn list_addons(conn: &Connection) -> rusqlite::Result<Vec<StoredAddon>> {
     rows.collect()
 }
 
+/// Just the URLs: dedupe and lookup work has no use for the parsed manifest.
+pub fn list_addon_urls(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT url FROM addons ORDER BY position, name")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect()
+}
+
 pub fn upsert_addon(
     conn: &Connection,
     url: &str,
@@ -240,11 +247,7 @@ pub fn set_addon_enabled(conn: &Connection, url: &str, enabled: bool) -> rusqlit
 /// so rows that share a value still move exactly one step.
 pub fn move_addon(conn: &Connection, url: &str, delta: i32) -> rusqlite::Result<()> {
     // Only the urls are needed here: parsing every manifest would be wasted work.
-    let mut stmt = conn.prepare("SELECT url FROM addons ORDER BY position, name")?;
-    let urls: Vec<String> = stmt
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    drop(stmt);
+    let urls = list_addon_urls(conn)?;
     let Some(index) = urls.iter().position(|u| u == url) else {
         return Ok(());
     };

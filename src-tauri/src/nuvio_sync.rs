@@ -749,18 +749,15 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
     }
     let installed: Vec<String> = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        db::list_addons(&conn)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|addon| addon.url)
-            .collect()
+        db::list_addon_urls(&conn).map_err(|e| e.to_string())?
     };
+    let mut known: std::collections::HashSet<String> = installed.into_iter().collect();
     let mut added = 0;
     for row in rows {
         let Some(url) = remote_addon_url(row) else {
             continue;
         };
-        if installed.iter().any(|known| known == &url) {
+        if !known.insert(url.clone()) {
             continue;
         }
         let manifest_url = format!("{url}/manifest.json");

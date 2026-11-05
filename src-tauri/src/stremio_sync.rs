@@ -266,10 +266,10 @@ async fn pull(http: &reqwest::Client, key: &str) -> Result<Pulled, String> {
 /// normalised manifest URL, so a second account holding the same addon adds
 /// nothing.
 fn merge_addons(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
-    let mut seen: HashSet<String> = db::list_addons(conn)
+    let mut seen: HashSet<String> = db::list_addon_urls(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|addon| crate::addons::normalize_addon_url(&addon.url))
+        .map(|url| crate::addons::normalize_addon_url(&url))
         .collect();
     let mut added = 0;
     for row in rows {
