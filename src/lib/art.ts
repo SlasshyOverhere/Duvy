@@ -10,20 +10,27 @@ function usableLogo(logo: string | null | undefined): logo is string {
   return /^(https?:\/\/|data:image\/)/i.test(logo);
 }
 
+// Session copy: the player asks for a logo on every tick, and re-parsing the
+// whole store each time is the one thing that made this a hot path.
+let memory: Record<string, string> | null = null;
+
 function readArt(): Record<string, string> {
+  if (memory) return memory;
   try {
     const raw = window.localStorage.getItem(ART_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    memory = parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
   } catch {
-    return {};
+    memory = {};
   }
+  return memory;
 }
 
 function writeArt(all: Record<string, string>) {
   try {
     const keys = Object.keys(all);
     for (const stale of keys.slice(0, Math.max(0, keys.length - ART_LIMIT))) delete all[stale];
+    memory = all;
     window.localStorage.setItem(ART_KEY, JSON.stringify(all));
   } catch {
     // Storage can be blocked; the player falls back to the title text.
