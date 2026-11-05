@@ -218,10 +218,19 @@ export function SearchView({ query }: { query?: string }) {
     };
   }, [recoAttempt, activeQuery]);
 
-  // Search returns both kinds at once; split them the way Stremio does.
-  const movies = results.filter((item) => item.type === "movie");
-  const series = results.filter((item) => item.type === "series");
-  const other = results.filter((item) => item.type !== "movie" && item.type !== "series");
+  // Search returns both kinds at once; split them the way Stremio does. Memoized
+  // because new arrays every render would defeat the card memo below.
+  const { movies, series, other } = useMemo(() => {
+    const movies: MetaPreview[] = [];
+    const series: MetaPreview[] = [];
+    const other: MetaPreview[] = [];
+    for (const item of results) {
+      if (item.type === "movie") movies.push(item);
+      else if (item.type === "series") series.push(item);
+      else other.push(item);
+    }
+    return { movies, series, other };
+  }, [results]);
 
   // Typing re-renders this view, so the result grids hold stable elements:
   // React then skips the card subtree on every keystroke.
