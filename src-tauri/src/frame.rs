@@ -19,7 +19,7 @@ const TIMEOUT: Duration = Duration::from_secs(8);
 const DECODERS: usize = 2;
 
 /// Snap to the preview bucket the seek bar hovers over.
-pub fn bucket(seconds: f64) -> f64 {
+fn bucket(seconds: f64) -> f64 {
     if !seconds.is_finite() || seconds <= 0.0 {
         return 0.0;
     }

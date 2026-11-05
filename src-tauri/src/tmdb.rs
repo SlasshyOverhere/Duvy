@@ -10,11 +10,11 @@ const API: &str = "https://api.themoviedb.org/3";
 const CINEMETA_CATALOG: &str = "https://v3-cinemeta.strem.io/catalog";
 const IMG: &str = "https://image.tmdb.org/t/p";
 
-pub fn poster_url(path: &str) -> String {
+fn poster_url(path: &str) -> String {
     format!("{IMG}/w500{path}")
 }
 
-pub fn backdrop_url(path: &str) -> String {
+fn backdrop_url(path: &str) -> String {
     format!("{IMG}/w1280{path}")
 }
 
@@ -40,7 +40,7 @@ fn media_type_of(item: &Value) -> String {
     }
 }
 
-pub fn preview_from_item(item: &Value) -> Option<MetaPreview> {
+fn preview_from_item(item: &Value) -> Option<MetaPreview> {
     let media_type = media_type_of(item);
     if media_type != "movie" && media_type != "series" && media_type != "tv" {
         return None;

@@ -784,7 +784,7 @@ pub async fn recommendations(state: State<'_, AppState>) -> Result<Vec<HomeRow>,
 /// The pick itself, taking the history as plain data so it can be run outside
 /// Tauri (and against the live network in a test). `seen` is every id the
 /// viewer has touched, so nothing already watched or started can come back.
-pub async fn recommendation_rows(
+async fn recommendation_rows(
     http: &reqwest::Client,
     recent: Vec<db::WatchedItem>,
     seen: Vec<String>,

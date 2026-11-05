@@ -74,7 +74,7 @@ fn take_blob(output: windows_sys::Win32::Security::Cryptography::CRYPT_INTEGER_B
 }
 
 #[cfg(windows)]
-pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
@@ -106,7 +106,7 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData,
@@ -138,11 +138,11 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(data.to_vec())
 }
 
 #[cfg(not(windows))]
-pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(data.to_vec())
 }

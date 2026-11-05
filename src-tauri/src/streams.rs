@@ -98,7 +98,7 @@ const QUALITY_TOKENS: &[(&str, &str, i64)] = &[
 ];
 
 /// Detect a display quality label from arbitrary addon text.
-pub fn detect_quality(text: &str) -> (String, i64) {
+fn detect_quality(text: &str) -> (String, i64) {
     let upper = text.to_uppercase();
     // Rips are matched as whole words: "Scam 1992" is not a cam rip.
     let ripped = upper
@@ -137,7 +137,7 @@ pub fn detect_quality(text: &str) -> (String, i64) {
 }
 
 /// Pull a human-readable size such as "1.4 GB" out of a description.
-pub fn find_size(text: &str) -> Option<String> {
+fn find_size(text: &str) -> Option<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     for (index, word) in words.iter().enumerate() {
         let cleaned = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
@@ -163,7 +163,7 @@ pub fn find_size(text: &str) -> Option<String> {
 }
 
 /// Pull a seeder count from common emoji / text forms.
-pub fn find_seeders(text: &str) -> Option<i64> {
+fn find_seeders(text: &str) -> Option<i64> {
     let normalised = text.replace(['\u{1F464}', '\u{1F465}'], "seeders:");
     let lower = normalised.to_lowercase();
     for marker in ["seeders:", "seeds:", "seeders ", "👤"] {

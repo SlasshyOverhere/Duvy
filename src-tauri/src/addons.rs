@@ -63,7 +63,7 @@ impl ResourceRef {
         }
     }
 
-    pub fn supports_type(&self, media_type: &str) -> bool {
+    fn supports_type(&self, media_type: &str) -> bool {
         match self {
             ResourceRef::Name(_) => true,
             ResourceRef::Detailed { types, .. } => {
@@ -72,7 +72,7 @@ impl ResourceRef {
         }
     }
 
-    pub fn supports_id(&self, id: &str) -> bool {
+    fn supports_id(&self, id: &str) -> bool {
         match self {
             ResourceRef::Name(_) => true,
             ResourceRef::Detailed { id_prefixes, .. } => match id_prefixes {
@@ -352,7 +352,7 @@ fn encode_with(value: &str, keep_colon: bool) -> String {
     out
 }
 
-pub fn extra_segment(extra: &BTreeMap<String, String>) -> String {
+fn extra_segment(extra: &BTreeMap<String, String>) -> String {
     extra
         .iter()
         .filter(|(_, v)| !v.is_empty())

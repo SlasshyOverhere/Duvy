@@ -174,7 +174,7 @@ pub struct StoredAddon {
 }
 
 impl StoredAddon {
-    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         let manifest: String = row.get(3)?;
         Ok(Self {
             url: row.get(0)?,
