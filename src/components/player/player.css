@@ -1337,6 +1337,18 @@
   cursor: grabbing;
 }
 
+/* Ring the rail, not the 2.5rem hit box around it. */
+.pv .pv-seek .pv-track:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.pv .pv-seek .pv-track:focus-visible .pv-trackrail {
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.62),
+    0 0 0 4px var(--accent);
+}
+
 .pv .pv-trackrail,
 .pv .pv-buffer,
 .pv .pv-played {
