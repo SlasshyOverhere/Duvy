@@ -122,7 +122,8 @@ fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
 /// Rows written before DPAPI protection existed are plaintext. Upgrade them on
 /// open so an existing profile does not wait for each setting to be saved again.
 fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
-    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+    let mut stmt =
+        conn.prepare("SELECT key, value FROM settings WHERE substr(value, 1, 5) <> 'enc1:'")?;
     let rows = stmt
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -130,12 +131,10 @@ fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
     drop(stmt);
     for (key, value) in rows {
-        if !value.starts_with("enc1:") {
-            conn.execute(
-                "UPDATE settings SET value = ?2 WHERE key = ?1",
-                params![key, secret::encode(&value)],
-            )?;
-        }
+        conn.execute(
+            "UPDATE settings SET value = ?2 WHERE key = ?1",
+            params![key, secret::encode(&value)],
+        )?;
     }
     Ok(())
 }
