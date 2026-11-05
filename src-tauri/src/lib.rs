@@ -8,6 +8,7 @@ mod commands;
 mod db;
 mod debrid;
 mod frame;
+mod json;
 mod meta;
 mod models;
 mod nuvio_sync;

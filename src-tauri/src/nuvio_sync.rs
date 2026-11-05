@@ -20,6 +20,7 @@
 
 use crate::AppState;
 use crate::db;
+use crate::json::{as_rows, int, text};
 use crate::settings::Settings;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -537,29 +538,6 @@ pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
 // ---------------------------------------------------------------------------
 // Sync
 // ---------------------------------------------------------------------------
-
-fn as_rows(value: Value) -> Vec<Value> {
-    match value {
-        Value::Array(rows) => rows,
-        Value::Null => Vec::new(),
-        other => vec![other],
-    }
-}
-
-fn int(value: &Value, key: &str) -> i64 {
-    value
-        .get(key)
-        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-        .unwrap_or(0)
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
 
 /// Some Nuvio rows store their timestamps in seconds; the local clock is ms.
 fn to_ms(at: i64) -> i64 {

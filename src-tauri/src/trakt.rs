@@ -9,6 +9,7 @@
 //! runtime) if new-device resume ever needs to appear here.
 
 use crate::{AppState, db};
+use crate::json::text;
 use reqwest::Method;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -128,14 +129,6 @@ fn apply_client(store: &mut Store, client_id: String, client_secret: String) {
 
 fn success(status: u16) -> bool {
     (200..300).contains(&status)
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
 }
 
 fn http_error(status: u16, value: &Value) -> String {
