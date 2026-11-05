@@ -12,6 +12,7 @@ use crate::player::{self, PlayRequest, Player, Snapshot};
 use crate::settings::Settings;
 use crate::streams::{self as stream_utils, StreamOption};
 use crate::{AppState, tmdb};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -38,7 +39,9 @@ const DEFAULT_ADDONS: &[&str] = &["https://v3-cinemeta.strem.io"];
 // ---------------------------------------------------------------------------
 
 fn parse_manifest(addon: &StoredAddon) -> Manifest {
-    serde_json::from_value(addon.manifest.clone()).unwrap_or_default()
+    // Deserialized straight from the stored value: cloning the whole manifest
+    // per catalog row would copy the entire JSON tree on every home load.
+    Manifest::deserialize(&addon.manifest).unwrap_or_default()
 }
 
 pub(crate) fn load_settings(state: &AppState) -> Settings {
@@ -411,7 +414,9 @@ fn store_addon(
 
 async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, Manifest), String> {
     let value = fetch_json(client, &format!("{base}/manifest.json")).await?;
-    let manifest: Manifest = serde_json::from_value(value.clone())
+    // Borrowed deserialize: the payload is returned to the caller, so cloning it
+    // here would duplicate the whole manifest on every install.
+    let manifest: Manifest = Manifest::deserialize(&value)
         .map_err(|e| format!("That URL did not return a valid addon manifest: {e}"))?;
     if manifest.name.trim().is_empty() || manifest.id.trim().is_empty() {
         return Err("That manifest is missing an id or name".into());
