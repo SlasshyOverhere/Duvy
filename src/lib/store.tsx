@@ -262,16 +262,22 @@ type SourceMemory = StreamOption;
 const SOURCE_MEMORY_KEY = "duvy:sources";
 const SOURCE_MEMORY_LIMIT = 200;
 
+// Session copy: the play path asks for the last stream on every start.
+let sourceMemory: Record<string, SourceMemory> | null = null;
+
 function readSourceMemory(): Record<string, SourceMemory> {
+  if (sourceMemory) return sourceMemory;
   try {
     const raw = window.localStorage.getItem(SOURCE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, SourceMemory>)
-      : {};
+    sourceMemory =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, SourceMemory>)
+        : {};
   } catch {
-    return {};
+    sourceMemory = {};
   }
+  return sourceMemory;
 }
 
 export function rememberedSource(key: string | null | undefined): SourceMemory | null {
@@ -319,16 +325,22 @@ interface SubtitleMemory {
 const SUBTITLE_MEMORY_KEY = "duvy:subtitles";
 const SUBTITLE_MEMORY_LIMIT = 200;
 
+// Same story as the source memory: read once per session, not per start.
+let subtitleMemory: Record<string, SubtitleMemory> | null = null;
+
 function readSubtitleMemory(): Record<string, SubtitleMemory> {
+  if (subtitleMemory) return subtitleMemory;
   try {
     const raw = window.localStorage.getItem(SUBTITLE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, SubtitleMemory>)
-      : {};
+    subtitleMemory =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, SubtitleMemory>)
+        : {};
   } catch {
-    return {};
+    subtitleMemory = {};
   }
+  return subtitleMemory;
 }
 
 export function rememberedSubtitle(key: string | null | undefined): SubtitleMemory | null {
