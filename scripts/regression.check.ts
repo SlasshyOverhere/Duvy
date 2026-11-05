@@ -284,6 +284,25 @@ run("auto-advance keeps the playing addon", () => {
   return [];
 });
 
+run("a source the viewer left does not come back", () => {
+  const out: string[] = [];
+  const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
+  const playingAt = pick.indexOf("fromAddon");
+  const memoryAt = pick.indexOf("if (remembered)");
+  if (playingAt < 0 || memoryAt < 0 || playingAt > memoryAt) {
+    out.push("pickSource prefers a remembered source over the addon playing now");
+  }
+  // The fan-out stops at the first answer, so the next episode asks the addon
+  // that is playing on its own first instead of hunting over the top of it.
+  if (!/addon: home/.test(playerView) || !/sources = await api\.streams\(request\)/.test(playerView)) {
+    out.push("Player.tsx re-hunts the next episode from all addons, so the playing one can be missing");
+  }
+  if (!/liveMemory\(rememberedSource/.test(store)) {
+    out.push("store.tsx resolves a remembered source from an addon that is gone");
+  }
+  return out;
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];

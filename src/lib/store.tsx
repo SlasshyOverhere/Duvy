@@ -207,9 +207,8 @@ function resumePosition(position: number, duration: number): number {
 }
 
 /**
- * The preferred quality when one matches, otherwise the best source offered.
- * A stream from the pack already playing wins first, so the next episode comes
- * out of the same download instead of hunting for a new one.
+ * The quality wanted, preferring the pack and the addon already playing, then
+ * the source this session used last time, then the best source offered.
  */
 export function pickSource(
   options: StreamOption[],
@@ -221,6 +220,19 @@ export function pickSource(
   const playable = options.filter(
     (stream) => stream.playable && (p2pAllowed || Boolean(stream.url)),
   );
+  if (playing?.infoHash) {
+    const pack = playing.infoHash.toLowerCase();
+    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
+    if (samePack) return samePack;
+  }
+  // The addon playing now beats a memory from another session: a source the
+  // viewer switched away from must not come back on the next episode.
+  const fromAddon = playing ? playable.filter((stream) => stream.addon === playing.addon) : [];
+  const wanted = quality && quality !== "auto" ? quality.toLowerCase() : null;
+  const fits = (stream: StreamOption) =>
+    wanted === null || stream.quality.toLowerCase().includes(wanted);
+  const home = fromAddon.find(fits) ?? fromAddon[0];
+  if (home) return home;
   // The source this session used last time wins, as long as the addon still
   // offers it.
   if (remembered) {
@@ -237,19 +249,6 @@ export function pickSource(
     );
     if (same) return same;
   }
-  if (playing?.infoHash) {
-    const pack = playing.infoHash.toLowerCase();
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
-    if (samePack) return samePack;
-  }
-  const wanted = quality && quality !== "auto" ? quality.toLowerCase() : null;
-  const fits = (stream: StreamOption) =>
-    wanted === null || stream.quality.toLowerCase().includes(wanted);
-  // Staying with the addon that is already playing beats a quality jump: on
-  // auto-advance the next episode must not land on a different source.
-  const fromAddon = playing ? playable.filter((stream) => stream.addon === playing.addon) : [];
-  const home = fromAddon.find(fits) ?? fromAddon[0];
-  if (home) return home;
   if (wanted !== null) {
     const match = playable.find(fits);
     if (match) return match;
@@ -280,6 +279,16 @@ export function rememberedSource(key: string | null | undefined): SourceMemory |
   const found = readSourceMemory()[key];
   return found && typeof found.addon === "string" && typeof found.quality === "string"
     ? found
+    : null;
+}
+
+/** A remembered stream only helps while its addon is still installed and on. */
+export function liveMemory(
+  memory: SourceMemory | null,
+  addons: AddonInfo[],
+): SourceMemory | null {
+  return memory && addons.some((addon) => addon.enabled && addon.name === memory.addon)
+    ? memory
     : null;
 }
 
@@ -1178,7 +1187,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!video) throw new Error("This show has no episodes listed yet.");
         }
         const session = sessionFor(details, video);
-        const memory = rememberedSource(session.key);
+        const memory = liveMemory(rememberedSource(session.key), addons);
         const stored = progressFor(session.key);
         const resume =
           settings?.autoResume && !fromStart
@@ -1245,6 +1254,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     },
     [
+      addons,
       beginStart,
       finishStart,
       leaveStart,
@@ -1289,7 +1299,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           episode: entry.episode ?? null,
           episodeTitle: entry.episodeTitle ?? null,
         };
-        const memory = rememberedSource(session.key);
+        const memory = liveMemory(rememberedSource(session.key), addons);
         let source: StreamOption | null = null;
         let url: string | null = null;
         if (memory) {
@@ -1364,6 +1374,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     },
     [
+      addons,
       beginStart,
       finishStart,
       leaveStart,

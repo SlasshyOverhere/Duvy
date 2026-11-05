@@ -1088,6 +1088,7 @@ export function PlayerView() {
     playRequest,
     buildSession,
     resolveStream,
+    addons,
     playingSource,
     playingUrl,
     progressFor,
@@ -1380,20 +1381,35 @@ export function PlayerView() {
       try {
         const nextSession = buildSession(details, video);
         const memory = rememberedSource(nextSession.key);
-        const sources = await api.streams({
+        const request = {
           id: details.imdbId ?? details.id,
           mediaType: details.type,
           season: video.season,
           episode: video.episode ?? video.number,
           imdbId: details.imdbId,
-        });
-        const source = pickSource(
-          sources,
-          settings?.preferredQuality ?? "auto",
-          settings?.p2pConsent ?? false,
-          playingSource,
-          memory,
-        );
+        };
+        // The all-addon fan-out stops at the first answer, so the addon that is
+        // playing can be missing from the next episode's list; ask it alone
+        // first so a binge never falls back to a source the viewer left.
+        const home = playingSource
+          ? addons.find((addon) => addon.enabled && addon.name === playingSource.addon)?.url
+          : undefined;
+        const choose = (rows: StreamOption[]) =>
+          pickSource(
+            rows,
+            settings?.preferredQuality ?? "auto",
+            settings?.p2pConsent ?? false,
+            playingSource,
+            memory,
+          );
+        let sources: StreamOption[] = home
+          ? await api.streams({ ...request, addon: home }).catch(() => [])
+          : [];
+        let source = choose(sources);
+        if (!source) {
+          sources = await api.streams(request);
+          source = choose(sources);
+        }
         if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
         const url = await resolveStream(source);
         // A pending open that resolves after the screen closed must bail.
@@ -1419,6 +1435,7 @@ export function PlayerView() {
       }
     },
     [
+      addons,
       buildSession,
       details,
       notify,
