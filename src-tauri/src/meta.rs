@@ -78,7 +78,6 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Opt
                         overview: text(item.get("overview")),
                         thumbnail: text(item.get("thumbnail")),
                         released: text(item.get("released")),
-                        available: Some(true),
                         rating: text(item.get("rating")),
                     }
                 })

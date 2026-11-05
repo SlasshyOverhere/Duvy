@@ -105,11 +105,7 @@ pub struct Manifest {
     #[serde(default)]
     pub catalogs: Vec<CatalogDef>,
     #[serde(default)]
-    pub id_prefixes: Option<Vec<String>>,
-    #[serde(default)]
     pub behavior_hints: Option<Value>,
-    #[serde(default)]
-    pub addon_collection: Option<Value>,
 }
 
 impl Manifest {
@@ -165,19 +161,13 @@ pub struct Meta {
     #[serde(default)]
     pub country: Option<String>,
     #[serde(default)]
-    pub awards: Option<String>,
-    #[serde(default)]
     pub videos: Vec<Video>,
     #[serde(default)]
     pub trailers: Vec<Trailer>,
     #[serde(default)]
-    pub trailers_streams: Option<Vec<Stream>>,
-    #[serde(default)]
     pub links: Vec<Link>,
     #[serde(default)]
     pub behavior_hints: Option<Value>,
-    #[serde(default)]
-    pub release_dates: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -200,8 +190,6 @@ pub struct Video {
     #[serde(default)]
     pub released: Option<String>,
     #[serde(default)]
-    pub available: Option<bool>,
-    #[serde(default)]
     pub rating: Option<String>,
 }
 
@@ -220,8 +208,6 @@ pub struct Link {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub category: String,
-    #[serde(default)]
     pub url: String,
 }
 
@@ -237,15 +223,11 @@ pub struct Stream {
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
-    pub yt_id: Option<String>,
-    #[serde(default)]
     pub info_hash: Option<String>,
     #[serde(default)]
     pub file_idx: Option<i64>,
     #[serde(default)]
     pub external_url: Option<String>,
-    #[serde(default)]
-    pub sources: Option<Vec<String>>,
     #[serde(default)]
     pub behavior_hints: Option<Value>,
 }
