@@ -123,32 +123,39 @@ async fn fetch_json_within(
 }
 
 fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
-    let preview = meta.preview.clone();
+    let Meta {
+        preview,
+        year: year_value,
+        cast,
+        director,
+        writer,
+        country,
+        videos,
+        trailers,
+        ..
+    } = meta;
     let year = preview
         .release_info
         .as_ref()
         .filter(|s| s.chars().count() >= 4)
         .map(|s| s.chars().take(4).collect::<String>())
         .or_else(|| {
-            meta.year
+            year_value
                 .as_ref()
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .or_else(|| {
-                    meta.year
+                    year_value
                         .as_ref()
                         .and_then(|v| v.as_i64())
                         .map(|v| v.to_string())
                 })
         });
-    let trailer = meta
-        .trailers
+    let trailer = trailers
         .iter()
         .find(|t| t.kind == "Trailer" || t.kind == "trailer")
-        .or_else(|| meta.trailers.first())
+        .or_else(|| trailers.first())
         .map(|t| format!("https://www.youtube.com/watch?v={}", t.source));
-    let cast = meta
-        .cast
-        .clone()
+    let cast = cast
         .unwrap_or_default()
         .into_iter()
         .take(14)
@@ -164,42 +171,36 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
         None
     };
 
-    let mut genres = preview.genres.clone().unwrap_or_default();
+    let mut genres = preview.genres.unwrap_or_default();
     genres.retain(|g| !g.is_empty());
 
     MetaDetails {
-        id: preview.id.clone(),
-        media_type: preview.media_type.clone(),
-        name: preview.name.clone(),
-        poster: preview.poster.clone(),
-        background: preview.background.clone(),
-        logo: preview.logo.clone(),
-        description: preview.description.clone(),
-        release_info: preview.release_info.clone(),
+        id: preview.id,
+        media_type: preview.media_type,
+        name: preview.name,
+        poster: preview.poster,
+        background: preview.background,
+        logo: preview.logo,
+        description: preview.description,
+        release_info: preview.release_info,
         year,
-        rating: preview.imdb_rating.clone(),
+        rating: preview.imdb_rating,
         genres,
-        runtime: preview.runtime.clone(),
+        runtime: preview.runtime,
         status: None,
-        videos: meta.videos.clone(),
+        videos,
         cast,
-        director: meta
-            .director
-            .clone()
+        director: director
             .unwrap_or_default()
             .iter()
             .map(|name| crate::meta::clean(name))
             .collect(),
-        writer: meta
-            .writer
-            .clone()
+        writer: writer
             .unwrap_or_default()
             .iter()
             .map(|name| crate::meta::clean(name))
             .collect(),
-        country: meta
-            .country
-            .clone()
+        country: country
             .map(|name| crate::meta::clean(&name))
             .into_iter()
             .collect(),
