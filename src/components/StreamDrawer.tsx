@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { api, openExternal } from "../lib/bridge";
+import { errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
 import { Button, ContextMenu, EmptyState, Icon } from "./ui";
@@ -23,7 +24,7 @@ type Group = {
 };
 
 function errorText(error: unknown) {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   return text.length > 110 ? `${text.slice(0, 110)}…` : text;
 }
 

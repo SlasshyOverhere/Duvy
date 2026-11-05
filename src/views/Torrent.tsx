@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
+import { errorMessage } from "../lib/format";
 import { Badge, Button, Icon, Loading } from "../components/ui";
 import type { TorrentStats } from "../lib/types";
 
@@ -12,10 +13,6 @@ const IDLE: TorrentStats = {
   peers: 0,
   seeds: 0,
 };
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function rate(bytesPerSecond: number) {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
@@ -67,7 +64,7 @@ export default function TorrentView() {
       setError(null);
     } catch (reason) {
       if (current !== generation.current) return;
-      setError(message(reason));
+      setError(errorMessage(reason));
     } finally {
       reading.current = false;
       setLoading(false);
@@ -118,7 +115,7 @@ export default function TorrentView() {
       setError(null);
       await read();
     } catch (reason) {
-      setError(message(reason));
+      setError(errorMessage(reason));
     } finally {
       pendingStop.current = false;
       setStopping(false);

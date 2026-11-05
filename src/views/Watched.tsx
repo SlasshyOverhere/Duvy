@@ -4,7 +4,7 @@ import { useApp } from "../lib/store";
 import type { MetaPreview, WatchedItem } from "../lib/types";
 import { PosterCard } from "../components/media";
 import { Button, EmptyState, IconButton, Loading } from "../components/ui";
-import { seasonLabel, placeholderGradient } from "../lib/format";
+import { seasonLabel, placeholderGradient, errorMessage } from "../lib/format";
 
 const MONTHS = [
   "January",
@@ -49,12 +49,6 @@ function episodeCode(item: WatchedItem): string {
   return seasonLabel(item.season, item.episode).replace(" · ", "");
 }
 
-function errorText(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error) return error;
-  return "Watched history could not be read.";
-}
-
 function Thumb({ src, seed }: { src?: string | null; seed: string }) {
   const [failed, setFailed] = useState(false);
   // A refreshed row can carry a new poster; retry the image with it.
@@ -92,7 +86,7 @@ export function WatchedView() {
         setItems(rows);
       })
       .catch((failure) => {
-        if (alive) setError(errorText(failure));
+        if (alive) setError(errorMessage(failure, "Watched history could not be read."));
       });
     return () => {
       alive = false;

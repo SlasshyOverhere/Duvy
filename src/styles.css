@@ -1598,12 +1598,9 @@ button.pill:hover {
 }
 
 .hero-link {
-  border: 0;
-  background: none;
   padding: 0 22px;
   font-size: 15px;
   font-weight: 600;
-  color: rgba(253, 250, 245, 0.78);
   transition: color 0.15s var(--ease);
 }
 
