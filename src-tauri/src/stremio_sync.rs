@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn the_same_addon_on_every_source_stays_one_row() {
-        let rows = vec![
+        let rows = [
             json!({ "transportUrl": "https://example.com/addon/", "manifest": { "id": "a", "name": "A" } }),
             json!({ "transportUrl": "https://example.com/addon/manifest.json", "manifest": { "id": "a", "name": "A" } }),
             json!({ "transportUrl": "stremio://example.com/addon", "manifest": { "id": "a", "name": "A" } }),
