@@ -264,14 +264,16 @@ fn magnet_hash(url: &str) -> Option<String> {
     (!hash.is_empty()).then_some(hash)
 }
 
-pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
-    let name = stream.name.clone().unwrap_or_default();
-    let title = stream.title.clone().unwrap_or_default();
-    let description = stream.description.clone().unwrap_or_default();
-    let combined = format!("{name} {title} {description}");
+pub fn normalize(addon: &str, stream: Stream) -> StreamOption {
+    let combined = format!(
+        "{} {} {}",
+        stream.name.as_deref().unwrap_or_default(),
+        stream.title.as_deref().unwrap_or_default(),
+        stream.description.as_deref().unwrap_or_default()
+    );
 
     let (quality, mut score) = detect_quality(&combined);
-    let size_bytes = video_size(stream);
+    let size_bytes = video_size(&stream);
     let size = size_bytes
         .map(format_bytes)
         .or_else(|| find_size(&combined));
@@ -295,7 +297,7 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
         score += 6;
     }
 
-    let url = stream.url.clone();
+    let url = stream.url;
     // A magnet/hash row is playable too: the torrent engine turns it into a
     // local HTTP stream at playback time.
     let magnet = url.as_deref().is_some_and(|u| {
@@ -304,7 +306,6 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
     });
     let info_hash = stream
         .info_hash
-        .clone()
         .or_else(|| url.as_deref().and_then(magnet_hash));
     let playable = magnet
         || info_hash.is_some()
@@ -315,13 +316,13 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
 
     StreamOption {
         addon: addon.to_string(),
-        name: stream.name.clone(),
-        title: stream.title.clone(),
-        description: stream.description.clone(),
+        name: stream.name,
+        title: stream.title,
+        description: stream.description,
         url,
         info_hash,
         file_idx: stream.file_idx,
-        external_url: stream.external_url.clone(),
+        external_url: stream.external_url,
         quality,
         size,
         size_bytes,
@@ -360,14 +361,14 @@ mod tests {
             name: Some("Provider".into()),
             ..Default::default()
         };
-        assert!(normalize("A", &direct).playable);
+        assert!(normalize("A", direct).playable);
 
         let torrent = Stream {
             info_hash: Some("abc123".into()),
             name: Some("Torrent".into()),
             ..Default::default()
         };
-        let option = normalize("A", &torrent);
+        let option = normalize("A", torrent);
         assert!(option.playable);
         assert!(option.info_hash.is_some());
 
@@ -377,7 +378,7 @@ mod tests {
             ),
             ..Default::default()
         };
-        let option = normalize("A", &magnet);
+        let option = normalize("A", magnet);
         assert!(option.playable);
         assert_eq!(
             option.info_hash.as_deref(),
@@ -388,14 +389,14 @@ mod tests {
             url: Some("file:///C:/movie.mkv".into()),
             ..Default::default()
         };
-        assert!(!normalize("A", &local).playable);
+        assert!(!normalize("A", local).playable);
     }
 
     #[test]
     fn ranks_cached_1080_above_cam() {
         let good = normalize(
             "A",
-            &Stream {
+            Stream {
                 url: Some("https://x/y.mp4".into()),
                 name: Some("1080p WEB-DL ⚡ cached".into()),
                 ..Default::default()
@@ -403,7 +404,7 @@ mod tests {
         );
         let bad = normalize(
             "A",
-            &Stream {
+            Stream {
                 url: Some("https://x/z.mp4".into()),
                 name: Some("CAM".into()),
                 ..Default::default()
@@ -420,7 +421,7 @@ mod tests {
             behavior_hints: Some(serde_json::json!({ "videoSize": 19_170_000_000u64 })),
             ..Default::default()
         };
-        let option = normalize("A", &stream);
+        let option = normalize("A", stream);
         assert_eq!(option.size.as_deref(), Some("17.9 GB"));
         assert_eq!(option.size_bytes, Some(19_170_000_000));
         assert_eq!(

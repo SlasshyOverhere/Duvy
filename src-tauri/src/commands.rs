@@ -1219,7 +1219,7 @@ pub async fn streams(
                     if stream.url.is_none() && stream.info_hash.is_none() {
                         continue;
                     }
-                    options.push(stream_utils::normalize(&addon, &stream));
+                    options.push(stream_utils::normalize(&addon, stream));
                 }
             }
             Ok((addon, Err(e))) => errors.push(format!("{addon}: {e}")),
