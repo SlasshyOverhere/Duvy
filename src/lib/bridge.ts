@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import * as Sentry from "@sentry/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { rememberLogos } from "./art";
+import { sentry } from "./sentry";
 import type {
   AddonInfo,
   AppInfo,
@@ -53,6 +53,10 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
     return mock(command, args) as Promise<T>;
   }
   // One span per backend call, so a slow screen shows which command stalled.
+  // Tracing is only live once the reporter is loaded (opt-in), so before that
+  // the call goes straight to the bridge.
+  const Sentry = sentry();
+  if (!Sentry) return invoke<T>(command, args);
   return Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<T>(command, args));
 }
 
