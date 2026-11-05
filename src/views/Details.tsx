@@ -157,6 +157,18 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     [details, season],
   );
 
+  const similarRow = useMemo(
+    () =>
+      similar.map((item) => (
+        <PosterCard
+          key={item.id}
+          item={item}
+          onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+        />
+      )),
+    [similar, navigate],
+  );
+
   const resumeTarget = useMemo(() => {
     if (!details) return { video: null as Video | null, position: 0, label: "Play" };
     if (details.type !== "series") {
@@ -487,13 +499,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             title="More like this"
             detail={<span className="row-detail">{(details.genres ?? [])[0] ?? "Discover"}</span>}
           >
-            {similar.map((item) => (
-              <PosterCard
-                key={item.id}
-                item={item}
-                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-              />
-            ))}
+            {similarRow}
           </Row>
         </section>
       ) : null}
