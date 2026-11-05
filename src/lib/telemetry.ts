@@ -83,7 +83,7 @@ export function applyTelemetry(enabled: boolean, release?: string): void {
  */
 export { note };
 
-export type ReportLevel = "error" | "fatal" | "warning" | "info";
+type ReportLevel = "error" | "fatal" | "warning" | "info";
 
 /**
  * Record a failure for the next fix session. A no-op unless the user opted in,

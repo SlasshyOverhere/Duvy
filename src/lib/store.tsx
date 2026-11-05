@@ -257,7 +257,7 @@ export function pickSource(
 }
 
 /** The whole source a session played last time, so resuming skips the hunt. */
-export type SourceMemory = StreamOption;
+type SourceMemory = StreamOption;
 
 const SOURCE_MEMORY_KEY = "duvy:sources";
 const SOURCE_MEMORY_LIMIT = 200;
@@ -283,7 +283,7 @@ export function rememberedSource(key: string | null | undefined): SourceMemory |
 }
 
 /** A remembered stream only helps while its addon is still installed and on. */
-export function liveMemory(
+function liveMemory(
   memory: SourceMemory | null,
   addons: AddonInfo[],
 ): SourceMemory | null {
@@ -308,7 +308,7 @@ export function rememberSource(key: string | null | undefined, stream: StreamOpt
 }
 
 /** The subtitle a session used last time, so the same track comes back. */
-export interface SubtitleMemory {
+interface SubtitleMemory {
   lang: string;
   trackId?: number;
   url?: string;
