@@ -5,14 +5,29 @@
 //! both simpler and faster than a pool.
 
 use crate::secret;
+use crate::playback_log;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Db(pub Mutex<Connection>);
+
+impl Db {
+    /// A lock a panic cannot brick, the same call `settings::load_cached` makes:
+    /// the payload is a connection handle, so a poisoned guard still works.
+    pub fn conn(&self) -> MutexGuard<'_, Connection> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                playback_log::mark("database lock was poisoned; continuing");
+                poisoned.into_inner()
+            }
+        }
+    }
+}
 
 /// Share of a title's duration after which it counts as finished.
 pub const FINISHED_AT: f64 = 0.9;

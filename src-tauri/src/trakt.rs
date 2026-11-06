@@ -56,7 +56,7 @@ struct Store {
 // ---------------------------------------------------------------------------
 
 fn load(state: &AppState) -> Result<Store, String> {
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     Ok(db::read_kv(&conn, KV)
         .ok()
         .flatten()
@@ -66,7 +66,7 @@ fn load(state: &AppState) -> Result<Store, String> {
 
 fn save(state: &AppState, store: &Store) -> Result<(), String> {
     let value = serde_json::to_value(store).map_err(|e| e.to_string())?;
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     db::write_kv(&conn, KV, &value).map_err(|e| e.to_string())
 }
 
@@ -943,7 +943,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
     let playback = get_all(&state.http, "/sync/playback", "", &store.client_id, &token).await?;
 
     let (pulled, pending) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         let index = library_index(&conn)?;
         let (mut pulled, remote_keys) = merge_watched(&conn, &movies, &shows, &index)?;
         pulled += merge_playback(&conn, &playback, &index)?;
@@ -1007,7 +1007,7 @@ pub async fn scrobble(
 
     let (meta_id, season, episode) = split_key(&key);
     let ids = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         resolve_ids(&conn, &meta_id)
     };
     if ids.is_empty() {

@@ -338,7 +338,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<Settings, String
 
 #[tauri::command]
 pub async fn settings_set(patch: Value, state: State<'_, AppState>) -> Result<Settings, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     let mut settings = Settings::load(&conn);
     settings.apply_patch(patch)?;
     settings.save(&conn)?;
@@ -402,7 +402,7 @@ fn store_addon(
     manifest: &Manifest,
     value: &Value,
 ) -> Result<AddonInfo, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     db::upsert_addon(&conn, base, &manifest.id, &manifest.name, value)
         .map_err(|e| e.to_string())?;
     let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
@@ -430,7 +430,7 @@ async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, 
 pub async fn seed_default_addons(handle: AppHandle) {
     let state = handle.state::<AppState>();
     {
-        let Ok(conn) = state.db.0.lock() else { return };
+        let conn = state.db.conn();
         if Settings::load(&conn).defaults_seeded {
             return;
         }
@@ -450,7 +450,8 @@ pub async fn seed_default_addons(handle: AppHandle) {
         // Offline on first launch: try again next time instead of staying empty.
         return;
     }
-    if let Ok(conn) = state.db.0.lock() {
+    {
+        let conn = state.db.conn();
         let mut settings = Settings::load(&conn);
         settings.defaults_seeded = true;
         if let Err(e) = settings.save(&conn) {
@@ -464,7 +465,7 @@ pub async fn seed_default_addons(handle: AppHandle) {
 
 #[tauri::command]
 pub async fn addons_list(state: State<'_, AppState>) -> Result<Vec<AddonInfo>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
     Ok(addons.iter().map(addon_info).collect())
 }
@@ -494,31 +495,38 @@ pub async fn addons_refresh(url: String, state: State<'_, AppState>) -> Result<A
 }
 
 #[tauri::command]
-pub fn addons_move(
+pub async fn addons_move(
     url: String,
     delta: i32,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Vec<AddonInfo>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::move_addon(&conn, &url, delta).map_err(|e| e.to_string())?;
-    let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
-    Ok(addons.iter().map(addon_info).collect())
+    crate::db_blocking(app, move |state| {
+        let conn = state.db.conn();
+        db::move_addon(&conn, &url, delta).map_err(|e| e.to_string())?;
+        let addons = db::list_addons(&conn).map_err(|e| e.to_string())?;
+        Ok(addons.iter().map(addon_info).collect())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn addons_remove(url: String, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::remove_addon(&conn, &url).map_err(|e| e.to_string())
+pub async fn addons_remove(url: String, app: AppHandle) -> Result<(), String> {
+    crate::db_blocking(app, move |state| addons_remove_in(&state.db, &url)).await
+}
+
+/// The body the command wraps, reachable from a test without an app or a player.
+pub(crate) fn addons_remove_in(db: &db::Db, url: &str) -> Result<(), String> {
+    let conn = db.conn();
+    db::remove_addon(&conn, url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn addons_set_enabled(
-    url: String,
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::set_addon_enabled(&conn, &url, enabled).map_err(|e| e.to_string())
+pub async fn addons_set_enabled(url: String, enabled: bool, app: AppHandle) -> Result<(), String> {
+    crate::db_blocking(app, move |state| {
+        let conn = state.db.conn();
+        db::set_addon_enabled(&conn, &url, enabled).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -528,7 +536,7 @@ pub fn addons_set_enabled(
 #[tauri::command]
 pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let (settings, addons, progress) = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         (
             Settings::load(&conn),
             db::list_addons(&conn).map_err(|e| e.to_string())?,
@@ -723,7 +731,7 @@ pub async fn cast_photos(
     let mut photos: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut pending: Vec<(String, String)> = Vec::new();
     {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         for name in names.into_iter().take(16) {
             let key = format!("{title}|{name}");
             match db::people_photo(&conn, &key) {
@@ -762,8 +770,8 @@ pub async fn cast_photos(
         writes.push((key, photo.unwrap_or_default()));
     }
     // One transaction for the batch instead of a lock and commit per headshot.
-    if let Ok(conn) = state.db.0.lock()
-        && let Ok(tx) = conn.unchecked_transaction()
+    let conn = state.db.conn();
+    if let Ok(tx) = conn.unchecked_transaction()
     {
         for (key, photo) in &writes {
             let _ = db::set_people_photo(&tx, key, photo);
@@ -779,7 +787,7 @@ pub async fn cast_photos(
 #[tauri::command]
 pub async fn recommendations(state: State<'_, AppState>) -> Result<Vec<HomeRow>, String> {
     let (recent, seen) = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         let recent = db::list_watched_items(&conn).map_err(|e| e.to_string())?;
         let seen = db::touched_ids(&conn).map_err(|e| e.to_string())?;
         (recent, seen)
@@ -909,7 +917,7 @@ pub async fn search(
         return Ok(Vec::new());
     }
     let (settings, addons) = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         (
             Settings::load(&conn),
             db::list_addons(&conn).map_err(|e| e.to_string())?,
@@ -1005,7 +1013,7 @@ pub async fn meta_details(
     state: State<'_, AppState>,
 ) -> Result<MetaDetails, String> {
     let (settings, addons) = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         (
             Settings::load(&conn),
             db::list_addons(&conn).map_err(|e| e.to_string())?,
@@ -1152,7 +1160,7 @@ pub async fn streams(
     state: State<'_, AppState>,
 ) -> Result<Vec<StreamOption>, String> {
     let addons = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         db::list_addons(&conn).map_err(|e| e.to_string())?
     };
 
@@ -1274,7 +1282,7 @@ pub async fn subtitles(
     state: State<'_, AppState>,
 ) -> Result<Vec<SubtitleTrack>, String> {
     let addons = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         db::list_addons(&conn).map_err(|e| e.to_string())?
     };
     let request_id = addons::episode_id(&id, season, episode);
@@ -1339,13 +1347,18 @@ pub async fn subtitles(
 
 #[tauri::command]
 pub async fn library_list(state: State<'_, AppState>) -> Result<Vec<LibraryItem>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     db::list_library(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn library_toggle(item: LibraryItem, state: State<'_, AppState>) -> Result<bool, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+pub async fn library_toggle(item: LibraryItem, app: AppHandle) -> Result<bool, String> {
+    crate::db_blocking(app, move |state| library_toggle_in(&state.db, &item)).await
+}
+
+/// The body the command wraps, reachable from a test without an app or a player.
+pub(crate) fn library_toggle_in(store: &db::Db, item: &LibraryItem) -> Result<bool, String> {
+    let conn = store.conn();
     let exists: Option<String> = conn
         .query_row("SELECT id FROM library WHERE id = ?1", [&item.id], |row| {
             row.get(0)
@@ -1355,47 +1368,53 @@ pub fn library_toggle(item: LibraryItem, state: State<'_, AppState>) -> Result<b
         db::remove_from_library(&conn, &item.id).map_err(|e| e.to_string())?;
         Ok(false)
     } else {
-        db::add_to_library(&conn, &item).map_err(|e| e.to_string())?;
+        db::add_to_library(&conn, item).map_err(|e| e.to_string())?;
         Ok(true)
     }
 }
 
 #[tauri::command]
 pub async fn progress_list(state: State<'_, AppState>) -> Result<Vec<ProgressItem>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     db::list_progress(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedItem>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     db::list_watched_items(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn progress_for(
-    key: String,
-    state: State<'_, AppState>,
-) -> Result<Option<ProgressItem>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::get_progress(&conn, &key).map_err(|e| e.to_string())
+pub async fn progress_for(key: String, app: AppHandle) -> Result<Option<ProgressItem>, String> {
+    crate::db_blocking(app, move |state| {
+        let conn = state.db.conn();
+        db::get_progress(&conn, &key).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn progress_clear(key: String, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::clear_progress(&conn, &key).map_err(|e| e.to_string())
+pub async fn progress_clear(key: String, app: AppHandle) -> Result<(), String> {
+    crate::db_blocking(app, move |state| {
+        let conn = state.db.conn();
+        db::clear_progress(&conn, &key).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn watched_set(
+pub async fn watched_set(
     key: String,
     meta_id: String,
     watched: bool,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    db::set_watched(&conn, &key, &meta_id, watched).map_err(|e| e.to_string())
+    crate::db_blocking(app, move |state| {
+        let conn = state.db.conn();
+        db::set_watched(&conn, &key, &meta_id, watched).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1431,7 +1450,7 @@ pub async fn player_open(
     let host = crate::video_host(&app);
     // The slot is not held across the spawn: every other player command would
     // block behind it.
-    let previous = state.player.lock().map_err(|_| "player is busy")?.take();
+    let previous = crate::player_slot(&state).take();
     // The old core is told to quit before the next one takes the window; its
     // teardown is asynchronous, so nothing here waits on it.
     if let Some(mut previous) = previous {
@@ -1460,7 +1479,7 @@ pub async fn player_open(
     // Frames cached for the previous source are meaningless now.
     crate::frame::clear();
     let snapshot = player.snapshot();
-    *state.player.lock().map_err(|_| "player is busy")? = Some(player);
+    *crate::player_slot(&state) = Some(player);
     Ok(snapshot)
 }
 
@@ -1482,7 +1501,7 @@ fn set_window_shadow(app: &AppHandle, on: bool) {
 
 #[tauri::command]
 pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>, String> {
-    let guard = state.player.lock().map_err(|_| "player is busy")?;
+    let guard = crate::player_slot(&state);
     Ok(guard.as_ref().map(|player| player.snapshot()))
 }
 
@@ -1496,7 +1515,7 @@ pub async fn player_frame(seconds: f64, state: State<'_, AppState>) -> Result<St
         return Err("That seek time is not valid".into());
     }
     let source = {
-        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let guard = crate::player_slot(&state);
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         player.source().to_string()
     };
@@ -1516,7 +1535,7 @@ pub async fn player_control(
     // Never hold the player slot across a command: libmpv can wedge on a dying
     // source, and that blocked the next play for good.
     let (handle, failed) = {
-        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let guard = crate::player_slot(&state);
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         (player.handle(), player.failed())
     };
@@ -1531,7 +1550,7 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
     // Quit the player first so a slow P2P teardown can never leave it playing
     // behind the menu. libmpv's teardown is asynchronous, so this does not wait.
     let player = {
-        let mut guard = state.player.lock().map_err(|_| "player is busy")?;
+        let mut guard = crate::player_slot(&state);
         guard.take()
     };
     let stopped = player.is_some();
@@ -1560,7 +1579,7 @@ pub async fn player_subtitle(
     // The picker hands over a local path, so both paths are accepted.
     player::validate_media_url(&url)?;
     let handle = {
-        let guard = state.player.lock().map_err(|_| "player is busy")?;
+        let guard = crate::player_slot(&state);
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         if player.failed() {
             return Err("Playback has stopped. Choose another source.".into());
@@ -1612,10 +1631,13 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn nuvio_status(state: State<'_, AppState>) -> Result<crate::nuvio_sync::Status, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    let settings = Settings::load(&conn);
-    Ok(crate::nuvio_sync::status(&conn, &settings))
+pub async fn nuvio_status(app: AppHandle) -> Result<crate::nuvio_sync::Status, String> {
+    crate::db_blocking(app, |state| {
+        let conn = state.db.conn();
+        let settings = Settings::load(&conn);
+        Ok(crate::nuvio_sync::status(&conn, &settings))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1628,12 +1650,14 @@ pub async fn nuvio_sign_in(
     crate::nuvio_sync::sign_in(&state, &email, &password, sign_up.unwrap_or(false)).await?;
     // First sync right after sign-in so the other devices land immediately.
     let _ = crate::nuvio_sync::sync_now(&state).await;
-    nuvio_status(state)
+    let conn = state.db.conn();
+    let settings = Settings::load(&conn);
+    Ok(crate::nuvio_sync::status(&conn, &settings))
 }
 
 #[tauri::command]
-pub fn nuvio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
-    crate::nuvio_sync::sign_out(&state)
+pub async fn nuvio_sign_out(app: AppHandle) -> Result<(), String> {
+    crate::db_blocking(app, crate::nuvio_sync::sign_out).await
 }
 
 #[tauri::command]
@@ -1661,9 +1685,12 @@ pub async fn nuvio_sync_now(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn stremio_status(state: State<'_, AppState>) -> Result<crate::stremio_sync::Status, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
-    Ok(crate::stremio_sync::status(&conn))
+pub async fn stremio_status(app: AppHandle) -> Result<crate::stremio_sync::Status, String> {
+    crate::db_blocking(app, |state| {
+        let conn = state.db.conn();
+        Ok(crate::stremio_sync::status(&conn))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1675,12 +1702,13 @@ pub async fn stremio_sign_in(
     crate::stremio_sync::sign_in(&state, &email, &password).await?;
     // First sync right after sign-in so the account lands immediately.
     let _ = crate::stremio_sync::sync_now(&state).await;
-    stremio_status(state)
+    let conn = state.db.conn();
+    Ok(crate::stremio_sync::status(&conn))
 }
 
 #[tauri::command]
-pub fn stremio_sign_out(state: State<'_, AppState>) -> Result<(), String> {
-    crate::stremio_sync::sign_out(&state)
+pub async fn stremio_sign_out(app: AppHandle) -> Result<(), String> {
+    crate::db_blocking(app, crate::stremio_sync::sign_out).await
 }
 
 #[tauri::command]
@@ -1695,7 +1723,7 @@ pub async fn stremio_sync_now(
 #[tauri::command]
 pub async fn sync_all(state: State<'_, AppState>) -> Result<(), String> {
     let (stremio, nuvio) = {
-        let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+        let conn = state.db.conn();
         let settings = Settings::load(&conn);
         (
             crate::stremio_sync::status(&conn).signed_in,

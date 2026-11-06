@@ -1101,7 +1101,7 @@ fn close(app: &AppHandle, snapshot: &Arc<Mutex<Snapshot>>, stop: &Arc<AtomicBool
     // controls stop writing into a dead core. A newer player may already own
     // the slot, so only our own is cleared.
     if let Some(state) = app.try_state::<AppState>() {
-        let doomed = match state.player.lock() {
+        let doomed = match state.player.core.lock() {
             Ok(mut guard)
                 if guard
                     .as_ref()
@@ -1326,7 +1326,7 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
     if !settings.track_progress {
         return;
     }
-    let Ok(conn) = state.db.0.lock() else { return };
+    let conn = state.db.conn();
     // Keep the row at completion: it carries the name, poster and episode the
     // Watched list shows. Continue watching excludes >=90% rows on its own.
     let item = ProgressItem {

@@ -79,9 +79,7 @@ fn canonical(provider: &str) -> Option<&'static str> {
 }
 
 fn load_keys(state: &AppState) -> serde_json::Map<String, Value> {
-    let Ok(conn) = state.db.0.lock() else {
-        return Default::default();
-    };
+    let conn = state.db.conn();
     db::read_kv(&conn, KEY_BLOB)
         .ok()
         .flatten()
