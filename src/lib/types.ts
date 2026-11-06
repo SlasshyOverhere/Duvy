@@ -161,6 +161,8 @@ export interface Settings {
   tmdbApiKey: string;
   accent: string;
   preferredQuality: string;
+  /** "size": biggest file first. "addon": the order the addon returned. */
+  sourceSort: string;
   autoResume: boolean;
   subtitleLanguage: string;
   audioLanguage: string;

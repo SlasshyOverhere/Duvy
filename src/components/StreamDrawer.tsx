@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { api, openExternal } from "../lib/bridge";
-import { errorMessage } from "../lib/format";
+import { byFileSize, errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
 import type { StreamOption } from "../lib/types";
 import { Button, ContextMenu, EmptyState, Icon } from "./ui";
@@ -49,7 +49,7 @@ export function StreamDrawer({
   onClose: () => void;
   onPlay: (stream: StreamOption) => void;
 }) {
-  const { addons: installed, notify } = useApp();
+  const { addons: installed, notify, settings } = useApp();
   const [groups, setGroups] = useState<Group[]>([]);
   const [filter, setFilter] = useState<string>("all");
   const [menu, setMenu] = useState<{
@@ -273,11 +273,18 @@ export function StreamDrawer({
         : "Install a stream addon in Addons. Torrent sources play after you allow P2P in Settings → Playback.";
   const ranked = (group: Group) =>
     group.streams.length ? 0 : group.state === "error" ? 2 : 1;
+  const sortBySize = settings?.sourceSort !== "addon";
+  // With size as the order, the addon holding the biggest file leads, so the
+  // largest source in the panel is the first row.
+  const biggest = (group: Group) =>
+    group.streams.reduce((max, stream) => Math.max(max, stream.sizeBytes ?? -1), -1);
   const visible = (filter === "all" ? groups : groups.filter((group) => group.key === filter))
-    .slice()
+    .map((group) =>
+      sortBySize ? { ...group, streams: group.streams.slice().sort(byFileSize) } : group,
+    )
     // Answers come first, so a slow or failing addon never sits on top of a
     // list that is already ready to play.
-    .sort((a, b) => ranked(a) - ranked(b));
+    .sort((a, b) => ranked(a) - ranked(b) || (sortBySize ? biggest(b) - biggest(a) : 0));
   // Skeletons stand in for the current view, not the whole set: a filter that
   // is still loading must not render as a blank panel either.
   const shown = visible.reduce((sum, group) => sum + group.streams.length, 0);

@@ -11,6 +11,9 @@ const commands = read("src-tauri/src/commands.rs");
 const player = read("src-tauri/src/player.rs");
 const store = read("src/lib/store.tsx");
 const playerView = read("src/views/Player.tsx");
+const drawer = read("src/components/StreamDrawer.tsx");
+const settingsView = read("src/views/Settings.tsx");
+const rustSettings = read("src-tauri/src/settings.rs");
 
 /** Slice a top-level Rust function: from `fn name` to the next `}` in column 0. */
 function rustFn(src: string, name: string): string {
@@ -300,6 +303,15 @@ run("a source the viewer left does not come back", () => {
   if (!/liveMemory\(rememberedSource/.test(store)) {
     out.push("store.tsx resolves a remembered source from an addon that is gone");
   }
+  return out;
+});
+
+run("source list is ordered by file size", () => {
+  const out: string[] = [];
+  if (!/sort\(byFileSize\)/.test(drawer)) out.push("StreamDrawer.tsx does not sort sources by size");
+  if (!/sort\(byFileSize\)/.test(playerView)) out.push("Player.tsx source panel does not sort by size");
+  if (!/sourceSort: value/.test(settingsView)) out.push("Settings.tsx has no source order control");
+  if (!/source_sort: "size"/.test(rustSettings)) out.push("settings.rs defaults source_sort away from size");
   return out;
 });
 

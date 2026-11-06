@@ -15,6 +15,8 @@ pub struct Settings {
     pub accent: String,
     /// "auto" | "4k" | "1080p" | "720p"
     pub preferred_quality: String,
+    /// Source list order: "size" (biggest file first) or "addon".
+    pub source_sort: String,
     pub auto_resume: bool,
     pub subtitle_language: String,
     pub audio_language: String,
@@ -65,6 +67,7 @@ impl Default for Settings {
             tmdb_api_key: String::new(),
             accent: "ember".into(),
             preferred_quality: "auto".into(),
+            source_sort: "size".into(),
             auto_resume: true,
             subtitle_language: "eng".into(),
             audio_language: "eng".into(),
@@ -118,6 +121,9 @@ impl Settings {
     /// Stored values can come from an older build or a hand-edited row, and a
     /// patch can carry anything. Clamp here so nothing downstream has to.
     fn sanitize(&mut self) {
+        if self.source_sort != "size" && self.source_sort != "addon" {
+            self.source_sort = "size".into();
+        }
         self.seek_step = self.seek_step.clamp(1, 600);
         self.home_rows_limit = self.home_rows_limit.clamp(1, 24);
         self.p2p_cache_mb = self.p2p_cache_mb.clamp(64, 1_048_576);

@@ -47,7 +47,7 @@ const SECTIONS: Section[] = [
     group: "Playback",
     blurb: "How playback remembers your place and moves between episodes.",
     keywords:
-      "player quality 4k 1080p hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
+      "player quality 4k 1080p source order sort size biggest addon hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
   },
   {
     id: "addons",
@@ -128,6 +128,11 @@ const QUALITY: ["auto" | "4k" | "1080p" | "720p", string][] = [
   ["4k", "4K"],
   ["1080p", "1080p"],
   ["720p", "720p"],
+];
+
+const SOURCE_SORT: ["size" | "addon", string][] = [
+  ["size", "Biggest first"],
+  ["addon", "Addon order"],
 ];
 
 function Card({
@@ -709,6 +714,18 @@ export function SettingsView({ section }: { section?: string }) {
                       value={settings.preferredQuality}
                       options={QUALITY}
                       onChange={(value) => update({ preferredQuality: value })}
+                    />
+                  }
+                />
+                <Row
+                  title="Source order"
+                  description="Biggest first puts the largest file from every addon at the top of the source list."
+                  control={
+                    <Segmented
+                      label="Source order"
+                      value={settings.sourceSort === "addon" ? "addon" : "size"}
+                      options={SOURCE_SORT}
+                      onChange={(value) => update({ sourceSort: value })}
                     />
                   }
                 />
