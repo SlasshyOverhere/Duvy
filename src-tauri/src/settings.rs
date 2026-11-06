@@ -149,9 +149,9 @@ pub fn load_cached(state: &AppState) -> Settings {
     {
         return settings.clone();
     }
-    let loaded = match state.db.0.lock() {
-        Ok(conn) => Settings::load(&conn),
-        Err(poisoned) => Settings::load(&poisoned.into_inner()),
+    let loaded = {
+        let conn = state.db.conn();
+        Settings::load(&conn)
     };
     if let Ok(mut cache) = state.settings.write() {
         *cache = Some(loaded.clone());

@@ -34,7 +34,9 @@ if ((Get-Item $archive).Length -lt 1MB) {
   Invoke-WebRequest -UseBasicParsing $next -OutFile $archive
 }
 # bsdtar (shipped with Windows 10+) reads 7z.
-tar.exe -xf $archive -C $tmp
+# The full path on purpose: a Git-for-Windows shell puts an MSYS tar first on
+# PATH, and that one cannot read a Windows path.
+& "$env:SystemRoot\System32\tar.exe" -xf $archive -C $tmp
 
 $dll = Join-Path $tmp "libmpv-2.dll"
 if (-not (Test-Path $dll)) { throw "The archive did not contain libmpv-2.dll" }

@@ -48,6 +48,7 @@ librqbit = { version = "9.0.1", default-features = false, features = [
   "tracing-subscriber-utils",
 ] }
 librqbit-dualstack-sockets = "0.7"
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [

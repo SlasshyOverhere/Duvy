@@ -100,9 +100,7 @@ fn settings(app: &AppHandle) -> Settings {
     let Some(state) = app.try_state::<AppState>() else {
         return Settings::default();
     };
-    let Ok(conn) = state.db.0.lock() else {
-        return Settings::default();
-    };
+    let conn = state.db.conn();
     Settings::load(&conn)
 }
 

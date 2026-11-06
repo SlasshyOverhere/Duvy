@@ -156,13 +156,13 @@ pub async fn sign_in(state: &AppState, email: &str, password: &str) -> Result<St
             .to_string(),
         last_sync: 0,
     };
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     save_session(&conn, &session)?;
     Ok(status(&conn))
 }
 
 pub fn sign_out(state: &AppState) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
 }
 
@@ -423,20 +423,20 @@ fn merge_all(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
 
 pub async fn pull_and_merge(state: &AppState) -> Result<SyncReport, String> {
     let session = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         load_session(&conn)
     };
     if !session.signed_in() {
         return Err("Sign in to Stremio to sync.".into());
     }
     let pulled = pull(&state.http, &session.auth_key).await?;
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     merge_all(&conn, &pulled)
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     let session = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         load_session(&conn)
     };
     if !session.signed_in() {
@@ -444,12 +444,12 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     }
     let pulled = pull(&state.http, &session.auth_key).await?;
     let mut report = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         merge_all(&conn, &pulled)?
     };
 
     let (addons, library, progress) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         (
             db::list_addons(&conn).map_err(|e| e.to_string())?,
             db::list_library(&conn).map_err(|e| e.to_string())?,
@@ -469,7 +469,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 
     let mut session = session;
     session.last_sync = db::now();
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     save_session(&conn, &session)?;
     Ok(report)
 }
@@ -478,7 +478,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 /// Nuvio pass so Nuvio's rows reach Stremio in the same sync.
 pub async fn push(state: &AppState) -> Result<i64, String> {
     let session = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         load_session(&conn)
     };
     if !session.signed_in() {
@@ -486,7 +486,7 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
     }
     let pulled = pull(&state.http, &session.auth_key).await?;
     let (addons, library, progress) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         (
             db::list_addons(&conn).map_err(|e| e.to_string())?,
             db::list_library(&conn).map_err(|e| e.to_string())?,

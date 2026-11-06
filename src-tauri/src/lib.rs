@@ -25,7 +25,8 @@ mod torrent;
 mod trakt;
 mod updates;
 
-use std::sync::{Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
@@ -34,11 +35,13 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 pub struct AppState {
     pub db: db::Db,
     pub http: reqwest::Client,
-    pub player: Mutex<Option<player::Player>>,
+    pub player: PlayerSlot,
     /// Decoded settings; `None` means "read it again from the database".
     pub settings: RwLock<Option<settings::Settings>>,
 }
 
+#[cfg(test)]
+mod command_tests;
 #[cfg(test)]
 mod db_tests;
 
@@ -466,11 +469,68 @@ pub(crate) fn player_is_live(app: &tauri::AppHandle) -> bool {
     let Some(state) = app.try_state::<AppState>() else {
         return false;
     };
-    state
-        .player
-        .lock()
-        .map(|guard| guard.is_some())
-        .unwrap_or(false)
+    player_slot(&state).is_some()
+}
+
+/// The one core attached to the window.
+///
+/// A panic inside a lock holder leaves the mutex poisoned for good, which would
+/// answer "player is busy" until a restart. The core from that panic is dropped
+/// once, and from then on the slot hands out its guard like any other.
+pub struct PlayerSlot {
+    core: Mutex<Option<player::Player>>,
+    healed: AtomicBool,
+}
+
+impl PlayerSlot {
+    pub fn new() -> Self {
+        Self {
+            core: Mutex::new(None),
+            healed: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Default for PlayerSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub(crate) fn player_slot(state: &AppState) -> MutexGuard<'_, Option<player::Player>> {
+    match state.player.core.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            heal(&mut guard, &state.player.healed, "player slot was poisoned; dropped the core");
+            guard
+        }
+    }
+}
+
+/// Drop what a panicking holder left behind, once. The poison flag is sticky, so
+/// a later value written after the recovery must survive every later lock.
+pub(crate) fn heal<T>(value: &mut Option<T>, healed: &AtomicBool, label: &str) {
+    if !healed.swap(true, Ordering::Relaxed) {
+        drop(value.take());
+        playback_log::mark(label);
+    }
+}
+
+/// Run SQLite work off the UI thread. Sync commands run on the main thread, so
+/// one contended write there would freeze the window for the whole busy_timeout;
+/// the async workers are no place for a blocking call either, hence the pool.
+pub(crate) async fn db_blocking<T, F>(app: tauri::AppHandle, work: F) -> Result<T, String>
+where
+    F: FnOnce(&AppState) -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        work(&state)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// One client for every outbound request: the same user agent Cinemeta expects,
@@ -505,15 +565,26 @@ pub fn http_client() -> reqwest::Client {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        // First, before any window exists: a second launch hands its argv to the
+        // instance already running and exits, instead of opening a rival player
+        // onto the same database and window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            // First of all: a panic anywhere below must still leave a line behind.
+            install_crash_hook(app.handle().clone());
             let data_dir = app
                 .path()
                 .app_data_dir()
-                .expect("the app data directory should be available");
+                .map_err(|e| format!("the app data directory is unavailable: {e}"))?;
             std::fs::create_dir_all(&data_dir)?;
             // The journal exists before anything can fail, and a panic is the
             // one failure with nowhere else to go.
@@ -524,7 +595,6 @@ pub fn run() {
                 Some(version) => playback_log::mark(format!("libmpv {version}")),
                 None => playback_log::mark("libmpv did not answer; playback will fail"),
             }
-            install_crash_hook(app.handle().clone());
 
             let db_path = data_dir.join("duvy.db");
             let connection = match db::open(&db_path) {
@@ -552,7 +622,7 @@ pub fn run() {
             app.manage(AppState {
                 db: db::Db(Mutex::new(connection)),
                 http,
-                player: Mutex::new(None),
+                player: PlayerSlot::new(),
                 settings: RwLock::new(None),
             });
 
@@ -645,10 +715,8 @@ pub fn run() {
     app.run(|handle, event| {
         match event {
             tauri::RunEvent::Exit => {
-                if let Some(state) = handle.try_state::<AppState>()
-                    && let Ok(mut guard) = state.player.lock()
-                {
-                    *guard = None;
+                if let Some(state) = handle.try_state::<AppState>() {
+                    *player_slot(&state) = None;
                 }
             }
             // mpv's render window is created after the web layer, so any event

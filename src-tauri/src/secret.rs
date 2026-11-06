@@ -3,15 +3,19 @@
 //! Values are written as `enc1:<hex>`; anything without the prefix is a legacy
 //! plaintext row and passes through untouched.
 
+use crate::playback_log;
+
 const PREFIX: &str = "enc1:";
 
 /// Encrypts with the current Windows user's DPAPI key. A failure falls back to
-/// plaintext so a write is never lost.
+/// plaintext so a write is never lost, but it is written into the journal: a
+/// credential on disk in the clear is something the field should see.
 pub fn encode(plain: &str) -> String {
     match protect(plain.as_bytes()) {
         Ok(cipher) => format!("{PREFIX}{}", to_hex(&cipher)),
         Err(error) => {
             eprintln!("[secret] encryption failed, storing plaintext: {error}");
+            playback_log::mark(format!("secret: stored plaintext, DPAPI failed: {error}"));
             plain.to_string()
         }
     }
@@ -27,6 +31,7 @@ pub fn decode(stored: &str) -> Option<String> {
         Ok(text) => Some(text),
         Err(error) => {
             eprintln!("[secret] decryption failed: {error}");
+            playback_log::mark(format!("secret: DPAPI decrypt failed: {error}"));
             None
         }
     }

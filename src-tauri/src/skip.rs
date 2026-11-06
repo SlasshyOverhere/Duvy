@@ -46,7 +46,7 @@ fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
 
 #[tauri::command]
 pub fn skip_get(meta_id: String, state: State<'_, AppState>) -> Result<Option<SkipEntry>, String> {
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     Ok(load(&conn).get(&meta_id).cloned())
 }
 
@@ -60,7 +60,7 @@ pub fn skip_set(
         return Err("missing meta id".into());
     }
     validate(&entry)?;
-    let conn = state.db.0.lock().map_err(|_| "database is locked")?;
+    let conn = state.db.conn();
     let mut store = load(&conn);
 
     if entry.is_empty() {

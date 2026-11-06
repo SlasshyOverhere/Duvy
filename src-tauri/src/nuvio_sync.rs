@@ -134,7 +134,7 @@ fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
 /// Records that a sync finished without writing back the tokens this call
 /// started with: another command may have rotated them while the sync ran.
 fn mark_synced(state: &AppState) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     let mut session = load_session(&conn);
     session.last_sync = db::now();
     save_session(&conn, &session)
@@ -331,7 +331,7 @@ async fn ensure_token(
     let _guard = REFRESH.lock().await;
     // Whoever held the lock may have refreshed already.
     *session = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         load_session(&conn)
     };
     if usable(session) {
@@ -351,7 +351,7 @@ async fn ensure_token(
     apply_session(session, &value)?;
     // Persist at once: the token just spent is invalid server-side, so losing
     // this to a later failure would sign the user out.
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     save_session(&conn, session)?;
     Ok(session.access_token.clone())
 }
@@ -397,7 +397,7 @@ pub async fn sign_in(
         return Err("Email and password are required.".into());
     }
     let settings = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         Settings::load(&conn)
     };
     let path = if sign_up {
@@ -418,7 +418,7 @@ pub async fn sign_in(
         return Err("Check your inbox to confirm the Nuvio account, then sign in.".into());
     }
     let mut session = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         load_session(&conn)
     };
     let previous = account_identity(&session.user_id, &session.email);
@@ -434,7 +434,7 @@ pub async fn sign_in(
     session.email = email.to_string();
     apply_session(&mut session, &value)?;
 
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     match (previous, current) {
         (Some(previous), Some(current)) if previous != current => {
             // These rows belong to the account that was signed in before.
@@ -455,7 +455,7 @@ pub async fn sign_in(
 }
 
 pub fn sign_out(state: &AppState) -> Result<(), String> {
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     let mut session = load_session(&conn);
     if session.signed_in() {
         // Keep the account identity so the next sign-in can tell accounts apart.
@@ -474,7 +474,7 @@ pub fn sign_out(state: &AppState) -> Result<(), String> {
 pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     let target = index.max(1);
     let (settings, mut session) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         (Settings::load(&conn), load_session(&conn))
     };
     if target == session.profile {
@@ -482,7 +482,7 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     }
     if !session.signed_in() {
         session.profile = target;
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         return save_session(&conn, &session);
     }
 
@@ -503,7 +503,7 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     session.profile = target;
     session.last_sync = db::now();
     {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         db::clear_history(&conn).map_err(|e| e.to_string())?;
         merge_pulled(&conn, &pulled)?;
         save_session(&conn, &session)?;
@@ -514,7 +514,7 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
 
 pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
     let (settings, mut session) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         (Settings::load(&conn), load_session(&conn))
     };
     let token = ensure_token(state, &settings, &mut session).await?;
@@ -564,7 +564,7 @@ fn local_key(content_id: &str, season: i64, episode: i64) -> String {
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     let (settings, mut session) = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         (Settings::load(&conn), load_session(&conn))
     };
     if !session.signed_in() {
@@ -575,7 +575,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 
     let pulled = pull(&state.http, &settings, &token, pid).await?;
     let mut report = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         merge_pulled(&conn, &pulled)?
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
@@ -588,7 +588,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     let history = local_history(state)?;
     let mut pushed = push_watching(&state.http, &settings, &token, pid, history).await?;
     let library = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         local_library(&conn)?
     };
     if !library.is_empty() {
@@ -722,7 +722,7 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
         return Ok(0);
     }
     let installed: Vec<String> = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         db::list_addon_urls(&conn).map_err(|e| e.to_string())?
     };
     let mut known: std::collections::HashSet<String> = installed.into_iter().collect();
@@ -759,7 +759,7 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
             continue;
         }
         let enabled = row.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         if db::upsert_addon(&conn, &url, &manifest.id, &manifest.name, &value).is_err() {
             continue;
         }
@@ -782,7 +782,7 @@ async fn push_addons(
 ) -> Result<i64, String> {
     let mut seen: HashSet<String> = remote.iter().filter_map(remote_addon_url).collect();
     let local = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         db::list_addons(&conn).map_err(|e| e.to_string())?
     };
     let mut pushed = 0;
@@ -830,7 +830,7 @@ fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String
 }
 
 fn local_history(state: &AppState) -> Result<(Vec<Value>, Vec<Value>), String> {
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     Ok((local_progress(&conn)?, local_watched(&conn)?))
 }
 
@@ -869,7 +869,7 @@ async fn push_watching(
 /// Pulled rows carry ids only, so resolve titles and artwork.
 async fn enrich(state: &AppState) -> Result<(), String> {
     let mut missing = {
-        let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+        let conn = state.db.conn();
         let mut rows = db::progress_missing_meta(&conn).unwrap_or_default();
         rows.append(&mut db::library_missing_meta(&conn).unwrap_or_default());
         rows
@@ -884,7 +884,7 @@ async fn enrich(state: &AppState) -> Result<(), String> {
     if filled.is_empty() {
         return Ok(());
     }
-    let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let conn = state.db.conn();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for (meta_id, name, poster, background) in filled {
         let _ = db::set_progress_meta(
