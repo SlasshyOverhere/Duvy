@@ -103,7 +103,6 @@ pub struct SyncReport {
     pub watched: i64,
     pub library: i64,
     pub addons: i64,
-    pub addons_pushed: i64,
     pub pushed: i64,
 }
 
@@ -113,9 +112,6 @@ pub struct NuvioProfile {
     pub id: String,
     pub name: String,
     pub profile_index: i64,
-    pub avatar_color_hex: String,
-    pub avatar_url: Option<String>,
-    pub pin_enabled: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -584,7 +580,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
     // Best-effort: a read-only addons table must not cost the history push.
-    report.addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
+    let addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
         .await
         .unwrap_or(0);
 
@@ -606,7 +602,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         .await?;
         pushed += library.len() as i64;
     }
-    report.pushed = pushed + report.addons_pushed;
+    report.pushed = pushed + addons_pushed;
 
     enrich(state).await?;
 

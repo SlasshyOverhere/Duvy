@@ -208,9 +208,6 @@ export interface NuvioProfile {
   id: string;
   name: string;
   profileIndex: number;
-  avatarColorHex: string;
-  avatarUrl?: string | null;
-  pinEnabled: boolean;
 }
 
 export interface NuvioSyncReport {
@@ -218,7 +215,6 @@ export interface NuvioSyncReport {
   watched: number;
   library: number;
   addons: number;
-  addonsPushed: number;
   pushed: number;
 }
 
