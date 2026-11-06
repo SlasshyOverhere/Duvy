@@ -2,14 +2,10 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri, openExternal } from "../../lib/bridge";
 import { useApp } from "../../lib/store";
-import { errorMessage } from "../../lib/format";
+import { errorMessage, megabytes } from "../../lib/format";
 import { Button, Toggle } from "../../components/ui";
 
 const RELEASES = "https://github.com/SlasshyOverhere/Duvy/releases";
-
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /** Update checking, download progress and install, for the About tab. */
 export function Updates() {

@@ -5,7 +5,7 @@
 //! both simpler and faster than a pool.
 
 use crate::secret;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -122,7 +122,8 @@ fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
 /// Rows written before DPAPI protection existed are plaintext. Upgrade them on
 /// open so an existing profile does not wait for each setting to be saved again.
 fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
-    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+    let mut stmt =
+        conn.prepare("SELECT key, value FROM settings WHERE substr(value, 1, 5) <> 'enc1:'")?;
     let rows = stmt
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -130,12 +131,10 @@ fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
     drop(stmt);
     for (key, value) in rows {
-        if !value.starts_with("enc1:") {
-            conn.execute(
-                "UPDATE settings SET value = ?2 WHERE key = ?1",
-                params![key, secret::encode(&value)],
-            )?;
-        }
+        conn.execute(
+            "UPDATE settings SET value = ?2 WHERE key = ?1",
+            params![key, secret::encode(&value)],
+        )?;
     }
     Ok(())
 }
@@ -174,7 +173,7 @@ pub struct StoredAddon {
 }
 
 impl StoredAddon {
-    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+    fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         let manifest: String = row.get(3)?;
         Ok(Self {
             url: row.get(0)?,
@@ -192,6 +191,13 @@ pub fn list_addons(conn: &Connection) -> rusqlite::Result<Vec<StoredAddon>> {
         "SELECT url, addon_id, name, manifest, enabled, position FROM addons ORDER BY position, name",
     )?;
     let rows = stmt.query_map([], StoredAddon::from_row)?;
+    rows.collect()
+}
+
+/// Just the URLs: dedupe and lookup work has no use for the parsed manifest.
+pub fn list_addon_urls(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT url FROM addons ORDER BY position, name")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
     rows.collect()
 }
 
@@ -239,29 +245,30 @@ pub fn set_addon_enabled(conn: &Connection, url: &str, enabled: bool) -> rusqlit
 /// Swap an addon with its neighbour. Positions are flattened to row order first
 /// so rows that share a value still move exactly one step.
 pub fn move_addon(conn: &Connection, url: &str, delta: i32) -> rusqlite::Result<()> {
-    let addons = list_addons(conn)?;
-    let Some(index) = addons.iter().position(|a| a.url == url) else {
+    // Only the urls are needed here: parsing every manifest would be wasted work.
+    let urls = list_addon_urls(conn)?;
+    let Some(index) = urls.iter().position(|u| u == url) else {
         return Ok(());
     };
     let target = index as i64 + delta as i64;
-    if delta == 0 || target < 0 || target as usize >= addons.len() {
+    if delta == 0 || target < 0 || target as usize >= urls.len() {
         return Ok(());
     }
     let target = target as usize;
     let tx = conn.unchecked_transaction()?;
-    for (slot, addon) in addons.iter().enumerate() {
+    for (slot, addon_url) in urls.iter().enumerate() {
         tx.execute(
             "UPDATE addons SET position = ?2 WHERE url = ?1",
-            params![addon.url, slot as i64],
+            params![addon_url, slot as i64],
         )?;
     }
     tx.execute(
         "UPDATE addons SET position = ?2 WHERE url = ?1",
-        params![addons[index].url, target as i64],
+        params![urls[index], target as i64],
     )?;
     tx.execute(
         "UPDATE addons SET position = ?2 WHERE url = ?1",
-        params![addons[target].url, index as i64],
+        params![urls[target], index as i64],
     )?;
     tx.commit()
 }
@@ -436,7 +443,7 @@ pub fn get_progress(conn: &Connection, key: &str) -> rusqlite::Result<Option<Pro
     .optional()
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn save_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     write_progress(&tx, p)?;
@@ -583,7 +590,12 @@ pub fn set_library_meta(
 // Watched
 // ---------------------------------------------------------------------------
 
-pub fn set_watched(conn: &Connection, key: &str, meta_id: &str, watched: bool) -> rusqlite::Result<()> {
+pub fn set_watched(
+    conn: &Connection,
+    key: &str,
+    meta_id: &str,
+    watched: bool,
+) -> rusqlite::Result<()> {
     if watched {
         mark_watched(conn, key, meta_id)?;
     } else {
@@ -606,7 +618,7 @@ fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result
     Ok(())
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn list_watched(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT key FROM watched WHERE watched = 1")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
@@ -701,8 +713,12 @@ pub fn touched_ids(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 /// Headshots are keyed by title and name, because a lookup that missed is worth
 /// remembering too: an empty string means "asked, nothing found".
 pub fn people_photo(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT photo FROM people WHERE key = ?1", params![key], |r| r.get(0))
-        .optional()
+    conn.query_row(
+        "SELECT photo FROM people WHERE key = ?1",
+        params![key],
+        |r| r.get(0),
+    )
+    .optional()
 }
 
 pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::Result<()> {
@@ -720,9 +736,11 @@ pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::
 
 pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
     let raw: Option<String> = conn
-        .query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
         .optional()?;
     Ok(raw
         .and_then(|s| secret::decode(&s))
@@ -774,7 +792,11 @@ mod reorder_tests {
         move_addon(&conn, "https://b", -1).unwrap();
         assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"]);
         move_addon(&conn, "https://b", -1).unwrap();
-        assert_eq!(urls(&conn), ["https://b", "https://a", "https://c"], "top stays put");
+        assert_eq!(
+            urls(&conn),
+            ["https://b", "https://a", "https://c"],
+            "top stays put"
+        );
         move_addon(&conn, "https://a", 1).unwrap();
         assert_eq!(urls(&conn), ["https://b", "https://c", "https://a"]);
 

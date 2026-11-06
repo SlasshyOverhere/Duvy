@@ -1,5 +1,3 @@
-export type MediaType = "movie" | "series" | "channel" | "tv";
-
 export interface MetaPreview {
   id: string;
   type: string;
@@ -27,7 +25,7 @@ export interface Video {
   rating?: string | null;
 }
 
-export interface CastMember {
+interface CastMember {
   name: string;
   character: string;
   photo?: string | null;
@@ -127,7 +125,7 @@ export interface WatchedItem {
   watchedAt: number;
 }
 
-export interface CatalogDef {
+interface CatalogDef {
   type: string;
   id: string;
   name: string;
@@ -210,9 +208,6 @@ export interface NuvioProfile {
   id: string;
   name: string;
   profileIndex: number;
-  avatarColorHex: string;
-  avatarUrl?: string | null;
-  pinEnabled: boolean;
 }
 
 export interface NuvioSyncReport {
@@ -220,7 +215,6 @@ export interface NuvioSyncReport {
   watched: number;
   library: number;
   addons: number;
-  addonsPushed: number;
   pushed: number;
 }
 

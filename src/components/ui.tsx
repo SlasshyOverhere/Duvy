@@ -10,7 +10,6 @@ import { createPortal } from "react-dom";
 
 export type IconName =
   | "home"
-  | "compass"
   | "search"
   | "library"
   | "puzzle"
@@ -31,7 +30,6 @@ export type IconName =
   | "sliders"
   | "film"
   | "tv"
-  | "clock"
   | "chevron"
   | "monitor"
   | "stop"
@@ -42,7 +40,6 @@ export type IconName =
   | "expand"
   | "compress"
   | "replay10"
-  | "forward10"
   | "speed"
   | "audio"
   | "aspect"
@@ -52,7 +49,6 @@ export type IconName =
   | "sources"
   | "episodes"
   | "lock"
-  | "unlock"
   | "cloud"
   | "minus";
 
@@ -63,23 +59,6 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M4 4.4v3.8h3.8" />
       <text
         x="12.4"
-        y="15.1"
-        textAnchor="middle"
-        fontSize="7.2"
-        fontWeight="600"
-        fill="currentColor"
-        stroke="none"
-      >
-        10
-      </text>
-    </>
-  ),
-  forward10: (
-    <>
-      <path d="M19.4 12a7.4 7.4 0 1 1-2.3-5.3" />
-      <path d="M20 4.4v3.8h-3.8" />
-      <text
-        x="11.6"
         y="15.1"
         textAnchor="middle"
         fontSize="7.2"
@@ -144,12 +123,6 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M3.5 10.5 12 3.5l8.5 7" />
       <path d="M5.5 9.5v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-10" />
       <path d="M9.5 20.5v-6h5v6" />
-    </>
-  ),
-  compass: (
-    <>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="m15.4 8.6-2 4.8-4.8 2 2-4.8 4.8-2Z" />
     </>
   ),
   search: (
@@ -248,12 +221,6 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="m8 3.5 4 3 4-3" />
     </>
   ),
-  clock: (
-    <>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.5V12l3 2" />
-    </>
-  ),
   chevron: <path d="m9 6 6 6-6 6" />,
   stop: <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />,
   monitor: (
@@ -311,12 +278,6 @@ const STROKE: Record<IconName, ReactNode> = {
     <>
       <rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.2" />
       <path d="M8.4 10.5V8a3.6 3.6 0 0 1 7.2 0v2.5" />
-    </>
-  ),
-  unlock: (
-    <>
-      <rect x="4.8" y="10.5" width="14.4" height="9.5" rx="2.2" />
-      <path d="M8.4 10.5V8a3.6 3.6 0 0 1 7-1.4" />
     </>
   ),
   minus: <path d="M5 12h14" />,

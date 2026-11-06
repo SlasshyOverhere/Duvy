@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { AddonInfo } from "../lib/types";
+import { errorMessage } from "../lib/format";
 import { Badge, Button, EmptyState, Icon, Loading, Toggle, type IconName } from "../components/ui";
 
 const RESOURCE_LABELS: Record<string, string> = {
@@ -10,15 +11,6 @@ const RESOURCE_LABELS: Record<string, string> = {
   subtitles: "Subtitles",
   meta: "Metadata",
 };
-
-function errorText(error: unknown): string {
-  if (typeof error === "string" && error.trim()) return error.trim();
-  if (error instanceof Error && error.message) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return "Something went wrong";
-}
 
 function normalizeUrl(raw: string): string {
   const value = raw.trim();
@@ -101,7 +93,7 @@ export function AddonsPanel() {
       setUrl("");
       notify(`${installed.name} installed`, "success");
     } catch (e) {
-      const message = errorText(e);
+      const message = errorMessage(e);
       setError(message);
       notify(message, "error");
     } finally {
@@ -115,7 +107,7 @@ export function AddonsPanel() {
       await api.addons.setEnabled(addon.url, enabled);
       await reload();
     } catch (e) {
-      notify(errorText(e), "error");
+      notify(errorMessage(e), "error");
       await reload();
     } finally {
       setPendingUrl(null);
@@ -130,7 +122,7 @@ export function AddonsPanel() {
       setConfirmUrl(null);
       notify(`${addon.name} removed`);
     } catch (e) {
-      notify(errorText(e), "error");
+      notify(errorMessage(e), "error");
     } finally {
       setPendingUrl(null);
     }
@@ -142,7 +134,7 @@ export function AddonsPanel() {
       await api.addons.move(addon.url, delta);
       await reload();
     } catch (e) {
-      notify(errorText(e), "error");
+      notify(errorMessage(e), "error");
     } finally {
       setPendingUrl(null);
     }
@@ -155,7 +147,7 @@ export function AddonsPanel() {
       await api.addons.refresh(addon.url);
       await reload();
     } catch (e) {
-      setRefreshError({ url: addon.url, message: errorText(e) });
+      setRefreshError({ url: addon.url, message: errorMessage(e) });
     } finally {
       setPendingUrl(null);
     }

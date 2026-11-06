@@ -1,5 +1,5 @@
-import * as Sentry from "@sentry/react";
 import { api, isTauri } from "./bridge";
+import { loadSentry, sentry } from "./sentry";
 import {
   cleanText,
   fingerprintOf,
@@ -26,43 +26,55 @@ const IGNORED = [
 
 let started = false;
 let active = false;
+let wanted = false;
 
-function start(release?: string) {
-  if (started) return;
-  started = true;
-  Sentry.init({
-    dsn: DSN,
-    release,
-    environment: "production",
-    // Sampled, not every session: the free tier is metered.
-    tracesSampleRate: 0.2,
-    // A tenth of sessions, and always the one that broke.
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1,
-    maxBreadcrumbs: 30,
-    ignoreErrors: IGNORED,
-    integrations: (defaults) => [
-      ...defaults,
-      Sentry.browserTracingIntegration(),
-      // A recording of a private player: blank the words, block the picture.
-      Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
-    ],
-    beforeSend(event) {
-      return scrubValue(event) as typeof event;
-    },
+/** Loads, then applies the current choice. Init runs once per session. */
+function start(release?: string): void {
+  void loadSentry().then((Sentry) => {
+    if (!started) {
+      started = true;
+      Sentry.init({
+        dsn: DSN,
+        release,
+        environment: "production",
+        // Sampled, not every session: the free tier is metered.
+        tracesSampleRate: 0.2,
+        // A tenth of sessions, and always the one that broke.
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1,
+        maxBreadcrumbs: 30,
+        ignoreErrors: IGNORED,
+        integrations: (defaults) => [
+          ...defaults,
+          Sentry.browserTracingIntegration(),
+          // A recording of a private player: blank the words, block the picture.
+          Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
+        ],
+        beforeSend(event) {
+          return scrubValue(event) as typeof event;
+        },
+      });
+    }
+    const client = Sentry.getClient();
+    if (client) client.getOptions().enabled = wanted;
+    active = wanted && Boolean(client);
   });
 }
 
 /**
  * Point the reporter at the user's choice. Safe to call on every render: the
- * SDK is started once, and the flag is what turns sending on or off.
+ * SDK is loaded once, and the flag is what turns sending on or off.
  */
 export function applyTelemetry(enabled: boolean, release?: string): void {
   if (!telemetryAvailable) return;
-  if (enabled) start(release);
-  active = enabled && started;
-  const client = Sentry.getClient();
-  if (client) client.getOptions().enabled = active;
+  wanted = enabled;
+  if (!enabled) {
+    active = false;
+    const client = sentry()?.getClient();
+    if (client) client.getOptions().enabled = false;
+    return;
+  }
+  start(release);
 }
 
 /**
@@ -71,7 +83,7 @@ export function applyTelemetry(enabled: boolean, release?: string): void {
  */
 export { note };
 
-export type ReportLevel = "error" | "fatal" | "warning" | "info";
+type ReportLevel = "error" | "fatal" | "warning" | "info";
 
 /**
  * Record a failure for the next fix session. A no-op unless the user opted in,
@@ -83,7 +95,8 @@ export function report(
   error: unknown,
   options?: { area?: string; level?: ReportLevel; extra?: Record<string, unknown>; withLog?: boolean },
 ): void {
-  if (!active) return;
+  const Sentry = sentry();
+  if (!active || !Sentry) return;
   const message = error instanceof Error ? error.message : String(error);
   if (isNoise(message) || !shouldReport(fingerprintOf(error))) return;
 

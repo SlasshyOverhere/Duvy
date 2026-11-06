@@ -8,7 +8,6 @@ import {
   type KeyboardEvent as KeyEvent,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
@@ -463,6 +462,20 @@ export function Hero({
   const [failed, setFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [paused, setPaused] = useState(false);
+  // The outgoing artwork stays under the incoming one so the crossfade never
+  // dips through the black hero background. The first one does not fade in:
+  // the hero is already the first frame on screen.
+  const [layers, setLayers] = useState<{ item: MetaPreview; animate: boolean }[]>([
+    { item, animate: false },
+  ]);
+
+  useEffect(() => {
+    setLayers((current) =>
+      current[current.length - 1]?.item.id === item.id
+        ? current
+        : [...current.slice(-1), { item, animate: true }],
+    );
+  }, [item]);
 
   // A new featured title gets a clean attempt at its artwork.
   useEffect(() => {
@@ -485,37 +498,30 @@ export function Hero({
       onFocus={() => setPaused(true)}
       onBlur={() => setPaused(false)}
     >
-      <AnimatePresence initial={false}>
-        <motion.div
-          key={item.id}
-          className="hero-cross"
-          style={{ background: placeholderGradient(item.name) } as CSSProperties}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          // The outgoing layer stays opaque under the new one, so the
-          // crossfade never dips through the black hero background.
-          exit={{ opacity: 1, transition: { duration: 0.6 } }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-        >
-          {item.background && !failed ? (
-            <img
-              className="hero-backdrop"
-              src={item.background}
-              alt=""
-              onError={() => setFailed(true)}
-            />
-          ) : null}
-          <div className="hero-scrim" />
-        </motion.div>
-      </AnimatePresence>
+      {layers.map((layer) => {
+        const current = layer.item.id === item.id;
+        return (
+          <div
+            key={layer.item.id}
+            className={`hero-cross${layer.animate ? " is-current" : ""}`}
+            style={{ background: placeholderGradient(layer.item.name) } as CSSProperties}
+            onAnimationEnd={layer.animate ? () => setLayers((all) => all.slice(-1)) : undefined}
+          >
+            {layer.item.background && !(current && failed) ? (
+              <img
+                className="hero-backdrop"
+                src={layer.item.background}
+                alt=""
+                onError={current ? () => setFailed(true) : undefined}
+              />
+            ) : null}
+            <div className="hero-scrim" />
+          </div>
+        );
+      })}
 
       <div className="hero-body">
-        <motion.div
-          key={item.id}
-          initial={{ y: 12 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 0.68, 0.32, 1] }}
-        >
+        <div key={item.id} className="hero-enter">
           <h1 className="hero-title">
             {item.logo && !logoFailed ? (
               <img
@@ -583,7 +589,7 @@ export function Hero({
               More info
             </button>
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {onSelect && typeof index === "number" && typeof count === "number" && count > 1 ? (

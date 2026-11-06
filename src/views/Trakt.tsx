@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { TraktStatus } from "../lib/types";
+import { errorMessage } from "../lib/format";
 import { Badge, Button, Icon, Loading, Spinner, Toggle } from "../components/ui";
 
 type SyncResult = { pulled?: number; pushed?: number };
@@ -11,10 +12,6 @@ const APPS = "https://trakt.tv/oauth/applications";
 const ACTIVATE = "https://trakt.tv/activate";
 const POLL_MS = 5000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function rows(count: number): string {
   return `${count} ${count === 1 ? "row" : "rows"}`;
@@ -44,7 +41,7 @@ export function TraktView() {
     try {
       setStatus(await api.trakt.status());
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }, []);
 
@@ -77,7 +74,7 @@ export function TraktView() {
       } catch (e) {
         if (stopped) return;
         stop();
-        setError(message(e));
+        setError(errorMessage(e));
         void refresh();
       } finally {
         polling.current = false;
@@ -118,7 +115,7 @@ export function TraktView() {
         );
       }
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       working.current = false;
       setBusy(null);
@@ -140,7 +137,7 @@ export function TraktView() {
       setResult({ pulled: report.pulled, pushed: report.pushed });
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       working.current = false;
       setBusy(null);
@@ -161,7 +158,7 @@ export function TraktView() {
       setCode(null);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       working.current = false;
       setBusy(null);
@@ -175,7 +172,7 @@ export function TraktView() {
     try {
       await saveSettings({ traktScrobble: value });
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       savingPref.current = false;
     }

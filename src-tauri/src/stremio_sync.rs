@@ -14,11 +14,12 @@
 //! history is a positional bitfield keyed by Cinemeta's episode order; decode it
 //! when every watched badge must cross devices.
 
-use crate::db;
 use crate::AppState;
-use rusqlite::{params, Connection};
+use crate::db;
+use crate::json::{as_rows, int, text};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 const BASE: &str = "https://api.strem.io";
@@ -174,29 +175,6 @@ struct Pulled {
     library: Vec<Value>,
 }
 
-fn as_rows(value: Value) -> Vec<Value> {
-    match value {
-        Value::Array(rows) => rows,
-        Value::Null => Vec::new(),
-        other => vec![other],
-    }
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn int(value: &Value, key: &str) -> i64 {
-    value
-        .get(key)
-        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-        .unwrap_or(0)
-}
-
 /// The descriptor URL Stremio stores, normalised the way an install is.
 fn descriptor_url(row: &Value) -> Option<String> {
     let raw = row
@@ -213,19 +191,19 @@ fn episode_key(meta_id: &str, video_id: &str) -> (String, Option<i64>, Option<i6
         return (meta_id.to_string(), None, None);
     }
     let parts: Vec<&str> = video_id.split(':').collect();
-    if parts.len() >= 3 {
-        if let (Ok(season), Ok(episode)) = (
+    if parts.len() >= 3
+        && let (Ok(season), Ok(episode)) = (
             parts[parts.len() - 2].parse::<i64>(),
             parts[parts.len() - 1].parse::<i64>(),
-        ) {
-            if season > 0 && episode > 0 {
-                return (
-                    format!("{meta_id}:{season}:{episode}"),
-                    Some(season),
-                    Some(episode),
-                );
-            }
-        }
+        )
+        && season > 0
+        && episode > 0
+    {
+        return (
+            format!("{meta_id}:{season}:{episode}"),
+            Some(season),
+            Some(episode),
+        );
     }
     (meta_id.to_string(), None, None)
 }
@@ -266,25 +244,27 @@ async fn pull(http: &reqwest::Client, key: &str) -> Result<Pulled, String> {
 /// normalised manifest URL, so a second account holding the same addon adds
 /// nothing.
 fn merge_addons(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
-    let mut seen: HashSet<String> = db::list_addons(conn)
+    let mut seen: HashSet<String> = db::list_addon_urls(conn)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|addon| crate::addons::normalize_addon_url(&addon.url))
+        .map(|url| crate::addons::normalize_addon_url(&url))
         .collect();
     let mut added = 0;
     for row in rows {
-        let Some(url) = descriptor_url(row) else { continue };
+        let Some(url) = descriptor_url(row) else {
+            continue;
+        };
         if !seen.insert(url.clone()) {
             continue;
         }
-        let manifest = row.get("manifest").cloned().unwrap_or(Value::Null);
-        let Ok(parsed) = serde_json::from_value::<crate::addons::Manifest>(manifest.clone()) else {
+        let manifest = row.get("manifest").unwrap_or(&Value::Null);
+        let Ok(parsed) = <crate::addons::Manifest as serde::Deserialize>::deserialize(manifest) else {
             continue;
         };
         if parsed.id.trim().is_empty() || parsed.name.trim().is_empty() {
             continue;
         }
-        db::upsert_addon(conn, &url, &parsed.id, &parsed.name, &manifest)
+        db::upsert_addon(conn, &url, &parsed.id, &parsed.name, manifest)
             .map_err(|e| e.to_string())?;
         let disabled = row
             .get("flags")
@@ -336,15 +316,26 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
             library += inserted as i64;
         }
 
-        let Some(state) = row.get("state") else { continue };
+        let Some(state) = row.get("state") else {
+            continue;
+        };
         let offset = int(state, "timeOffset").max(0);
         let duration = int(state, "duration");
         // A stored playhead past the end would resume beyond the file.
-        let offset = if duration > 0 { offset.min(duration) } else { offset };
+        let offset = if duration > 0 {
+            offset.min(duration)
+        } else {
+            offset
+        };
         let video_id = text(state, "video_id");
         let (key, season, episode) = episode_key(&id, &video_id);
         let last_watched = time_ms(state.get("lastWatched").unwrap_or(&Value::Null));
-        let updated = if last_watched > 0 { last_watched } else { mtime }.max(1);
+        let updated = if last_watched > 0 {
+            last_watched
+        } else {
+            mtime
+        }
+        .max(1);
 
         let mut progress_current = false;
         if duration > 0 && offset > 0 {
@@ -419,12 +410,14 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
 }
 
 fn merge_all(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
-    let mut report = SyncReport::default();
-    report.addons = merge_addons(conn, &pulled.addons)?;
     let (library, progress, watched) = merge_library(conn, &pulled.library)?;
-    report.library = library;
-    report.progress = progress;
-    report.watched = watched;
+    let report = SyncReport {
+        addons: merge_addons(conn, &pulled.addons)?,
+        library,
+        progress,
+        watched,
+        ..SyncReport::default()
+    };
     Ok(report)
 }
 
@@ -463,8 +456,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
             db::all_progress(&conn).map_err(|e| e.to_string())?,
         )
     };
-    let mut pushed =
-        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
+    let mut pushed = push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
     pushed += push_library(
         &state.http,
         &session.auth_key,
@@ -501,8 +493,7 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
             db::all_progress(&conn).map_err(|e| e.to_string())?,
         )
     };
-    let mut pushed =
-        push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
+    let mut pushed = push_addons(&state.http, &session.auth_key, &addons, &pulled.addons).await?;
     pushed += push_library(
         &state.http,
         &session.auth_key,
@@ -584,28 +575,28 @@ async fn push_library(
     progress: &[db::ProgressItem],
     remote: &[Value],
 ) -> Result<i64, String> {
-    let remote_by_id: HashMap<String, Value> = remote
+    let remote_by_id: HashMap<String, &Value> = remote
         .iter()
         .filter_map(|row| {
             let id = text(row, "_id");
-            (!id.is_empty()).then(|| (id, row.clone()))
+            (!id.is_empty()).then_some((id, row))
         })
         .collect();
 
-    let mut newest: HashMap<String, db::ProgressItem> = HashMap::new();
+    let mut newest: HashMap<String, &db::ProgressItem> = HashMap::new();
     for item in progress {
-        newest.entry(item.meta_id.clone()).or_insert_with(|| item.clone());
+        newest.entry(item.meta_id.clone()).or_insert(item);
     }
 
     let mut covered = HashSet::new();
     let mut changes = Vec::new();
     for item in library {
         covered.insert(item.id.clone());
-        let remote_row = remote_by_id.get(&item.id);
+        let remote_row = remote_by_id.get(&item.id).copied();
         let remote_updated = remote_row
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
-        let progress = newest.get(&item.id);
+        let progress = newest.get(&item.id).copied();
         match progress {
             Some(p) if remote_updated <= p.updated_at => {}
             Some(_) => continue,
@@ -614,12 +605,14 @@ async fn push_library(
         }
         changes.push(library_record(
             remote_row,
-            true,
-            &item.id,
-            &item.name,
-            &item.media_type,
-            item.poster.as_deref(),
-            item.added_at,
+            LibraryFields {
+                in_library: true,
+                id: &item.id,
+                name: &item.name,
+                media_type: &item.media_type,
+                poster: item.poster.as_deref(),
+                added_at: item.added_at,
+            },
             progress,
         ));
     }
@@ -628,7 +621,7 @@ async fn push_library(
         if covered.contains(&id) {
             continue;
         }
-        let remote_row = remote_by_id.get(&id);
+        let remote_row = remote_by_id.get(&id).copied();
         let remote_updated = remote_row
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
@@ -637,13 +630,15 @@ async fn push_library(
         }
         changes.push(library_record(
             remote_row,
-            false,
-            &id,
-            &progress.name,
-            &progress.media_type,
-            progress.poster.as_deref(),
-            progress.updated_at,
-            Some(&progress),
+            LibraryFields {
+                in_library: false,
+                id: &id,
+                name: &progress.name,
+                media_type: &progress.media_type,
+                poster: progress.poster.as_deref(),
+                added_at: progress.updated_at,
+            },
+            Some(progress),
         ));
     }
 
@@ -667,19 +662,31 @@ async fn push_library(
     Ok(changes.len() as i64)
 }
 
+struct LibraryFields<'a> {
+    in_library: bool,
+    id: &'a str,
+    name: &'a str,
+    media_type: &'a str,
+    poster: Option<&'a str>,
+    added_at: i64,
+}
+
 /// A complete Stremio `LibraryItem`. Remote rows are kept as-is so unknown
 /// fields and the original timestamps survive; local-only rows get a full shape
 /// the official clients can deserialize.
 fn library_record(
     remote: Option<&Value>,
-    in_library: bool,
-    id: &str,
-    name: &str,
-    media_type: &str,
-    poster: Option<&str>,
-    added_at: i64,
+    fields: LibraryFields<'_>,
     progress: Option<&db::ProgressItem>,
 ) -> Value {
+    let LibraryFields {
+        in_library,
+        id,
+        name,
+        media_type,
+        poster,
+        added_at,
+    } = fields;
     let mut record = remote.cloned().unwrap_or_else(|| {
         json!({
             "_id": id,
@@ -702,7 +709,9 @@ fn library_record(
             }
         })
     });
-    let Some(progress) = progress else { return record };
+    let Some(progress) = progress else {
+        return record;
+    };
     let updated = iso8601(progress.updated_at);
     if let Some(object) = record.as_object_mut() {
         if in_library {
@@ -821,7 +830,7 @@ mod tests {
 
     #[test]
     fn the_same_addon_on_every_source_stays_one_row() {
-        let rows = vec![
+        let rows = [
             json!({ "transportUrl": "https://example.com/addon/", "manifest": { "id": "a", "name": "A" } }),
             json!({ "transportUrl": "https://example.com/addon/manifest.json", "manifest": { "id": "a", "name": "A" } }),
             json!({ "transportUrl": "stremio://example.com/addon", "manifest": { "id": "a", "name": "A" } }),
@@ -924,8 +933,13 @@ mod tests {
         .unwrap();
         let (_, progress, watched) = merge_library(&conn, &rows).expect("merge");
         assert_eq!(progress, 3, "a Stremio resume point must become progress");
-        assert_eq!(watched, 2, "only finished or explicitly watched titles count");
-        let film = db::get_progress(&conn, "tt1").unwrap().expect("film progress");
+        assert_eq!(
+            watched, 2,
+            "only finished or explicitly watched titles count"
+        );
+        let film = db::get_progress(&conn, "tt1")
+            .unwrap()
+            .expect("film progress");
         assert_eq!(film.position, 5400.0);
         assert_eq!(film.duration, 5400.0);
         let marks = db::list_watched(&conn).unwrap();
@@ -939,7 +953,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rewatch_marks, 0, "a partial rewatch retires the old mark");
-        assert!(!marks.contains(&"tt4".to_string()), "a film rewatch is not watched");
+        assert!(
+            !marks.contains(&"tt4".to_string()),
+            "a film rewatch is not watched"
+        );
         let continuing: Vec<String> = db::list_continue_watching(&conn)
             .unwrap()
             .into_iter()
@@ -949,11 +966,15 @@ mod tests {
         assert!(continuing.contains(&"tt4".to_string()));
         let listed = db::list_watched_items(&conn).unwrap();
         assert!(
-            listed.iter().any(|item| item.meta_id == "tt1" && item.name == "Film"),
+            listed
+                .iter()
+                .any(|item| item.meta_id == "tt1" && item.name == "Film"),
             "a watched movie must appear in the Watched list"
         );
         assert!(
-            listed.iter().any(|item| item.meta_id == "tt2" && item.name == "Show"),
+            listed
+                .iter()
+                .any(|item| item.meta_id == "tt2" && item.name == "Show"),
             "a watched series must appear in the Watched list"
         );
         assert!(!listed.iter().any(|item| item.meta_id == "tt3"));

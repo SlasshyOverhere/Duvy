@@ -96,7 +96,6 @@ export function traceTail(): string[] {
   return [...trace];
 }
 
-
 export function fingerprintOf(error: unknown): string {
   if (error instanceof Error) {
     const frame = (error.stack ?? "").split("\n")[1] ?? "";

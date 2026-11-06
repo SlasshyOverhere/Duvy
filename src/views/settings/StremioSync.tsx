@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/bridge";
 import { useApp } from "../../lib/store";
+import { errorMessage } from "../../lib/format";
 import { Badge, Button, Icon, Loading, Toggle } from "../../components/ui";
 import type { StremioStatus } from "../../lib/types";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Stremio account panel.
@@ -31,7 +28,7 @@ export function StremioSync() {
       setError(null);
       setEmail((current) => current || next.email);
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }, []);
 
@@ -52,7 +49,7 @@ export function StremioSync() {
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -70,7 +67,7 @@ export function StremioSync() {
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -85,7 +82,7 @@ export function StremioSync() {
       await api.stremio.signOut();
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -189,7 +186,7 @@ export function StremioSync() {
             <Toggle
               checked={settings?.stremioAutoSync ?? false}
               onChange={(value) =>
-                void saveSettings({ stremioAutoSync: value }).catch((e) => setError(message(e)))
+                void saveSettings({ stremioAutoSync: value }).catch((e) => setError(errorMessage(e)))
               }
               label="Sync automatically"
             />

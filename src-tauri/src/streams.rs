@@ -98,7 +98,7 @@ const QUALITY_TOKENS: &[(&str, &str, i64)] = &[
 ];
 
 /// Detect a display quality label from arbitrary addon text.
-pub fn detect_quality(text: &str) -> (String, i64) {
+fn detect_quality(text: &str) -> (String, i64) {
     let upper = text.to_uppercase();
     // Rips are matched as whole words: "Scam 1992" is not a cam rip.
     let ripped = upper
@@ -109,19 +109,20 @@ pub fn detect_quality(text: &str) -> (String, i64) {
                 "CAM" | "CAMRIP" | "HQCAM" | "HDCAM" | "TELESYNC" | "TS" | "HDTS"
             )
         });
-    let (label, weight) = if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
-        ("4K".to_string(), 50)
-    } else if upper.contains("1080P") {
-        ("1080p".to_string(), 40)
-    } else if upper.contains("720P") {
-        ("720p".to_string(), 26)
-    } else if upper.contains("480P") || upper.contains("360P") {
-        ("480p".to_string(), 12)
-    } else if ripped {
-        ("CAM".to_string(), -40)
-    } else {
-        ("Auto".to_string(), 20)
-    };
+    let (label, weight) =
+        if upper.contains("2160P") || upper.contains("4K") || upper.contains("UHD") {
+            ("4K".to_string(), 50)
+        } else if upper.contains("1080P") {
+            ("1080p".to_string(), 40)
+        } else if upper.contains("720P") {
+            ("720p".to_string(), 26)
+        } else if upper.contains("480P") || upper.contains("360P") {
+            ("480p".to_string(), 12)
+        } else if ripped {
+            ("CAM".to_string(), -40)
+        } else {
+            ("Auto".to_string(), 20)
+        };
 
     if label == "CAM" || label == "Auto" {
         return (label, weight);
@@ -136,7 +137,7 @@ pub fn detect_quality(text: &str) -> (String, i64) {
 }
 
 /// Pull a human-readable size such as "1.4 GB" out of a description.
-pub fn find_size(text: &str) -> Option<String> {
+fn find_size(text: &str) -> Option<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     for (index, word) in words.iter().enumerate() {
         let cleaned = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
@@ -147,12 +148,12 @@ pub fn find_size(text: &str) -> Option<String> {
                     return Some(format!("{} {}", number, unit));
                 }
                 // Handle "1.4 GB" where the unit is a separate word.
-                if number.is_empty() {
-                    if let Some(prev) = index.checked_sub(1).and_then(|i| words.get(i)) {
-                        let prev = prev.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
-                        if prev.parse::<f64>().is_ok() {
-                            return Some(format!("{} {}", prev, unit));
-                        }
+                if number.is_empty()
+                    && let Some(prev) = index.checked_sub(1).and_then(|i| words.get(i))
+                {
+                    let prev = prev.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
+                    if prev.parse::<f64>().is_ok() {
+                        return Some(format!("{} {}", prev, unit));
                     }
                 }
             }
@@ -162,7 +163,7 @@ pub fn find_size(text: &str) -> Option<String> {
 }
 
 /// Pull a seeder count from common emoji / text forms.
-pub fn find_seeders(text: &str) -> Option<i64> {
+fn find_seeders(text: &str) -> Option<i64> {
     let normalised = text.replace(['\u{1F464}', '\u{1F465}'], "seeders:");
     let lower = normalised.to_lowercase();
     for marker in ["seeders:", "seeds:", "seeders ", "👤"] {
@@ -190,7 +191,13 @@ fn detect_languages(text: &str) -> Vec<String> {
     // "MULTi" style spellings.
     tokens = tokens
         .into_iter()
-        .map(|t| if t.starts_with("MULTI") { "MULTI".to_string() } else { t })
+        .map(|t| {
+            if t.starts_with("MULTI") {
+                "MULTI".to_string()
+            } else {
+                t
+            }
+        })
         .collect();
 
     let mut found: Vec<String> = Vec::new();
@@ -207,8 +214,10 @@ fn detect_badges(text: &str) -> Vec<String> {
     let upper = text.to_uppercase();
     let mut badges: Vec<String> = Vec::new();
     for (token, label, _) in QUALITY_TOKENS {
-        if matches!(*label, "HDR" | "DV" | "Atmos" | "DDP" | "TrueHD" | "x265" | "HEVC" | "10-bit")
-            && upper.contains(token)
+        if matches!(
+            *label,
+            "HDR" | "DV" | "Atmos" | "DDP" | "TrueHD" | "x265" | "HEVC" | "10-bit"
+        ) && upper.contains(token)
             && !badges.iter().any(|b| b == label)
         {
             badges.push((*label).to_string());
@@ -241,7 +250,6 @@ fn video_size(stream: &Stream) -> Option<u64> {
         .filter(|value| *value > 0)
 }
 
-
 /// `xt=urn:btih:<hash>` from a magnet link.
 fn magnet_hash(url: &str) -> Option<String> {
     let lower = url.to_ascii_lowercase();
@@ -256,15 +264,19 @@ fn magnet_hash(url: &str) -> Option<String> {
     (!hash.is_empty()).then_some(hash)
 }
 
-pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
-    let name = stream.name.clone().unwrap_or_default();
-    let title = stream.title.clone().unwrap_or_default();
-    let description = stream.description.clone().unwrap_or_default();
-    let combined = format!("{name} {title} {description}");
+pub fn normalize(addon: &str, stream: Stream) -> StreamOption {
+    let combined = format!(
+        "{} {} {}",
+        stream.name.as_deref().unwrap_or_default(),
+        stream.title.as_deref().unwrap_or_default(),
+        stream.description.as_deref().unwrap_or_default()
+    );
 
     let (quality, mut score) = detect_quality(&combined);
-    let size_bytes = video_size(stream);
-    let size = size_bytes.map(format_bytes).or_else(|| find_size(&combined));
+    let size_bytes = video_size(&stream);
+    let size = size_bytes
+        .map(format_bytes)
+        .or_else(|| find_size(&combined));
     let seeders = find_seeders(&combined);
     let languages = detect_languages(&combined);
     let badges = detect_badges(&combined);
@@ -285,15 +297,15 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
         score += 6;
     }
 
-    let url = stream.url.clone();
+    let url = stream.url;
     // A magnet/hash row is playable too: the torrent engine turns it into a
     // local HTTP stream at playback time.
-    let magnet = url
-        .as_deref()
-        .is_some_and(|u| u.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:")));
+    let magnet = url.as_deref().is_some_and(|u| {
+        u.get(..7)
+            .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
+    });
     let info_hash = stream
         .info_hash
-        .clone()
         .or_else(|| url.as_deref().and_then(magnet_hash));
     let playable = magnet
         || info_hash.is_some()
@@ -304,13 +316,13 @@ pub fn normalize(addon: &str, stream: &Stream) -> StreamOption {
 
     StreamOption {
         addon: addon.to_string(),
-        name: stream.name.clone(),
-        title: stream.title.clone(),
-        description: stream.description.clone(),
+        name: stream.name,
+        title: stream.title,
+        description: stream.description,
         url,
         info_hash,
         file_idx: stream.file_idx,
-        external_url: stream.external_url.clone(),
+        external_url: stream.external_url,
         quality,
         size,
         size_bytes,
@@ -349,14 +361,14 @@ mod tests {
             name: Some("Provider".into()),
             ..Default::default()
         };
-        assert!(normalize("A", &direct).playable);
+        assert!(normalize("A", direct).playable);
 
         let torrent = Stream {
             info_hash: Some("abc123".into()),
             name: Some("Torrent".into()),
             ..Default::default()
         };
-        let option = normalize("A", &torrent);
+        let option = normalize("A", torrent);
         assert!(option.playable);
         assert!(option.info_hash.is_some());
 
@@ -366,7 +378,7 @@ mod tests {
             ),
             ..Default::default()
         };
-        let option = normalize("A", &magnet);
+        let option = normalize("A", magnet);
         assert!(option.playable);
         assert_eq!(
             option.info_hash.as_deref(),
@@ -377,14 +389,14 @@ mod tests {
             url: Some("file:///C:/movie.mkv".into()),
             ..Default::default()
         };
-        assert!(!normalize("A", &local).playable);
+        assert!(!normalize("A", local).playable);
     }
 
     #[test]
     fn ranks_cached_1080_above_cam() {
         let good = normalize(
             "A",
-            &Stream {
+            Stream {
                 url: Some("https://x/y.mp4".into()),
                 name: Some("1080p WEB-DL ⚡ cached".into()),
                 ..Default::default()
@@ -392,7 +404,7 @@ mod tests {
         );
         let bad = normalize(
             "A",
-            &Stream {
+            Stream {
                 url: Some("https://x/z.mp4".into()),
                 name: Some("CAM".into()),
                 ..Default::default()
@@ -409,10 +421,13 @@ mod tests {
             behavior_hints: Some(serde_json::json!({ "videoSize": 19_170_000_000u64 })),
             ..Default::default()
         };
-        let option = normalize("A", &stream);
+        let option = normalize("A", stream);
         assert_eq!(option.size.as_deref(), Some("17.9 GB"));
         assert_eq!(option.size_bytes, Some(19_170_000_000));
-        assert_eq!(option.title.as_deref(), Some("Movie 1080p\n\u{1F464} 12 \u{1F4BE} 1.2 GB"));
+        assert_eq!(
+            option.title.as_deref(),
+            Some("Movie 1080p\n\u{1F464} 12 \u{1F4BE} 1.2 GB")
+        );
     }
 
     // Titles from addons are arbitrary Unicode; parsing one must never slice a

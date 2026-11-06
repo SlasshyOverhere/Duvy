@@ -18,12 +18,13 @@
 //! just comes back on the next pull). Add tombstone pushes when sync_delete_*
 //! is wired to the library/progress commands.
 
-use crate::db;
-use crate::settings::Settings;
 use crate::AppState;
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::db;
+use crate::json::{as_rows, int, text};
+use crate::settings::Settings;
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub const DEFAULT_BASE: &str = "https://api.nuvio.tv";
@@ -102,7 +103,6 @@ pub struct SyncReport {
     pub watched: i64,
     pub library: i64,
     pub addons: i64,
-    pub addons_pushed: i64,
     pub pushed: i64,
 }
 
@@ -112,9 +112,6 @@ pub struct NuvioProfile {
     pub id: String,
     pub name: String,
     pub profile_index: i64,
-    pub avatar_color_hex: String,
-    pub avatar_url: Option<String>,
-    pub pin_enabled: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -250,8 +247,11 @@ async fn request(
         }
         // Only an unavailable backend is worth retrying elsewhere; auth and
         // validation errors are ours to fix.
-        let transient =
-            retry_safe && matches!(status.as_u16(), 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524);
+        let transient = retry_safe
+            && matches!(
+                status.as_u16(),
+                502 | 503 | 504 | 520 | 521 | 522 | 523 | 524
+            );
         last_error = error_from(status.as_u16(), &text);
         if !transient {
             break;
@@ -267,7 +267,15 @@ async fn post(
     token: Option<&str>,
     body: &Value,
 ) -> Result<Value, String> {
-    request(http, settings, reqwest::Method::POST, path, token, Some(body)).await
+    request(
+        http,
+        settings,
+        reqwest::Method::POST,
+        path,
+        token,
+        Some(body),
+    )
+    .await
 }
 
 async fn get(
@@ -276,7 +284,15 @@ async fn get(
     path: &str,
     token: &str,
 ) -> Result<Value, String> {
-    request(http, settings, reqwest::Method::GET, path, Some(token), None).await
+    request(
+        http,
+        settings,
+        reqwest::Method::GET,
+        path,
+        Some(token),
+        None,
+    )
+    .await
 }
 
 async fn rpc(
@@ -286,7 +302,14 @@ async fn rpc(
     name: &str,
     body: Value,
 ) -> Result<Value, String> {
-    post(http, settings, &format!("/rest/v1/rpc/{name}"), Some(token), &body).await
+    post(
+        http,
+        settings,
+        &format!("/rest/v1/rpc/{name}"),
+        Some(token),
+        &body,
+    )
+    .await
 }
 
 /// One refresh at a time: GoTrue rotates the refresh token on use, so a second
@@ -401,7 +424,9 @@ pub async fn sign_in(
     let previous = account_identity(&session.user_id, &session.email);
     let user = value.get("user");
     let current = account_identity(
-        user.and_then(|u| u.get("id")).and_then(Value::as_str).unwrap_or_default(),
+        user.and_then(|u| u.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
         user.and_then(|u| u.get("email"))
             .and_then(Value::as_str)
             .unwrap_or(email),
@@ -416,7 +441,11 @@ pub async fn sign_in(
             db::clear_history(&conn).map_err(|e| e.to_string())?;
             session.last_sync = 0;
         }
-        (None, _) if !db::touched_ids(&conn).map_err(|e| e.to_string())?.is_empty() => {
+        (None, _)
+            if !db::touched_ids(&conn)
+                .map_err(|e| e.to_string())?
+                .is_empty() =>
+        {
             eprintln!("nuvio: no stored account identity, keeping local history as-is");
         }
         _ => {}
@@ -489,7 +518,14 @@ pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
         (Settings::load(&conn), load_session(&conn))
     };
     let token = ensure_token(state, &settings, &mut session).await?;
-    let value = rpc(&state.http, &settings, &token, "sync_pull_profiles", json!({})).await?;
+    let value = rpc(
+        &state.http,
+        &settings,
+        &token,
+        "sync_pull_profiles",
+        json!({}),
+    )
+    .await?;
     let mut list: Vec<NuvioProfile> = serde_json::from_value(value).unwrap_or_default();
     list.sort_by_key(|p| p.profile_index);
     Ok(list)
@@ -498,29 +534,6 @@ pub async fn profiles(state: &AppState) -> Result<Vec<NuvioProfile>, String> {
 // ---------------------------------------------------------------------------
 // Sync
 // ---------------------------------------------------------------------------
-
-fn as_rows(value: Value) -> Vec<Value> {
-    match value {
-        Value::Array(rows) => rows,
-        Value::Null => Vec::new(),
-        other => vec![other],
-    }
-}
-
-fn int(value: &Value, key: &str) -> i64 {
-    value
-        .get(key)
-        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-        .unwrap_or(0)
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
 
 /// Some Nuvio rows store their timestamps in seconds; the local clock is ms.
 fn to_ms(at: i64) -> i64 {
@@ -534,7 +547,7 @@ fn to_ms(at: i64) -> i64 {
 fn content_type(value: &Value) -> String {
     match text(value, "content_type").as_str() {
         "series" => "series".into(),
-        other if other.is_empty() => "movie".into(),
+        "" => "movie".into(),
         other => other.into(),
     }
 }
@@ -567,8 +580,9 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
     // Best-effort: a read-only addons table must not cost the history push.
-    report.addons_pushed =
-        push_addons(state, &settings, &token, pid, &pulled.addons).await.unwrap_or(0);
+    let addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
+        .await
+        .unwrap_or(0);
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -588,7 +602,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
         .await?;
         pushed += library.len() as i64;
     }
-    report.pushed = pushed + report.addons_pushed;
+    report.pushed = pushed + addons_pushed;
 
     enrich(state).await?;
 
@@ -698,11 +712,7 @@ fn addons_path(pid: i64) -> String {
 /// The manifest URL Nuvio stores for a row, normalised the way an install is.
 fn remote_addon_url(row: &Value) -> Option<String> {
     let url = crate::addons::normalize_addon_url(&text(row, "url"));
-    if url.is_empty() {
-        None
-    } else {
-        Some(url)
-    }
+    if url.is_empty() { None } else { Some(url) }
 }
 
 /// Installs addons the account has and this machine does not. Pull-only: local
@@ -713,16 +723,15 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
     }
     let installed: Vec<String> = {
         let conn = state.db.0.lock().map_err(|e| e.to_string())?;
-        db::list_addons(&conn)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|addon| addon.url)
-            .collect()
+        db::list_addon_urls(&conn).map_err(|e| e.to_string())?
     };
+    let mut known: std::collections::HashSet<String> = installed.into_iter().collect();
     let mut added = 0;
     for row in rows {
-        let Some(url) = remote_addon_url(row) else { continue };
-        if installed.iter().any(|known| known == &url) {
+        let Some(url) = remote_addon_url(row) else {
+            continue;
+        };
+        if !known.insert(url.clone()) {
             continue;
         }
         let manifest_url = format!("{url}/manifest.json");
@@ -741,7 +750,9 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
             }
             _ => continue,
         };
-        let Ok(manifest) = serde_json::from_value::<crate::addons::Manifest>(value.clone()) else {
+        let Ok(manifest) =
+            <crate::addons::Manifest as serde::Deserialize>::deserialize(&value)
+        else {
             continue;
         };
         if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
@@ -794,10 +805,12 @@ async fn push_addons(
 }
 
 fn merge_pulled(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
-    let mut report = SyncReport::default();
-    report.progress = merge_progress(conn, &pulled.progress)?;
-    report.watched = merge_watched(conn, &pulled.watched)?;
-    report.library = merge_library(conn, &pulled.library)?;
+    let report = SyncReport {
+        progress: merge_progress(conn, &pulled.progress)?,
+        watched: merge_watched(conn, &pulled.watched)?,
+        library: merge_library(conn, &pulled.library)?,
+        ..SyncReport::default()
+    };
     // Watched on another device and never played here: no progress row exists
     // to carry a name. Park a zero-length one so the enrich pass can title it.
     // Zero duration keeps it out of every progress and push query.
@@ -872,22 +885,24 @@ async fn enrich(state: &AppState) -> Result<(), String> {
         return Ok(());
     }
     let conn = state.db.0.lock().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for (meta_id, name, poster, background) in filled {
         let _ = db::set_progress_meta(
-            &conn,
+            &tx,
             &meta_id,
             &name,
             poster.as_deref(),
             background.as_deref(),
         );
         let _ = db::set_library_meta(
-            &conn,
+            &tx,
             &meta_id,
             &name,
             poster.as_deref(),
             background.as_deref(),
         );
     }
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -911,39 +926,32 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         }
         // A remote position past the end would resume beyond the file.
         let position = position.clamp(0.0, duration);
-        let existing: Option<(String, i64)> = conn
-            .query_row(
-                "SELECT name, updated_at FROM progress WHERE key = ?1",
-                params![key],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+        // The upsert already skips a local row that is ahead, so one write
+        // replaces the read-then-write round trip.
+        let changed = conn
+            .execute(
+                "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
+                                       episode, episode_title, position, duration, updated_at)
+                 VALUES (?1, ?2, ?3, ?2, NULL, NULL, ?4, ?5, NULL, ?6, ?7, ?8)
+                 ON CONFLICT(key) DO UPDATE SET
+                   position = excluded.position, duration = excluded.duration,
+                   updated_at = excluded.updated_at,
+                   season = COALESCE(progress.season, excluded.season),
+                   episode = COALESCE(progress.episode, excluded.episode)
+                 WHERE excluded.updated_at >= progress.updated_at",
+                params![
+                    key,
+                    content_id,
+                    content_type(row),
+                    if season > 0 { Some(season) } else { None },
+                    if episode > 0 { Some(episode) } else { None },
+                    position,
+                    duration,
+                    if updated > 0 { updated } else { db::now() },
+                ],
             )
-            .optional()
             .map_err(|e| e.to_string())?;
-        if let Some((_, local_updated)) = &existing {
-            if *local_updated > updated {
-                continue;
-            }
-        }
-        conn.execute(
-            "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
-                                   episode, episode_title, position, duration, updated_at)
-             VALUES (?1, ?2, ?3, ?2, NULL, NULL, ?4, ?5, NULL, ?6, ?7, ?8)
-             ON CONFLICT(key) DO UPDATE SET
-               position = ?6, duration = ?7, updated_at = ?8,
-               season = COALESCE(progress.season, ?4), episode = COALESCE(progress.episode, ?5)",
-            params![
-                key,
-                content_id,
-                content_type(row),
-                if season > 0 { Some(season) } else { None },
-                if episode > 0 { Some(episode) } else { None },
-                position,
-                duration,
-                if updated > 0 { updated } else { db::now() },
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        applied += changed as i64;
     }
     Ok(applied)
 }
@@ -959,24 +967,23 @@ fn merge_watched(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         let episode = int(row, "episode");
         let key = local_key(&content_id, season, episode);
         let watched_at = to_ms(int(row, "watched_at"));
-        let existing: Option<i64> = conn
-            .query_row("SELECT updated_at FROM watched WHERE key = ?1", params![key], |r| {
-                r.get(0)
-            })
-            .optional()
+        let changed = conn
+            .execute(
+                "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
+                 WHERE excluded.updated_at >= watched.updated_at",
+                params![
+                    key,
+                    content_id,
+                    if watched_at > 0 {
+                        watched_at
+                    } else {
+                        db::now()
+                    }
+                ],
+            )
             .map_err(|e| e.to_string())?;
-        if let Some(local_updated) = existing {
-            if local_updated > watched_at {
-                continue;
-            }
-        }
-        conn.execute(
-            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-             ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
-            params![key, content_id, if watched_at > 0 { watched_at } else { db::now() }],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        applied += changed as i64;
     }
     Ok(applied)
 }
@@ -989,34 +996,32 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
             continue;
         }
         let added_at = to_ms(int(row, "added_at"));
-        let existing: Option<i64> = conn
-            .query_row("SELECT added_at FROM library WHERE id = ?1", params![content_id], |r| {
-                r.get(0)
-            })
-            .optional()
-            .map_err(|e| e.to_string())?;
-        if existing.is_some() {
-            continue;
-        }
         let name = {
             let title = text(row, "title");
-            if title.is_empty() { content_id.clone() } else { title }
+            if title.is_empty() {
+                content_id.clone()
+            } else {
+                title
+            }
         };
-        conn.execute(
-            "INSERT INTO library (id, media_type, name, poster, background, added_at, meta)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
-             ON CONFLICT(id) DO NOTHING",
-            params![
-                content_id,
-                content_type(row),
-                name,
-                row.get("poster").and_then(Value::as_str),
-                row.get("background").and_then(Value::as_str),
-                if added_at > 0 { added_at } else { db::now() },
-            ],
-        )
-        .map_err(|e| e.to_string())?;
-        applied += 1;
+        // ON CONFLICT DO NOTHING already keeps an existing row, so the read
+        // that used to guard it is gone.
+        let changed = conn
+            .execute(
+                "INSERT INTO library (id, media_type, name, poster, background, added_at, meta)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
+                 ON CONFLICT(id) DO NOTHING",
+                params![
+                    content_id,
+                    content_type(row),
+                    name,
+                    row.get("poster").and_then(Value::as_str),
+                    row.get("background").and_then(Value::as_str),
+                    if added_at > 0 { added_at } else { db::now() },
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        applied += changed as i64;
     }
     Ok(applied)
 }

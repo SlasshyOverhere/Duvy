@@ -5,8 +5,8 @@
 //! `skip_lookup` asks IntroDB for the community timestamps, the same source
 //! Nuvio uses.
 
-use crate::db;
 use crate::AppState;
+use crate::db;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -42,33 +42,6 @@ fn load(conn: &rusqlite::Connection) -> Store {
 fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
     let value = serde_json::to_value(store).map_err(|e| e.to_string())?;
     db::write_kv(conn, KEY, &value).map_err(|e| e.to_string())
-}
-
-/// The segment to skip and the timestamp to seek to.
-/// The player only offers a skip button; nothing here moves the playhead.
-pub fn apply(entry: &SkipEntry, position: f64, duration: f64) -> Option<(String, f64)> {
-    if !duration.is_finite() || duration <= 0.0 || !position.is_finite() {
-        return None;
-    }
-
-    if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end) {
-        let end = end.min(duration);
-        if end < duration - 2.0
-            && end - start > 2.0
-            && position >= start - 0.5
-            && position < end
-        {
-            return Some(("intro".to_string(), end));
-        }
-    }
-
-    if let Some(start) = entry.outro_start {
-        if start > 0.0 && start < duration - 2.0 && position >= start - 0.5 {
-            return Some(("outro".to_string(), duration - 1.0));
-        }
-    }
-
-    None
 }
 
 #[tauri::command]
@@ -114,7 +87,9 @@ pub async fn skip_lookup(
     }
     let mut url = format!("{INTRODB}?imdb_id={imdb_id}");
     match (season, episode) {
-        (Some(season), Some(episode)) => url.push_str(&format!("&season={season}&episode={episode}")),
+        (Some(season), Some(episode)) => {
+            url.push_str(&format!("&season={season}&episode={episode}"))
+        }
         _ => url.push_str("&is_movie=true"),
     }
     let response = state
@@ -139,7 +114,10 @@ pub async fn skip_lookup(
 fn from_segments(value: &serde_json::Value) -> SkipEntry {
     let seg = |key: &str| -> Option<(f64, f64)> {
         let seg = value.get(key)?;
-        Some((seg.get("start_sec")?.as_f64()?, seg.get("end_sec")?.as_f64()?))
+        Some((
+            seg.get("start_sec")?.as_f64()?,
+            seg.get("end_sec")?.as_f64()?,
+        ))
     };
     let mut entry = SkipEntry::default();
     if let Some((start, end)) = seg("intro") {
@@ -162,10 +140,10 @@ fn validate(entry: &SkipEntry) -> Result<(), String> {
             return Err("skip markers must be finite and non-negative".into());
         }
     }
-    if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end) {
-        if end <= start {
-            return Err("the intro must end after it starts".into());
-        }
+    if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end)
+        && end <= start
+    {
+        return Err("the intro must end after it starts".into());
     }
     Ok(())
 }
@@ -185,47 +163,15 @@ mod tests {
     #[test]
     fn invalid_markers_are_rejected() {
         assert!(validate(&entry((10.0, 70.0), None)).is_ok());
-        assert!(validate(&SkipEntry {
-            intro_start: Some(-1.0),
-            ..SkipEntry::default()
-        })
-        .is_err());
+        assert!(
+            validate(&SkipEntry {
+                intro_start: Some(-1.0),
+                ..SkipEntry::default()
+            })
+            .is_err()
+        );
         assert!(validate(&entry((f64::NAN, 70.0), None)).is_err());
         assert!(validate(&entry((70.0, 70.0), None)).is_err());
-    }
-
-    #[test]
-    fn intro_offers_its_end_while_inside_the_window() {
-        assert_eq!(
-            apply(&entry((10.0, 70.0), None), 10.4, 1440.0),
-            Some(("intro".to_string(), 70.0))
-        );
-        assert_eq!(
-            apply(&entry((10.0, 70.0), None), 69.9, 1440.0),
-            Some(("intro".to_string(), 70.0))
-        );
-    }
-
-    #[test]
-    fn intro_stops_offering_once_the_window_closes() {
-        let skip = entry((10.0, 70.0), None);
-        assert_eq!(apply(&skip, 9.0, 1440.0), None);
-        assert_eq!(apply(&skip, 70.0, 1440.0), None);
-    }
-
-    #[test]
-    fn the_outro_offers_the_end_of_the_file() {
-        let skip = entry((10.0, 70.0), Some(1350.0));
-        assert_eq!(
-            apply(&skip, 1350.0, 1440.0),
-            Some(("outro".to_string(), 1439.0))
-        );
-    }
-
-    #[test]
-    fn an_intro_past_the_end_of_the_file_does_nothing() {
-        // Community markers are not validated against the real runtime.
-        assert_eq!(apply(&entry((10.0, 70.0), None), 12.0, 60.0), None);
     }
 
     #[test]
@@ -235,26 +181,7 @@ mod tests {
             "recap": null,
             "outro": { "start_sec": 2600, "end_sec": 2650 },
         });
-        assert_eq!(
-            from_segments(&value),
-            entry((2.5, 58.0), Some(2600.0))
-        );
+        assert_eq!(from_segments(&value), entry((2.5, 58.0), Some(2600.0)));
         assert!(from_segments(&serde_json::json!({ "intro": null })).is_empty());
-    }
-
-    #[test]
-    fn partial_and_empty_markers_do_nothing() {
-        assert_eq!(apply(&SkipEntry::default(), 30.0, 900.0), None);
-        let half = SkipEntry {
-            intro_start: Some(5.0),
-            ..SkipEntry::default()
-        };
-        assert_eq!(apply(&half, 6.0, 900.0), None);
-        let short = SkipEntry {
-            intro_start: Some(5.0),
-            intro_end: Some(6.0),
-            ..SkipEntry::default()
-        };
-        assert_eq!(apply(&short, 5.0, 900.0), None);
     }
 }

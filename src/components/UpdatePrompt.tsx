@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "../lib/bridge";
-import { errorMessage } from "../lib/format";
+import { errorMessage, megabytes } from "../lib/format";
 import { useApp } from "../lib/store";
 import { Button, Icon } from "./ui";
-
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 /**
  * The update announcement, in the middle of the window: a corner toast is too

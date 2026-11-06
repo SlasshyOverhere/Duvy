@@ -1,5 +1,4 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "./components/Shell";
 import { ResizeEdges, WindowControls } from "./components/TitleBar";
 import { StoreProvider, useApp } from "./lib/store";
@@ -9,10 +8,10 @@ import { UpdatePrompt } from "./components/UpdatePrompt";
 import { AppMenu } from "./components/AppMenu";
 import { Icon } from "./components/ui";
 import { HomeView } from "./views/Home";
-import { Onboarding } from "./views/Onboarding";
 
 // Home ships in the entry chunk because it is the first screen. Everything
 // else is fetched on open; the player is prewarmed below.
+const Onboarding = lazy(() => import("./views/Onboarding").then((m) => ({ default: m.Onboarding })));
 const PlayerView = lazy(() => import("./views/Player").then((m) => ({ default: m.PlayerView })));
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
@@ -84,28 +83,18 @@ function Toasts() {
   // The live region stays mounted so a toast that arrives is announced.
   return (
     <div className="toasts" role="status" aria-live="polite">
-      <AnimatePresence initial={false}>
-        {toasts.map((toast) => (
-          <motion.div
-            key={toast.id}
-            layout
-            initial={{ opacity: 0, y: 10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: [0.22, 0.68, 0.32, 1] }}
-            className={`toast toast-${toast.tone}`}
-          >
-            <Icon
-              name={toast.tone === "success" ? "check" : toast.tone === "error" ? "alert" : "info"}
-              size={16}
-            />
-            <span>{toast.text}</span>
-            <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Dismiss">
-              <Icon name="x" size={14} />
-            </button>
-          </motion.div>
-        ))}
-      </AnimatePresence>
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.tone}`}>
+          <Icon
+            name={toast.tone === "success" ? "check" : toast.tone === "error" ? "alert" : "info"}
+            size={16}
+          />
+          <span>{toast.text}</span>
+          <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Dismiss">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -167,7 +156,11 @@ function Screen() {
 
   // First run owns the window until it is answered or skipped.
   if (settings && !settings.onboarded) {
-    return <Onboarding />;
+    return (
+      <Suspense fallback={null}>
+        <Onboarding />
+      </Suspense>
+    );
   }
 
   if (route.name === "player") {
@@ -203,7 +196,9 @@ function Screen() {
       </div>
       {preview ? (
         <div className="ob-preview">
-          <Onboarding preview onExit={() => setPreview(false)} />
+          <Suspense fallback={null}>
+            <Onboarding preview onExit={() => setPreview(false)} />
+          </Suspense>
         </div>
       ) : null}
     </div>

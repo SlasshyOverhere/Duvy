@@ -63,7 +63,7 @@ impl ResourceRef {
         }
     }
 
-    pub fn supports_type(&self, media_type: &str) -> bool {
+    fn supports_type(&self, media_type: &str) -> bool {
         match self {
             ResourceRef::Name(_) => true,
             ResourceRef::Detailed { types, .. } => {
@@ -72,7 +72,7 @@ impl ResourceRef {
         }
     }
 
-    pub fn supports_id(&self, id: &str) -> bool {
+    fn supports_id(&self, id: &str) -> bool {
         match self {
             ResourceRef::Name(_) => true,
             ResourceRef::Detailed { id_prefixes, .. } => match id_prefixes {
@@ -105,11 +105,7 @@ pub struct Manifest {
     #[serde(default)]
     pub catalogs: Vec<CatalogDef>,
     #[serde(default)]
-    pub id_prefixes: Option<Vec<String>>,
-    #[serde(default)]
     pub behavior_hints: Option<Value>,
-    #[serde(default)]
-    pub addon_collection: Option<Value>,
 }
 
 impl Manifest {
@@ -165,19 +161,13 @@ pub struct Meta {
     #[serde(default)]
     pub country: Option<String>,
     #[serde(default)]
-    pub awards: Option<String>,
-    #[serde(default)]
     pub videos: Vec<Video>,
     #[serde(default)]
     pub trailers: Vec<Trailer>,
     #[serde(default)]
-    pub trailers_streams: Option<Vec<Stream>>,
-    #[serde(default)]
     pub links: Vec<Link>,
     #[serde(default)]
     pub behavior_hints: Option<Value>,
-    #[serde(default)]
-    pub release_dates: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -200,8 +190,6 @@ pub struct Video {
     #[serde(default)]
     pub released: Option<String>,
     #[serde(default)]
-    pub available: Option<bool>,
-    #[serde(default)]
     pub rating: Option<String>,
 }
 
@@ -220,8 +208,6 @@ pub struct Link {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub category: String,
-    #[serde(default)]
     pub url: String,
 }
 
@@ -237,15 +223,11 @@ pub struct Stream {
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
-    pub yt_id: Option<String>,
-    #[serde(default)]
     pub info_hash: Option<String>,
     #[serde(default)]
     pub file_idx: Option<i64>,
     #[serde(default)]
     pub external_url: Option<String>,
-    #[serde(default)]
-    pub sources: Option<Vec<String>>,
     #[serde(default)]
     pub behavior_hints: Option<Value>,
 }
@@ -301,7 +283,8 @@ pub(crate) fn is_blocked_host(host: &str) -> bool {
         Ok(std::net::IpAddr::V4(v4)) => v4.is_link_local() || v4.is_unspecified(),
         Ok(std::net::IpAddr::V6(v6)) => {
             v6.is_unspecified()
-                || v6.to_ipv4_mapped()
+                || v6
+                    .to_ipv4_mapped()
                     .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
         }
         Err(_) => false,
@@ -351,7 +334,7 @@ fn encode_with(value: &str, keep_colon: bool) -> String {
     out
 }
 
-pub fn extra_segment(extra: &BTreeMap<String, String>) -> String {
+fn extra_segment(extra: &BTreeMap<String, String>) -> String {
     extra
         .iter()
         .filter(|(_, v)| !v.is_empty())
@@ -394,7 +377,12 @@ pub fn stream_url(base: &str, media_type: &str, id: &str) -> String {
     )
 }
 
-pub fn subtitle_url(base: &str, media_type: &str, id: &str, extra: &BTreeMap<String, String>) -> String {
+pub fn subtitle_url(
+    base: &str,
+    media_type: &str,
+    id: &str,
+    extra: &BTreeMap<String, String>,
+) -> String {
     let media_type = encode_segment(media_type);
     let id = encode_segment(id);
     let segment = extra_segment(extra);

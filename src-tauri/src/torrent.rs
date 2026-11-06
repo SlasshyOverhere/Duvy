@@ -7,8 +7,8 @@
 //!
 //! The whole engine is torn down (session, torrent, files, port) on `stop`.
 
-use crate::settings::Settings;
 use crate::AppState;
+use crate::settings::Settings;
 use librqbit::api::{Api, TorrentIdOrHash};
 use librqbit::http_api::{HttpApi, HttpApiOptions};
 use librqbit::{
@@ -262,8 +262,9 @@ async fn prepare(
         .await
         .map_err(|e| format!("could not start the torrent: {e:#}"))?;
     let (torrent, handle) = match added {
-        AddTorrentResponse::Added(id, handle)
-        | AddTorrentResponse::AlreadyManaged(id, handle) => (id, handle),
+        AddTorrentResponse::Added(id, handle) | AddTorrentResponse::AlreadyManaged(id, handle) => {
+            (id, handle)
+        }
         AddTorrentResponse::ListOnly(_) => return Err("the torrent engine did not start".into()),
     };
 
@@ -562,8 +563,7 @@ mod tests {
     }
 
     fn scratch_dir(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("duvy-torrent-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("duvy-torrent-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

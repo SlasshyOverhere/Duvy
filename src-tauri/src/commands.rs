@@ -11,8 +11,9 @@ use crate::models::{
 use crate::player::{self, PlayRequest, Player, Snapshot};
 use crate::settings::Settings;
 use crate::streams::{self as stream_utils, StreamOption};
-use crate::{tmdb, AppState};
-use serde_json::{json, Value};
+use crate::{AppState, tmdb};
+use serde::Deserialize;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::task::JoinSet;
@@ -38,7 +39,9 @@ const DEFAULT_ADDONS: &[&str] = &["https://v3-cinemeta.strem.io"];
 // ---------------------------------------------------------------------------
 
 fn parse_manifest(addon: &StoredAddon) -> Manifest {
-    serde_json::from_value(addon.manifest.clone()).unwrap_or_default()
+    // Deserialized straight from the stored value: cloning the whole manifest
+    // per catalog row would copy the entire JSON tree on every home load.
+    Manifest::deserialize(&addon.manifest).unwrap_or_default()
 }
 
 pub(crate) fn load_settings(state: &AppState) -> Settings {
@@ -97,7 +100,10 @@ async fn fetch_json_within(
         return Err(format!("HTTP {}", response.status()));
     }
     let too_large = || format!("reply too large (over {} MiB)", MAX_BODY / 1024 / 1024);
-    if response.content_length().is_some_and(|len| len > MAX_BODY as u64) {
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_BODY as u64)
+    {
         return Err(too_large());
     }
     // The length header can lie or be absent after decompression, so the read
@@ -117,27 +123,39 @@ async fn fetch_json_within(
 }
 
 fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
-    let preview = meta.preview.clone();
+    let Meta {
+        preview,
+        year: year_value,
+        cast,
+        director,
+        writer,
+        country,
+        videos,
+        trailers,
+        ..
+    } = meta;
     let year = preview
         .release_info
         .as_ref()
         .filter(|s| s.chars().count() >= 4)
         .map(|s| s.chars().take(4).collect::<String>())
         .or_else(|| {
-            meta.year
+            year_value
                 .as_ref()
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .or_else(|| meta.year.as_ref().and_then(|v| v.as_i64()).map(|v| v.to_string()))
+                .or_else(|| {
+                    year_value
+                        .as_ref()
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v.to_string())
+                })
         });
-    let trailer = meta
-        .trailers
+    let trailer = trailers
         .iter()
         .find(|t| t.kind == "Trailer" || t.kind == "trailer")
-        .or_else(|| meta.trailers.first())
+        .or_else(|| trailers.first())
         .map(|t| format!("https://www.youtube.com/watch?v={}", t.source));
-    let cast = meta
-        .cast
-        .clone()
+    let cast = cast
         .unwrap_or_default()
         .into_iter()
         .take(14)
@@ -153,42 +171,36 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
         None
     };
 
-    let mut genres = preview.genres.clone().unwrap_or_default();
+    let mut genres = preview.genres.unwrap_or_default();
     genres.retain(|g| !g.is_empty());
 
     MetaDetails {
-        id: preview.id.clone(),
-        media_type: preview.media_type.clone(),
-        name: preview.name.clone(),
-        poster: preview.poster.clone(),
-        background: preview.background.clone(),
-        logo: preview.logo.clone(),
-        description: preview.description.clone(),
-        release_info: preview.release_info.clone(),
+        id: preview.id,
+        media_type: preview.media_type,
+        name: preview.name,
+        poster: preview.poster,
+        background: preview.background,
+        logo: preview.logo,
+        description: preview.description,
+        release_info: preview.release_info,
         year,
-        rating: preview.imdb_rating.clone(),
+        rating: preview.imdb_rating,
         genres,
-        runtime: preview.runtime.clone(),
+        runtime: preview.runtime,
         status: None,
-        videos: meta.videos.clone(),
+        videos,
         cast,
-        director: meta
-            .director
-            .clone()
+        director: director
             .unwrap_or_default()
             .iter()
             .map(|name| crate::meta::clean(name))
             .collect(),
-        writer: meta
-            .writer
-            .clone()
+        writer: writer
             .unwrap_or_default()
             .iter()
             .map(|name| crate::meta::clean(name))
             .collect(),
-        country: meta
-            .country
-            .clone()
+        country: country
             .map(|name| crate::meta::clean(&name))
             .into_iter()
             .collect(),
@@ -283,10 +295,10 @@ async fn addon_meta(
     let mut best: Option<(usize, Meta)> = None;
     let drain = async {
         while let Some(joined) = set.join_next().await {
-            if let Ok((index, Some(meta))) = joined {
-                if best.as_ref().is_none_or(|(first, _)| index < *first) {
-                    best = Some((index, meta));
-                }
+            if let Ok((index, Some(meta))) = joined
+                && best.as_ref().is_none_or(|(first, _)| index < *first)
+            {
+                best = Some((index, meta));
             }
         }
     };
@@ -403,7 +415,9 @@ fn store_addon(
 
 async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, Manifest), String> {
     let value = fetch_json(client, &format!("{base}/manifest.json")).await?;
-    let manifest: Manifest = serde_json::from_value(value.clone())
+    // Borrowed deserialize: the payload is returned to the caller, so cloning it
+    // here would duplicate the whole manifest on every install.
+    let manifest: Manifest = Manifest::deserialize(&value)
         .map_err(|e| format!("That URL did not return a valid addon manifest: {e}"))?;
     if manifest.name.trim().is_empty() || manifest.id.trim().is_empty() {
         return Err("That manifest is missing an id or name".into());
@@ -456,10 +470,7 @@ pub async fn addons_list(state: State<'_, AppState>) -> Result<Vec<AddonInfo>, S
 }
 
 #[tauri::command]
-pub async fn addons_install(
-    url: String,
-    state: State<'_, AppState>,
-) -> Result<AddonInfo, String> {
+pub async fn addons_install(url: String, state: State<'_, AppState>) -> Result<AddonInfo, String> {
     let base = addons::normalize_addon_url(&url);
     if base.is_empty() {
         return Err("Enter an addon URL".into());
@@ -607,11 +618,9 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut set: JoinSet<(usize, Task, Result<CatalogResponse, String>)> = JoinSet::new();
     for task in tasks {
         set.spawn(async move {
-            let result = fetch_json(&task.client, &task.url)
-                .await
-                .and_then(|value| {
-                    serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
-                });
+            let result = fetch_json(&task.client, &task.url).await.and_then(|value| {
+                serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
+            });
             (task.order, task, result)
         });
     }
@@ -638,11 +647,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
                             addon: Some(task.addon_name),
                             media_type: task.media_type,
                             catalog_id: task.catalog_id,
-                            items: response
-                                .metas
-                                .into_iter()
-                                .take(MAX_ITEMS_PER_ROW)
-                                .collect(),
+                            items: response.metas.into_iter().take(MAX_ITEMS_PER_ROW).collect(),
                         },
                     ));
                 }
@@ -657,10 +662,13 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     for (_, row) in &addon_rows {
         *title_counts.entry(row.title.clone()).or_default() += 1;
     }
-    let mut addon_rows = addon_rows;
     for (_, row) in addon_rows.iter_mut() {
         if title_counts.get(&row.title).copied().unwrap_or(0) > 1 {
-            let suffix = if row.media_type == "series" { "Shows" } else { "Movies" };
+            let suffix = if row.media_type == "series" {
+                "Shows"
+            } else {
+                "Movies"
+            };
             row.title = format!("{} · {suffix}", row.title);
         }
     }
@@ -671,10 +679,10 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     errors.truncate(6);
     // A dead discovery source only matters when it left the page empty; with
     // addon catalogs on screen the banner is noise.
-    if rows.is_empty() {
-        if let Some(message) = discover_error {
-            errors.insert(0, message);
-        }
+    if rows.is_empty()
+        && let Some(message) = discover_error
+    {
+        errors.insert(0, message);
     }
 
     Ok(HomeFeed {
@@ -754,13 +762,13 @@ pub async fn cast_photos(
         writes.push((key, photo.unwrap_or_default()));
     }
     // One transaction for the batch instead of a lock and commit per headshot.
-    if let Ok(conn) = state.db.0.lock() {
-        if let Ok(tx) = conn.unchecked_transaction() {
-            for (key, photo) in &writes {
-                let _ = db::set_people_photo(&tx, key, photo);
-            }
-            let _ = tx.commit();
+    if let Ok(conn) = state.db.0.lock()
+        && let Ok(tx) = conn.unchecked_transaction()
+    {
+        for (key, photo) in &writes {
+            let _ = db::set_people_photo(&tx, key, photo);
         }
+        let _ = tx.commit();
     }
     Ok(photos)
 }
@@ -782,7 +790,7 @@ pub async fn recommendations(state: State<'_, AppState>) -> Result<Vec<HomeRow>,
 /// The pick itself, taking the history as plain data so it can be run outside
 /// Tauri (and against the live network in a test). `seen` is every id the
 /// viewer has touched, so nothing already watched or started can come back.
-pub async fn recommendation_rows(
+async fn recommendation_rows(
     http: &reqwest::Client,
     recent: Vec<db::WatchedItem>,
     seen: Vec<String>,
@@ -931,20 +939,13 @@ pub async fn search(
             }
             let mut extra = BTreeMap::new();
             extra.insert("search".to_string(), query.clone());
-            let url = addons::catalog_url(
-                &addon.url,
-                &catalog.media_type,
-                &catalog.id,
-                &extra,
-            );
+            let url = addons::catalog_url(&addon.url, &catalog.media_type, &catalog.id, &extra);
             let client = state.http.clone();
             let name = addon.name.clone();
             set.spawn(async move {
-                let result = fetch_json(&client, &url)
-                    .await
-                    .and_then(|value| {
-                        serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
-                    });
+                let result = fetch_json(&client, &url).await.and_then(|value| {
+                    serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
+                });
                 (name, result)
             });
         }
@@ -987,8 +988,7 @@ pub async fn search(
 
     let mut seen = HashSet::new();
     results.retain(|item| {
-        !item.name.trim().is_empty()
-            && seen.insert((item.id.clone(), item.media_type.clone()))
+        !item.name.trim().is_empty() && seen.insert((item.id.clone(), item.media_type.clone()))
     });
     results.truncate(80);
     Ok(results)
@@ -1016,8 +1016,7 @@ pub async fn meta_details(
     if let Some(rest) = id.strip_prefix("tmdb:") {
         if key.is_empty() {
             return Err(
-                "This title comes from TMDB. Add a TMDB API key in Settings → Integrations."
-                    .into(),
+                "This title comes from TMDB. Add a TMDB API key in Settings → Integrations.".into(),
             );
         }
         let mut parts = rest.splitn(2, ':');
@@ -1035,25 +1034,24 @@ pub async fn meta_details(
 
         // Only a series can gain anything here: TMDB already sent the movie's
         // text, and a full addon walk costs more than the page is worth.
-        if details.media_type == "series" {
-            if let Some(imdb) = details.imdb_id.clone() {
-                if let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await {
-                    let from_addon = meta_details_from_meta(meta, "addon");
-                    details.videos = from_addon.videos;
-                    if details.description.as_deref().unwrap_or("").is_empty() {
-                        details.description = from_addon.description;
-                    }
-                    if details.director.is_empty() {
-                        details.director = from_addon.director;
-                    }
-                }
+        if details.media_type == "series"
+            && let Some(imdb) = details.imdb_id.clone()
+            && let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await
+        {
+            let from_addon = meta_details_from_meta(meta, "addon");
+            details.videos = from_addon.videos;
+            if details.description.as_deref().unwrap_or("").is_empty() {
+                details.description = from_addon.description;
+            }
+            if details.director.is_empty() {
+                details.director = from_addon.director;
             }
         }
-        if details.videos.is_empty() && details.media_type == "series" {
-            if let Some(imdb) = details.imdb_id.clone() {
-                details.videos =
-                    crate::meta::videos(&state.http, &imdb, &details.media_type).await;
-            }
+        if details.videos.is_empty()
+            && details.media_type == "series"
+            && let Some(imdb) = details.imdb_id.clone()
+        {
+            details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
         }
         return Ok(details);
     }
@@ -1064,9 +1062,7 @@ pub async fn meta_details(
         .iter()
         .any(|addon| addon.enabled && addon.addon_id == CINEMETA_ID);
 
-    let mut details = if let Some(meta) =
-        addon_meta(&state.http, &addons, &id, &media_type).await
-    {
+    let mut details = if let Some(meta) = addon_meta(&state.http, &addons, &id, &media_type).await {
         meta_details_from_meta(meta, "addon")
     } else if id.starts_with("tt") {
         let direct = if cinemeta_installed {
@@ -1223,7 +1219,7 @@ pub async fn streams(
                     if stream.url.is_none() && stream.info_hash.is_none() {
                         continue;
                     }
-                    options.push(stream_utils::normalize(&addon, &stream));
+                    options.push(stream_utils::normalize(&addon, stream));
                 }
             }
             Ok((addon, Err(e))) => errors.push(format!("{addon}: {e}")),
@@ -1289,16 +1285,13 @@ pub async fn subtitles(
         if !manifest.resource_for("subtitles", &media_type, &request_id) {
             continue;
         }
-        let url =
-            addons::subtitle_url(&addon.url, &media_type, &request_id, &BTreeMap::new());
+        let url = addons::subtitle_url(&addon.url, &media_type, &request_id, &BTreeMap::new());
         let client = state.http.clone();
         let name = addon.name.clone();
         set.spawn(async move {
-            let result = fetch_json(&client, &url)
-                .await
-                .and_then(|value| {
-                    serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
-                });
+            let result = fetch_json(&client, &url).await.and_then(|value| {
+                serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
+            });
             (name, result)
         });
     }
@@ -1354,11 +1347,9 @@ pub async fn library_list(state: State<'_, AppState>) -> Result<Vec<LibraryItem>
 pub fn library_toggle(item: LibraryItem, state: State<'_, AppState>) -> Result<bool, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     let exists: Option<String> = conn
-        .query_row(
-            "SELECT id FROM library WHERE id = ?1",
-            [&item.id],
-            |row| row.get(0),
-        )
+        .query_row("SELECT id FROM library WHERE id = ?1", [&item.id], |row| {
+            row.get(0)
+        })
         .ok();
     if exists.is_some() {
         db::remove_from_library(&conn, &item.id).map_err(|e| e.to_string())?;
@@ -1382,7 +1373,10 @@ pub async fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedI
 }
 
 #[tauri::command]
-pub fn progress_for(key: String, state: State<'_, AppState>) -> Result<Option<ProgressItem>, String> {
+pub fn progress_for(
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<Option<ProgressItem>, String> {
     let conn = state.db.0.lock().map_err(|_| "database is locked")?;
     db::get_progress(&conn, &key).map_err(|e| e.to_string())
 }
@@ -1495,10 +1489,7 @@ pub async fn player_state(state: State<'_, AppState>) -> Result<Option<Snapshot>
 /// One frame from the running source as a `data:image/jpeg;base64,...` URL.
 /// Grabbed out of band, so the picture keeps playing untouched.
 #[tauri::command]
-pub async fn player_frame(
-    seconds: f64,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn player_frame(seconds: f64, state: State<'_, AppState>) -> Result<String, String> {
     // A NaN never compares equal in the frame cache, so every call would spawn
     // another decoder; a negative one has no frame to give.
     if !seconds.is_finite() || seconds < 0.0 {
@@ -1599,17 +1590,18 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> Result<(), String> {
     // page keeps its old height and the strip the taskbar gave up stays black.
     // Resize through tao: it reports the change to the webview (and to mpv,
     // which draws into the same client area) instead of moving pixels alone.
-    if on {
-        if let Some(window) = app.get_webview_window("main") {
-            if let Ok(Some(monitor)) = window.current_monitor() {
-                let origin = monitor.position();
-                let size = monitor.size();
-                let _ = window.set_position(tauri::PhysicalPosition::new(origin.x, origin.y));
-                let _ = window
-                    .set_size(tauri::PhysicalSize::new(size.width, size.height.saturating_sub(1)));
-                let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
-            }
-        }
+    if on
+        && let Some(window) = app.get_webview_window("main")
+        && let Ok(Some(monitor)) = window.current_monitor()
+    {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let _ = window.set_position(tauri::PhysicalPosition::new(origin.x, origin.y));
+        let _ = window.set_size(tauri::PhysicalSize::new(
+            size.width,
+            size.height.saturating_sub(1),
+        ));
+        let _ = window.set_size(tauri::PhysicalSize::new(size.width, size.height));
     }
     crate::refit_webview(host);
     Ok(())

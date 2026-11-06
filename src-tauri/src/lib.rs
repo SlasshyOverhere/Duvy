@@ -8,6 +8,7 @@ mod commands;
 mod db;
 mod debrid;
 mod frame;
+mod json;
 mod meta;
 mod models;
 mod nuvio_sync;
@@ -17,8 +18,8 @@ mod secret;
 mod servers;
 mod settings;
 mod skip;
-mod stremio_sync;
 mod streams;
+mod stremio_sync;
 mod tmdb;
 mod torrent;
 mod trakt;
@@ -73,8 +74,8 @@ fn install_crash_hook(handle: tauri::AppHandle) {
 pub fn raise_webview(host: isize) {
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, HWND_TOP,
-        SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        EnumChildWindows, GetClassNameW, HWND_BOTTOM, HWND_TOP, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
     };
 
     unsafe extern "system" fn collect(child: HWND, lparam: LPARAM) -> windows_sys::core::BOOL {
@@ -156,8 +157,8 @@ pub fn raise_webview(_host: isize) {}
 pub fn refit_webview(host: isize) {
     use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClientRect, SendMessageW, SetWindowPos, SIZE_RESTORED, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_SIZE,
+        GetClientRect, SIZE_RESTORED, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_NOZORDER, SendMessageW, SetWindowPos, WM_SIZE,
     };
     let hwnd = host as HWND;
     let mut rect: RECT = RECT {
@@ -196,8 +197,8 @@ pub fn refit_webview(_host: isize) {}
 fn set_window_frame(hwnd: isize, borderless: bool) {
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
-        DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+        DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DwmSetWindowAttribute,
     };
     /// COLORREF for the app's own background, so the frame stops standing out.
     const BLACK: u32 = 0x0000_0000;
@@ -219,12 +220,28 @@ fn set_window_frame(hwnd: isize, borderless: bool) {
         black as u32,
         std::mem::size_of::<i32>() as u32,
     );
-    set(DWMWA_CAPTION_COLOR as u32, if black { BLACK } else { COLOR_DEFAULT }, word);
-    set(DWMWA_BORDER_COLOR as u32, if black { BLACK } else { COLOR_DEFAULT }, word);
-    set(DWMWA_TEXT_COLOR as u32, if black { WHITE } else { COLOR_DEFAULT }, word);
+    set(
+        DWMWA_CAPTION_COLOR as u32,
+        if black { BLACK } else { COLOR_DEFAULT },
+        word,
+    );
+    set(
+        DWMWA_BORDER_COLOR as u32,
+        if black { BLACK } else { COLOR_DEFAULT },
+        word,
+    );
+    set(
+        DWMWA_TEXT_COLOR as u32,
+        if black { WHITE } else { COLOR_DEFAULT },
+        word,
+    );
     set(
         DWMWA_WINDOW_CORNER_PREFERENCE as u32,
-        if black { DWMWCP_DONOTROUND as u32 } else { CORNER_DEFAULT },
+        if black {
+            DWMWCP_DONOTROUND as u32
+        } else {
+            CORNER_DEFAULT
+        },
         word,
     );
 }
@@ -249,18 +266,17 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
     use std::sync::Mutex;
     use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, GetStockObject, MonitorFromWindow, RedrawWindow, BLACK_BRUSH,
-        MONITORINFO, MONITOR_DEFAULTTONEAREST, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME,
-        RDW_INVALIDATE, RDW_UPDATENOW,
+        BLACK_BRUSH, GetMonitorInfoW, GetStockObject, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+        MonitorFromWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW,
+        RedrawWindow,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsWindow, IsZoomed, SendMessageW,
-        SetClassLongPtrW, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
-        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE,
-        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE,
-        SWP_NOZORDER, SW_RESTORE, WM_SETREDRAW, WINDOWPLACEMENT, WS_CAPTION, WS_EX_CLIENTEDGE,
-        WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-        WS_SYSMENU, WS_THICKFRAME,
+        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowPlacement,
+        IsIconic, IsWindow, IsZoomed, SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetClassLongPtrW,
+        SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT,
+        WM_SETREDRAW, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_STATICEDGE,
+        WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
     };
 
     static SAVED: Mutex<Option<(isize, isize, isize, WINDOWPLACEMENT)>> = Mutex::new(None);
@@ -302,7 +318,11 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
 
             // Anything the webview does not cover is erased with the class
             // brush, which is white by default and stays white on screen.
-            SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, GetStockObject(BLACK_BRUSH) as isize);
+            SetClassLongPtrW(
+                hwnd,
+                GCLP_HBRBACKGROUND,
+                GetStockObject(BLACK_BRUSH) as isize,
+            );
 
             if IsIconic(hwnd) != 0 || IsZoomed(hwnd) != 0 {
                 ShowWindow(hwnd, SW_RESTORE);
@@ -320,8 +340,9 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
 
             let chrome = (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
                 as isize;
-            let edges = (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE)
-                as isize;
+            let edges =
+                (WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE)
+                    as isize;
             SetWindowLongPtrW(hwnd, GWL_STYLE, style & !chrome);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !edges);
 
@@ -362,7 +383,6 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                     | SWP_FRAMECHANGED
                     | SWP_NOREDRAW,
             );
-
 
             SendMessageW(hwnd, WM_SETREDRAW, 1, 0);
             RedrawWindow(
@@ -469,7 +489,10 @@ pub fn http_client() -> reqwest::Client {
             }
             // Never let a redirect quietly drop TLS.
             if attempt.url().scheme() == "http"
-                && attempt.previous().last().is_some_and(|url| url.scheme() == "https")
+                && attempt
+                    .previous()
+                    .last()
+                    .is_some_and(|url| url.scheme() == "https")
             {
                 return attempt.error("refusing to redirect from https to http");
             }
@@ -594,7 +617,6 @@ pub fn run() {
             commands::stremio_sign_out,
             commands::stremio_sync_now,
             commands::sync_all,
-            trakt::set_client,
             trakt::scrobble,
             debrid::check_cache,
             skip::skip_get,
@@ -623,10 +645,10 @@ pub fn run() {
     app.run(|handle, event| {
         match event {
             tauri::RunEvent::Exit => {
-                if let Some(state) = handle.try_state::<AppState>() {
-                    if let Ok(mut guard) = state.player.lock() {
-                        *guard = None;
-                    }
+                if let Some(state) = handle.try_state::<AppState>()
+                    && let Ok(mut guard) = state.player.lock()
+                {
+                    *guard = None;
                 }
             }
             // mpv's render window is created after the web layer, so any event
@@ -635,10 +657,11 @@ pub fn run() {
             tauri::RunEvent::WindowEvent { event, .. } => {
                 let resized = matches!(event, tauri::WindowEvent::Resized(_));
                 let focused = matches!(event, tauri::WindowEvent::Focused(true));
-                if (resized || focused) && player_is_live(&handle) {
-                    if let Some(host) = video_host(&handle) {
-                        raise_webview(host);
-                    }
+                if (resized || focused)
+                    && player_is_live(handle)
+                    && let Some(host) = video_host(handle)
+                {
+                    raise_webview(host);
                 }
             }
             _ => {}

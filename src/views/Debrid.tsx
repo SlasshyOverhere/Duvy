@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
 import type { DebridProvider } from "../lib/types";
+import { errorMessage } from "../lib/format";
 import { Badge, Button, Icon, Loading } from "../components/ui";
 
 const HINTS: Record<string, string> = {
@@ -9,10 +10,6 @@ const HINTS: Record<string, string> = {
   premiumize: "API key from your Premiumize account page.",
   torbox: "API key from torbox.app/settings.",
 };
-
-function message(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function DebridView() {
   const [providers, setProviders] = useState<DebridProvider[]>([]);
@@ -29,7 +26,7 @@ export function DebridView() {
       setProviders(await api.debrid.providers());
       setLoadError(null);
     } catch (e) {
-      setLoadError(message(e));
+      setLoadError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -77,7 +74,7 @@ export function DebridView() {
       clearDraft(provider.id);
       await load();
     } catch (e) {
-      fail(provider.id, message(e));
+      fail(provider.id, errorMessage(e));
     } finally {
       pending.current = false;
       setBusy(null);
@@ -95,7 +92,7 @@ export function DebridView() {
       mark(provider.id, false);
       await load();
     } catch (e) {
-      fail(provider.id, message(e));
+      fail(provider.id, errorMessage(e));
     } finally {
       pending.current = false;
       setBusy(null);

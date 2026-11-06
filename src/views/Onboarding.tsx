@@ -9,6 +9,7 @@ import {
 } from "motion/react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
+import { errorMessage } from "../lib/format";
 import { Button, Icon, Spinner } from "../components/ui";
 
 type Step = "welcome" | "account";
@@ -27,10 +28,6 @@ const PROVIDERS: Array<{ id: Provider; name: string; note: string }> = [
   { id: "nuvio", name: "Nuvio Cloud", note: "Library, progress and watched state" },
   { id: "stremio", name: "Stremio", note: "Addons, library and resume points" },
 ];
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * The boot screen's mark, lit on arrival: the outline traces itself first, then
@@ -135,7 +132,7 @@ export function Onboarding({
     try {
       await saveSettings({ onboarded: true });
     } catch (e) {
-      notify(message(e), "error");
+      notify(errorMessage(e), "error");
     }
   }, [preview, onExit, saveSettings, notify]);
 
@@ -164,7 +161,7 @@ export function Onboarding({
         else await api.stremio.signIn(email.trim(), password);
         done.push(id);
       } catch (e) {
-        failed.push(`${PROVIDERS.find((item) => item.id === id)?.name ?? id}: ${message(e)}`);
+        failed.push(`${PROVIDERS.find((item) => item.id === id)?.name ?? id}: ${errorMessage(e)}`);
       }
     }
     setError(failed.length ? failed.join("\n") : null);
@@ -176,7 +173,7 @@ export function Onboarding({
         await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
         notify("Signed in. Your library and progress are syncing.", "success");
       } catch (e) {
-        notify(`Signed in, but the library did not refresh. ${message(e)}`, "error");
+        notify(`Signed in, but the library did not refresh. ${errorMessage(e)}`, "error");
       }
     }
     setBusy(false);

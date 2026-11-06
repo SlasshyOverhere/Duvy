@@ -1,7 +1,7 @@
 //! Configuration model and persistence helpers.
 
-use crate::db;
 use crate::AppState;
+use crate::db;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -100,13 +100,13 @@ impl Settings {
         let mut settings = Settings::default();
         // An install that ran before onboarding existed is already past it.
         let known = stored.get("onboarded").is_some();
-        if stored.is_object() {
-            if let Ok(merged) = serde_json::from_value::<Settings>(merge(
+        if stored.is_object()
+            && let Ok(merged) = serde_json::from_value::<Settings>(merge(
                 serde_json::to_value(&settings).unwrap_or(Value::Null),
                 stored,
-            )) {
-                settings = merged;
-            }
+            ))
+        {
+            settings = merged;
         }
         if !known && settings.defaults_seeded {
             settings.onboarded = true;
@@ -132,7 +132,10 @@ impl Settings {
     }
 
     pub fn apply_patch(&mut self, patch: Value) -> Result<(), String> {
-        let merged = merge(serde_json::to_value(&self).map_err(|e| e.to_string())?, patch);
+        let merged = merge(
+            serde_json::to_value(&self).map_err(|e| e.to_string())?,
+            patch,
+        );
         *self = serde_json::from_value(merged).map_err(|e| e.to_string())?;
         self.sanitize();
         Ok(())
@@ -141,10 +144,10 @@ impl Settings {
 
 /// Hot callers: one DB read plus a DPAPI decrypt is too much per tick.
 pub fn load_cached(state: &AppState) -> Settings {
-    if let Ok(cache) = state.settings.read() {
-        if let Some(settings) = cache.as_ref() {
-            return settings.clone();
-        }
+    if let Ok(cache) = state.settings.read()
+        && let Some(settings) = cache.as_ref()
+    {
+        return settings.clone();
     }
     let loaded = match state.db.0.lock() {
         Ok(conn) => Settings::load(&conn),

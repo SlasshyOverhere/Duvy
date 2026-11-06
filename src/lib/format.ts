@@ -34,6 +34,11 @@ export function timeAgo(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
+/** MiB rounded to one decimal, for update sizes and progress. */
+export function megabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 /** "1h 12m left" style label from the seconds still to play. */
 export function remainingLabel(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "";

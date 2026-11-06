@@ -257,6 +257,63 @@ export function HomeView() {
     [featured.length],
   );
 
+  // The hero rotates on its own, so the card grid must not rebuild with it:
+  // stable elements let React skip the whole poster subtree.
+  const catalogRows = useMemo(
+    () =>
+      feedRows.map((row) => (
+        <Row
+          key={row.id}
+          title={row.title}
+          detail={row.addon ? <span className="row-detail">{row.addon}</span> : undefined}
+        >
+          {row.items.map((item) => (
+            <PosterCard
+              key={`${row.id}-${item.id}-${item.type}`}
+              item={item}
+              entry={resumeProgress.get(item.id)}
+              onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              onPlay={() => void playItem(item)}
+            />
+          ))}
+        </Row>
+      )),
+    [feedRows, resumeProgress, navigate, playItem],
+  );
+
+  // Same reason as the catalog rows: hero rotation must not rebuild the cards.
+  const continueRow = useMemo(
+    () =>
+      continuing.length === 0 ? null : (
+        <Row
+          title="Continue watching"
+          detail={<span className="row-detail">Pick up where you left off</span>}
+        >
+          {continuing.map(({ entry, next }) => (
+            <ContinueCard
+              key={entry.key}
+              entry={entry}
+              next={next}
+              name={entry.name}
+              poster={entry.poster}
+              background={entry.background}
+              subtitle={
+                entry.type === "series"
+                  ? `${seasonLabel(entry.season, entry.episode)}${
+                      entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""
+                    }`
+                  : "Movie"
+              }
+              position={entry.position}
+              duration={entry.duration}
+              onOpen={() => void resumeEntry(entry)}
+            />
+          ))}
+        </Row>
+      ),
+    [continuing, resumeEntry],
+  );
+
   return (
     <div className="home">
       {loading && !feed ? <HomeSkeleton /> : null}
@@ -301,33 +358,7 @@ export function HomeView() {
           />
         ) : null}
 
-        {continuing.length > 0 ? (
-          <Row
-            title="Continue watching"
-            detail={<span className="row-detail">Pick up where you left off</span>}
-          >
-            {continuing.map(({ entry, next }) => (
-              <ContinueCard
-                key={entry.key}
-                entry={entry}
-                next={next}
-                name={entry.name}
-                poster={entry.poster}
-                background={entry.background}
-                subtitle={
-                  entry.type === "series"
-                    ? `${seasonLabel(entry.season, entry.episode)}${
-                        entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""
-                      }`
-                    : "Movie"
-                }
-                position={entry.position}
-                duration={entry.duration}
-                onOpen={() => void resumeEntry(entry)}
-              />
-            ))}
-          </Row>
-        ) : null}
+        {continueRow}
 
         {error && !feed ? (
           <EmptyState
@@ -354,23 +385,7 @@ export function HomeView() {
           </div>
         ) : null}
 
-        {feedRows.map((row) => (
-          <Row
-            key={row.id}
-            title={row.title}
-            detail={row.addon ? <span className="row-detail">{row.addon}</span> : undefined}
-          >
-            {row.items.map((item) => (
-              <PosterCard
-                key={`${row.id}-${item.id}-${item.type}`}
-                item={item}
-                entry={resumeProgress.get(item.id)}
-                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
-                onPlay={() => void playItem(item)}
-              />
-            ))}
-          </Row>
-        ))}
+        {catalogRows}
 
         {loading && feed ? (
           <div className="page-loading page-loading-inline">

@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../lib/bridge";
 import { useApp } from "../../lib/store";
+import { errorMessage } from "../../lib/format";
 import { Badge, Button, Icon, Loading, Toggle } from "../../components/ui";
 import type { NuvioProfile, NuvioStatus } from "../../lib/types";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Nuvio Cloud account panel.
@@ -37,7 +34,7 @@ export function NuvioSync() {
         setProfiles([]);
       }
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }, []);
 
@@ -58,7 +55,7 @@ export function NuvioSync() {
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -76,7 +73,7 @@ export function NuvioSync() {
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -91,7 +88,7 @@ export function NuvioSync() {
       await api.nuvio.signOut();
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -109,7 +106,7 @@ export function NuvioSync() {
       await Promise.all([refreshProgress(), refreshLibrary(), refreshAddons()]);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setBusy(null);
     }
@@ -258,7 +255,7 @@ export function NuvioSync() {
             <Toggle
               checked={settings?.nuvioAutoSync ?? false}
               onChange={(value) =>
-                void saveSettings({ nuvioAutoSync: value }).catch((e) => setError(message(e)))
+                void saveSettings({ nuvioAutoSync: value }).catch((e) => setError(errorMessage(e)))
               }
               label="Sync automatically"
             />

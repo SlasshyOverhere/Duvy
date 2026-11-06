@@ -12,7 +12,7 @@ export interface SkipEntry {
   outroStart?: number | null;
 }
 
-export interface SkipSegment {
+interface SkipSegment {
   kind: "intro" | "outro";
   /** Timestamp to seek to. */
   at: number;

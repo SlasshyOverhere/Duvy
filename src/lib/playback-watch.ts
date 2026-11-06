@@ -24,7 +24,7 @@ export interface Sample {
   volume: number;
 }
 
-export interface Issue {
+interface Issue {
   rule: string;
   message: string;
   data: Record<string, unknown>;

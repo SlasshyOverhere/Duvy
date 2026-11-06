@@ -6,7 +6,7 @@
 //! calls run. Each provider answers with a different JSON shape, so every
 //! response has a small pure parser below that the unit tests pin down.
 
-use crate::{db, AppState};
+use crate::{AppState, db};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -89,10 +89,7 @@ fn load_keys(state: &AppState) -> serde_json::Map<String, Value> {
         .unwrap_or_default()
 }
 
-fn store_keys(
-    state: &AppState,
-    keys: &serde_json::Map<String, Value>,
-) -> Result<(), String> {
+fn store_keys(state: &AppState, keys: &serde_json::Map<String, Value>) -> Result<(), String> {
     let conn = state
         .db
         .0
@@ -215,10 +212,7 @@ pub async fn resolve(url: String, state: State<'_, AppState>) -> Result<String, 
             }
         }
         ranked.sort_by_key(|(index, cached, _)| (!*cached, *index));
-        ordered = ranked
-            .into_iter()
-            .map(|(_, _, account)| account)
-            .collect();
+        ordered = ranked.into_iter().map(|(_, _, account)| account).collect();
     }
 
     let mut last = String::new();
@@ -319,17 +313,24 @@ struct FileEntry {
 }
 
 fn is_video(name: &str) -> bool {
-    let ext = name.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+    let ext = name
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     VIDEO_EXT.contains(&ext.as_str())
 }
 
 fn pick_largest_video(files: &[FileEntry]) -> Option<&FileEntry> {
-    files.iter().filter(|file| is_video(&file.name)).max_by_key(|file| file.bytes)
+    files
+        .iter()
+        .filter(|file| is_video(&file.name))
+        .max_by_key(|file| file.bytes)
 }
 
 /// Stremio's `fileIdx` is a 0-based index into the torrent's file list. It only
 /// wins when it lands on a video, so a filtered list falls back to the largest.
-fn pick_video<'a>(files: &'a [FileEntry], hint: Option<usize>) -> Option<&'a FileEntry> {
+fn pick_video(files: &[FileEntry], hint: Option<usize>) -> Option<&FileEntry> {
     hint.and_then(|index| files.get(index))
         .filter(|file| is_video(&file.name))
         .or_else(|| pick_largest_video(files))
@@ -365,7 +366,11 @@ fn parse_rd_info(value: &Value) -> TorrentState {
                 .filter_map(|file| {
                     Some(FileEntry {
                         key: scalar(file, "id")?,
-                        name: file.get("path").and_then(Value::as_str).unwrap_or_default().into(),
+                        name: file
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
                         bytes: file.get("bytes").and_then(Value::as_u64).unwrap_or(0),
                     })
                 })
@@ -401,7 +406,10 @@ struct AdStatus {
 }
 
 fn parse_ad_status(value: &Value) -> AdStatus {
-    let magnets = value.pointer("/data/magnets").cloned().unwrap_or(Value::Null);
+    let magnets = value
+        .pointer("/data/magnets")
+        .cloned()
+        .unwrap_or(Value::Null);
     let item = if magnets.is_array() {
         magnets.get(0).cloned().unwrap_or(Value::Null)
     } else {
@@ -448,7 +456,11 @@ fn parse_pm_content(value: &Value) -> Vec<FileEntry> {
                 .filter_map(|item| {
                     Some(FileEntry {
                         key: item.get("link").and_then(Value::as_str)?.to_string(),
-                        name: item.get("path").and_then(Value::as_str).unwrap_or_default().into(),
+                        name: item
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
                         bytes: item.get("size").and_then(Value::as_u64).unwrap_or(0),
                     })
                 })
@@ -477,7 +489,11 @@ fn parse_pm_transfer(value: &Value, id: &str) -> PmTransfer {
     else {
         return PmTransfer::Pending;
     };
-    match transfer.get("status").and_then(Value::as_str).unwrap_or_default() {
+    match transfer
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
         "finished" => PmTransfer::Finished,
         "error" | "deleted" | "timeout" => PmTransfer::Failed,
         _ => PmTransfer::Pending,
@@ -493,8 +509,14 @@ fn parse_tb_torrent(value: &Value) -> Option<TorrentState> {
     };
     // `download_present` is the only flag that means "streamable now"; a cached
     // torrent can sit there without ever reporting `download_finished`.
-    let ready = item.get("download_present").and_then(Value::as_bool).unwrap_or(false)
-        || item.get("download_finished").and_then(Value::as_bool).unwrap_or(false)
+    let ready = item
+        .get("download_present")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || item
+            .get("download_finished")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         || item
             .get("download_state")
             .and_then(Value::as_str)
@@ -508,7 +530,11 @@ fn parse_tb_torrent(value: &Value) -> Option<TorrentState> {
                 .filter_map(|file| {
                     Some(FileEntry {
                         key: scalar(file, "id")?,
-                        name: file.get("name").and_then(Value::as_str).unwrap_or_default().into(),
+                        name: file
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
                         bytes: file.get("size").and_then(Value::as_u64).unwrap_or(0),
                     })
                 })
@@ -555,19 +581,17 @@ fn tb_id_by_hash(value: &Value, hash: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 fn parse_rd_cached(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|hosts| {
-            hosts.values().any(|host| {
-                host.get("rd")
-                    .and_then(Value::as_array)
-                    .is_some_and(|variants| {
-                        variants.iter().any(|variant| {
-                            variant.as_object().is_some_and(|files| !files.is_empty())
-                        })
-                    })
-            })
+    value.as_object().is_some_and(|hosts| {
+        hosts.values().any(|host| {
+            host.get("rd")
+                .and_then(Value::as_array)
+                .is_some_and(|variants| {
+                    variants
+                        .iter()
+                        .any(|variant| variant.as_object().is_some_and(|files| !files.is_empty()))
+                })
         })
+    })
 }
 
 fn parse_ad_cached(value: &Value) -> bool {
@@ -575,9 +599,12 @@ fn parse_ad_cached(value: &Value) -> bool {
         .pointer("/data/magnets")
         .and_then(Value::as_array)
         .is_some_and(|magnets| {
-            magnets
-                .iter()
-                .any(|magnet| magnet.get("instant").and_then(Value::as_bool).unwrap_or(false))
+            magnets.iter().any(|magnet| {
+                magnet
+                    .get("instant")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
         })
 }
 
@@ -612,7 +639,11 @@ fn api_error(value: &Value) -> Option<String> {
             .map(str::to_string)
     };
     // AllDebrid: { status: "error", error: { code, message } }
-    if let Some(message) = value.get("error").and_then(|error| error.get("message")).and_then(text) {
+    if let Some(message) = value
+        .get("error")
+        .and_then(|error| error.get("message"))
+        .and_then(text)
+    {
         return Some(message);
     }
     // Real-Debrid: { error: "bad_token" }
@@ -639,7 +670,8 @@ fn session_ok(provider: &str, value: &Value) -> bool {
     match provider {
         "realdebrid" => value.get("id").is_some() || scalar(value, "username").is_some(),
         "alldebrid" => {
-            value.get("status").and_then(Value::as_str) == Some("success") && value.get("data").is_some()
+            value.get("status").and_then(Value::as_str) == Some("success")
+                && value.get("data").is_some()
         }
         "premiumize" => value.get("status").and_then(Value::as_str) == Some("success"),
         _ => value.get("success").and_then(Value::as_bool) == Some(true),
@@ -653,7 +685,10 @@ fn session_ok(provider: &str, value: &Value) -> bool {
 /// `reqwest`'s error text carries the request URL, and Premiumize and TorBox take
 /// the key as a query parameter, so the URL is dropped before it reaches the UI.
 fn offline(error: reqwest::Error) -> String {
-    format!("Could not reach the debrid service: {}", error.without_url())
+    format!(
+        "Could not reach the debrid service: {}",
+        error.without_url()
+    )
 }
 
 fn request(
@@ -671,21 +706,11 @@ fn request(
     }
 }
 
-fn get(
-    http: &reqwest::Client,
-    provider: &str,
-    key: &str,
-    url: &str,
-) -> reqwest::RequestBuilder {
+fn get(http: &reqwest::Client, provider: &str, key: &str, url: &str) -> reqwest::RequestBuilder {
     request(http, reqwest::Method::GET, provider, key, url)
 }
 
-fn post(
-    http: &reqwest::Client,
-    provider: &str,
-    key: &str,
-    url: &str,
-) -> reqwest::RequestBuilder {
+fn post(http: &reqwest::Client, provider: &str, key: &str, url: &str) -> reqwest::RequestBuilder {
     request(http, reqwest::Method::POST, provider, key, url)
 }
 
@@ -703,13 +728,31 @@ async fn reply(response: reqwest::Response) -> Result<Value, String> {
         return Ok(value);
     }
     let message = api_error(&value)
-        .or_else(|| value.get("detail").and_then(Value::as_str).map(str::to_string))
-        .or_else(|| value.get("message").and_then(Value::as_str).map(str::to_string));
+        .or_else(|| {
+            value
+                .get("detail")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
     Err(message.unwrap_or_else(|| format!("The debrid service answered {status}.")))
 }
 
-async fn get_json(http: &reqwest::Client, provider: &str, key: &str, url: &str) -> Result<Value, String> {
-    let response = get(http, provider, key, url).send().await.map_err(offline)?;
+async fn get_json(
+    http: &reqwest::Client,
+    provider: &str,
+    key: &str,
+    url: &str,
+) -> Result<Value, String> {
+    let response = get(http, provider, key, url)
+        .send()
+        .await
+        .map_err(offline)?;
     reply(response).await
 }
 
@@ -736,14 +779,20 @@ async fn verify_key(http: &reqwest::Client, provider: &str, key: &str) -> Result
 
 async fn rd_unrestrict(http: &reqwest::Client, key: &str, link: &str) -> Result<String, String> {
     let value = reply(
-        post(http, "realdebrid", key, &format!("{RD_API}/unrestrict/link"))
-            .form(&[("link", link)])
-            .send()
-            .await
-            .map_err(offline)?,
+        post(
+            http,
+            "realdebrid",
+            key,
+            &format!("{RD_API}/unrestrict/link"),
+        )
+        .form(&[("link", link)])
+        .send()
+        .await
+        .map_err(offline)?,
     )
     .await?;
-    scalar(&value, "download").ok_or_else(|| "Real-Debrid did not return a download link.".to_string())
+    scalar(&value, "download")
+        .ok_or_else(|| "Real-Debrid did not return a download link.".to_string())
 }
 
 async fn rd_resolve(
@@ -753,14 +802,20 @@ async fn rd_resolve(
     hint: Option<usize>,
 ) -> Result<String, String> {
     let added = reply(
-        post(http, "realdebrid", key, &format!("{RD_API}/torrents/addMagnet"))
-            .form(&[("magnet", magnet)])
-            .send()
-            .await
-            .map_err(offline)?,
+        post(
+            http,
+            "realdebrid",
+            key,
+            &format!("{RD_API}/torrents/addMagnet"),
+        )
+        .form(&[("magnet", magnet)])
+        .send()
+        .await
+        .map_err(offline)?,
     )
     .await?;
-    let id = scalar(&added, "id").ok_or_else(|| "Real-Debrid did not return a torrent id.".to_string())?;
+    let id = scalar(&added, "id")
+        .ok_or_else(|| "Real-Debrid did not return a torrent id.".to_string())?;
 
     let deadline = Instant::now() + POLL_WINDOW;
     let mut selected = false;
@@ -799,7 +854,10 @@ async fn rd_resolve(
                 selected = true;
             }
             "magnet_error" | "error" | "dead" | "virus" => {
-                return Err(format!("Real-Debrid could not load that torrent ({})", state.status));
+                return Err(format!(
+                    "Real-Debrid could not load that torrent ({})",
+                    state.status
+                ));
             }
             _ => {}
         }
@@ -844,7 +902,10 @@ async fn ad_resolve(
             .map_err(offline)?,
     )
     .await?;
-    let item = uploaded.pointer("/data/magnets/0").cloned().unwrap_or(Value::Null);
+    let item = uploaded
+        .pointer("/data/magnets/0")
+        .cloned()
+        .unwrap_or(Value::Null);
     let id = scalar(&item, "id")
         .or_else(|| scalar(&item, "magnet"))
         .ok_or_else(|| "AllDebrid did not return a magnet id.".to_string())?;
@@ -866,7 +927,10 @@ async fn ad_resolve(
             return ad_unlock(http, key, &file.key).await;
         }
         if state.status.contains("error") {
-            return Err(format!("AllDebrid could not load that torrent ({})", state.status));
+            return Err(format!(
+                "AllDebrid could not load that torrent ({})",
+                state.status
+            ));
         }
         if Instant::now() >= deadline {
             return Err(STILL_DOWNLOADING.into());
@@ -887,11 +951,16 @@ async fn pm_direct(
     hint: Option<usize>,
 ) -> Result<String, String> {
     let value = reply(
-        post(http, "premiumize", key, &format!("{PM_API}/transfer/directdl"))
-            .form(&[("src", source)])
-            .send()
-            .await
-            .map_err(offline)?,
+        post(
+            http,
+            "premiumize",
+            key,
+            &format!("{PM_API}/transfer/directdl"),
+        )
+        .form(&[("src", source)])
+        .send()
+        .await
+        .map_err(offline)?,
     )
     .await?;
     let files = parse_pm_content(&value);
@@ -912,11 +981,16 @@ async fn pm_resolve(
 
     // Not cached yet: queue the transfer and wait for it to finish.
     let created = reply(
-        post(http, "premiumize", key, &format!("{PM_API}/transfer/create"))
-            .form(&[("src", magnet)])
-            .send()
-            .await
-            .map_err(offline)?,
+        post(
+            http,
+            "premiumize",
+            key,
+            &format!("{PM_API}/transfer/create"),
+        )
+        .form(&[("src", magnet)])
+        .send()
+        .await
+        .map_err(offline)?,
     )
     .await?;
     let id = scalar(&created, "id")
@@ -927,9 +1001,7 @@ async fn pm_resolve(
         let list = get_json(http, "premiumize", key, &format!("{PM_API}/transfer/list")).await?;
         match parse_pm_transfer(&list, &id) {
             PmTransfer::Finished => return pm_direct(http, key, magnet, hint).await,
-            PmTransfer::Failed => {
-                return Err("Premiumize could not load that torrent.".to_string())
-            }
+            PmTransfer::Failed => return Err("Premiumize could not load that torrent.".to_string()),
             PmTransfer::Pending => {}
         }
         if Instant::now() >= deadline {
@@ -975,11 +1047,16 @@ async fn tb_resolve(
     hint: Option<usize>,
 ) -> Result<String, String> {
     let created = reply(
-        post(http, "torbox", key, &format!("{TB_API}/torrents/createtorrent"))
-            .form(&[("magnet", magnet), ("allow_zip", "false")])
-            .send()
-            .await
-            .map_err(offline)?,
+        post(
+            http,
+            "torbox",
+            key,
+            &format!("{TB_API}/torrents/createtorrent"),
+        )
+        .form(&[("magnet", magnet), ("allow_zip", "false")])
+        .send()
+        .await
+        .map_err(offline)?,
     )
     .await;
     let id = match created {
@@ -1026,7 +1103,10 @@ async fn tb_resolve(
             state.status.as_str(),
             "error" | "failed" | "missingfiles" | "missing_files"
         ) {
-            return Err(format!("TorBox could not load that torrent ({})", state.status));
+            return Err(format!(
+                "TorBox could not load that torrent ({})",
+                state.status
+            ));
         }
         if Instant::now() >= deadline {
             return Err(STILL_DOWNLOADING.into());
@@ -1090,10 +1170,7 @@ fn can_unrestrict(provider: &str, link: &str) -> bool {
         })
 }
 
-fn unrestrict_targets(
-    accounts: Vec<(String, String)>,
-    link: &str,
-) -> Vec<(String, String)> {
+fn unrestrict_targets(accounts: Vec<(String, String)>, link: &str) -> Vec<(String, String)> {
     accounts
         .into_iter()
         .filter(|(id, _)| can_unrestrict(id, link))
@@ -1107,15 +1184,24 @@ async fn is_cached(http: &reqwest::Client, provider: &str, key: &str, source: &s
             let Some(hash) = hash.as_deref() else {
                 return false;
             };
-            (format!("{RD_API}/torrents/instantAvailability/{hash}"), vec![])
+            (
+                format!("{RD_API}/torrents/instantAvailability/{hash}"),
+                vec![],
+            )
         }
-        "alldebrid" => (format!("{AD_API}/magnet/instant"), vec![("magnets[]", source)]),
+        "alldebrid" => (
+            format!("{AD_API}/magnet/instant"),
+            vec![("magnets[]", source)],
+        ),
         "premiumize" => (format!("{PM_API}/cache/check"), vec![("items[]", source)]),
         _ => {
             let Some(hash) = hash.as_deref() else {
                 return false;
             };
-            (format!("{TB_API}/torrents/checkcached"), vec![("hash", hash)])
+            (
+                format!("{TB_API}/torrents/checkcached"),
+                vec![("hash", hash)],
+            )
         }
     };
 
@@ -1166,8 +1252,16 @@ mod tests {
         assert_eq!(picked.name, "Show/Show.S01E02.1080p.mkv");
 
         let only_extras = vec![
-            FileEntry { key: "1".into(), name: "Show.nfo".into(), bytes: 40 },
-            FileEntry { key: "2".into(), name: "Show.srt".into(), bytes: 90 },
+            FileEntry {
+                key: "1".into(),
+                name: "Show.nfo".into(),
+                bytes: 40,
+            },
+            FileEntry {
+                key: "2".into(),
+                name: "Show.srt".into(),
+                bytes: 90,
+            },
         ];
         assert!(pick_largest_video(&only_extras).is_none());
     }
@@ -1181,11 +1275,23 @@ mod tests {
         assert_eq!(file_index("magnet:?xt=urn:btih:abc&fileIdx=x"), None);
 
         // A real index wins even when a bigger file sits elsewhere in the pack.
-        assert_eq!(pick_video(&files, Some(0)).unwrap().name, "Show/Show.S01E01.1080p.mkv");
+        assert_eq!(
+            pick_video(&files, Some(0)).unwrap().name,
+            "Show/Show.S01E01.1080p.mkv"
+        );
         // A non-video or out-of-range index falls back to the largest video.
-        assert_eq!(pick_video(&files, Some(3)).unwrap().name, "Show/Show.S01E02.1080p.mkv");
-        assert_eq!(pick_video(&files, Some(99)).unwrap().name, "Show/Show.S01E02.1080p.mkv");
-        assert_eq!(pick_video(&files, None).unwrap().name, "Show/Show.S01E02.1080p.mkv");
+        assert_eq!(
+            pick_video(&files, Some(3)).unwrap().name,
+            "Show/Show.S01E02.1080p.mkv"
+        );
+        assert_eq!(
+            pick_video(&files, Some(99)).unwrap().name,
+            "Show/Show.S01E02.1080p.mkv"
+        );
+        assert_eq!(
+            pick_video(&files, None).unwrap().name,
+            "Show/Show.S01E02.1080p.mkv"
+        );
     }
 
     fn sample_files() -> Vec<FileEntry> {
@@ -1205,7 +1311,11 @@ mod tests {
                 name: "Show/Extras/Behind.The.Scenes.mkv".into(),
                 bytes: 400_000,
             },
-            FileEntry { key: "4".into(), name: "Show/Show.nfo".into(), bytes: 2_000 },
+            FileEntry {
+                key: "4".into(),
+                name: "Show/Show.nfo".into(),
+                bytes: 2_000,
+            },
         ]
     }
 
@@ -1262,7 +1372,10 @@ mod tests {
         let state = parse_ad_status(&payload);
         assert_eq!(state.status, "ready");
         assert_eq!(state.code, 4);
-        assert_eq!(pick_largest_video(&state.links).unwrap().key, "https://alldebrid.com/f/AAA");
+        assert_eq!(
+            pick_largest_video(&state.links).unwrap().key,
+            "https://alldebrid.com/f/AAA"
+        );
 
         let unlocked = json!({ "status": "success", "data": { "link": "https://dl.alldebrid.com/x/Movie.mkv" } });
         assert_eq!(
@@ -1283,7 +1396,10 @@ mod tests {
         });
         let files = parse_pm_content(&payload);
         assert_eq!(files.len(), 3);
-        assert_eq!(pick_largest_video(&files).unwrap().key, "https://premiumize.me/file/b");
+        assert_eq!(
+            pick_largest_video(&files).unwrap().key,
+            "https://premiumize.me/file/b"
+        );
     }
 
     #[test]
@@ -1355,7 +1471,10 @@ mod tests {
         // A single-object payload is accepted too.
         let one = json!({ "success": true, "data": { "id": 12, "hash": hash } });
         assert_eq!(tb_id_by_hash(&one, hash), Some("12".to_string()));
-        assert_eq!(tb_id_by_hash(&json!({ "success": true, "data": null }), hash), None);
+        assert_eq!(
+            tb_id_by_hash(&json!({ "success": true, "data": null }), hash),
+            None
+        );
     }
 
     #[test]
@@ -1386,17 +1505,25 @@ mod tests {
             "data": { "magnets": [{ "magnet": "abc", "instant": false }] }
         })));
 
-        assert!(parse_pm_cached(&json!({ "status": "success", "response": [true] })));
-        assert!(!parse_pm_cached(&json!({ "status": "success", "response": [false] })));
+        assert!(parse_pm_cached(
+            &json!({ "status": "success", "response": [true] })
+        ));
+        assert!(!parse_pm_cached(
+            &json!({ "status": "success", "response": [false] })
+        ));
 
-        assert!(parse_tb_cached(&json!({ "success": true, "data": { "HASH": { "name": "x" } } })));
+        assert!(parse_tb_cached(
+            &json!({ "success": true, "data": { "HASH": { "name": "x" } } })
+        ));
         assert!(!parse_tb_cached(&json!({ "success": true, "data": null })));
     }
 
     #[test]
     fn provider_errors_are_unwrapped() {
         assert_eq!(
-            api_error(&json!({ "status": "error", "error": { "code": "MAGNET_INVALID", "message": "Invalid magnet" } })),
+            api_error(
+                &json!({ "status": "error", "error": { "code": "MAGNET_INVALID", "message": "Invalid magnet" } })
+            ),
             Some("Invalid magnet".to_string())
         );
         assert_eq!(
@@ -1411,20 +1538,35 @@ mod tests {
             api_error(&json!({ "status": "error", "message": "Not premium" })),
             Some("Not premium".to_string())
         );
-        assert_eq!(api_error(&json!({ "status": "success", "response": [true] })), None);
+        assert_eq!(
+            api_error(&json!({ "status": "success", "response": [true] })),
+            None
+        );
     }
 
     #[test]
     fn account_endpoints_are_recognised() {
-        assert!(session_ok("realdebrid", &json!({ "id": 1, "username": "someone" })));
+        assert!(session_ok(
+            "realdebrid",
+            &json!({ "id": 1, "username": "someone" })
+        ));
         assert!(!session_ok("realdebrid", &json!({ "error": "bad_token" })));
         assert!(session_ok(
             "alldebrid",
             &json!({ "status": "success", "data": { "user": { "username": "someone" } } })
         ));
-        assert!(session_ok("premiumize", &json!({ "status": "success", "customer_id": "1" })));
-        assert!(session_ok("torbox", &json!({ "success": true, "data": { "id": 1 } })));
-        assert!(!session_ok("torbox", &json!({ "success": false, "detail": "nope" })));
+        assert!(session_ok(
+            "premiumize",
+            &json!({ "status": "success", "customer_id": "1" })
+        ));
+        assert!(session_ok(
+            "torbox",
+            &json!({ "success": true, "data": { "id": 1 } })
+        ));
+        assert!(!session_ok(
+            "torbox",
+            &json!({ "success": false, "detail": "nope" })
+        ));
     }
 
     #[test]
@@ -1448,14 +1590,21 @@ mod tests {
 
     #[test]
     fn direct_http_streams_pass_through_untouched() {
-        assert!(unrestrict_targets(sample_accounts(), "https://cdn.example.com/Movie.1080p.mkv").is_empty());
-        assert!(unrestrict_targets(
-            sample_accounts(),
-            "http://stream.example.net:8080/live/index.m3u8?token=abc"
-        )
-        .is_empty());
+        assert!(
+            unrestrict_targets(sample_accounts(), "https://cdn.example.com/Movie.1080p.mkv")
+                .is_empty()
+        );
+        assert!(
+            unrestrict_targets(
+                sample_accounts(),
+                "http://stream.example.net:8080/live/index.m3u8?token=abc"
+            )
+            .is_empty()
+        );
         // TorBox links are already direct downloads, so they are never un-restricted.
-        assert!(unrestrict_targets(sample_accounts(), "https://nexus.torbox.app/x/Show.mkv").is_empty());
+        assert!(
+            unrestrict_targets(sample_accounts(), "https://nexus.torbox.app/x/Show.mkv").is_empty()
+        );
     }
 
     #[test]
@@ -1466,7 +1615,10 @@ mod tests {
             ("premiumize", "https://download.premiumize.me/file/b.mkv"),
         ];
         for (provider, link) in links {
-            assert!(can_unrestrict(provider, link), "{provider} should handle {link}");
+            assert!(
+                can_unrestrict(provider, link),
+                "{provider} should handle {link}"
+            );
             let targets = unrestrict_targets(sample_accounts(), link);
             assert_eq!(targets.len(), 1);
             assert_eq!(targets[0].0, provider);
@@ -1475,14 +1627,26 @@ mod tests {
 
     #[test]
     fn unhandled_links_never_reach_the_provider() {
-        assert!(!can_unrestrict("torbox", "https://real-debrid.com/d/ABCDEF"));
+        assert!(!can_unrestrict(
+            "torbox",
+            "https://real-debrid.com/d/ABCDEF"
+        ));
         assert!(!can_unrestrict("realdebrid", "https://alldebrid.com/f/AAA"));
         // Spoofed hosts and odd schemes are not provider links.
-        assert!(!can_unrestrict("realdebrid", "https://real-debrid.com.evil.test/d/x"));
-        assert!(!can_unrestrict("premiumize", "ftp://premiumize.me/file/a.mkv"));
+        assert!(!can_unrestrict(
+            "realdebrid",
+            "https://real-debrid.com.evil.test/d/x"
+        ));
+        assert!(!can_unrestrict(
+            "premiumize",
+            "ftp://premiumize.me/file/a.mkv"
+        ));
         assert!(!can_unrestrict("realdebrid", "not a url"));
         assert_eq!(
-            unrestrict_targets(vec![("torbox".into(), "k".into())], "https://real-debrid.com/d/ABCDEF"),
+            unrestrict_targets(
+                vec![("torbox".into(), "k".into())],
+                "https://real-debrid.com/d/ABCDEF"
+            ),
             Vec::new()
         );
     }

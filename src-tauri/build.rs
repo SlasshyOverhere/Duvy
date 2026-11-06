@@ -18,9 +18,7 @@ fn main() {
 fn copy_runtime(lib: &Path) {
     let dll = lib.join("libmpv-2.dll");
     if !dll.exists() {
-        println!(
-            "cargo:warning=libmpv is missing; run scripts/fetch-libmpv.ps1 before building"
-        );
+        println!("cargo:warning=libmpv is missing; run scripts/fetch-libmpv.ps1 before building");
         return;
     }
     // OUT_DIR is <target>/<profile>/build/<crate>/out, so the profile dir is

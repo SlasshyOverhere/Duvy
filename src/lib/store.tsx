@@ -48,8 +48,8 @@ export type Route =
   | { name: "details"; id: string; type: string }
   | { name: "player" };
 
-export type ToastTone = "info" | "success" | "error";
-export interface Toast {
+type ToastTone = "info" | "success" | "error";
+interface Toast {
   id: number;
   text: string;
   tone: ToastTone;
@@ -125,7 +125,7 @@ export function usePlayer(): PlayerSnapshot | null {
   return useContext(PlayerContext);
 }
 
-export function sessionFor(details: Details, video: Video | null): PlaybackSession {
+function sessionFor(details: Details, video: Video | null): PlaybackSession {
   const season = video?.season ?? null;
   const episode = video?.episode ?? video?.number ?? null;
   return {
@@ -257,21 +257,27 @@ export function pickSource(
 }
 
 /** The whole source a session played last time, so resuming skips the hunt. */
-export type SourceMemory = StreamOption;
+type SourceMemory = StreamOption;
 
 const SOURCE_MEMORY_KEY = "duvy:sources";
 const SOURCE_MEMORY_LIMIT = 200;
 
+// Session copy: the play path asks for the last stream on every start.
+let sourceMemory: Record<string, SourceMemory> | null = null;
+
 function readSourceMemory(): Record<string, SourceMemory> {
+  if (sourceMemory) return sourceMemory;
   try {
     const raw = window.localStorage.getItem(SOURCE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, SourceMemory>)
-      : {};
+    sourceMemory =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, SourceMemory>)
+        : {};
   } catch {
-    return {};
+    sourceMemory = {};
   }
+  return sourceMemory;
 }
 
 export function rememberedSource(key: string | null | undefined): SourceMemory | null {
@@ -283,7 +289,7 @@ export function rememberedSource(key: string | null | undefined): SourceMemory |
 }
 
 /** A remembered stream only helps while its addon is still installed and on. */
-export function liveMemory(
+function liveMemory(
   memory: SourceMemory | null,
   addons: AddonInfo[],
 ): SourceMemory | null {
@@ -308,7 +314,7 @@ export function rememberSource(key: string | null | undefined, stream: StreamOpt
 }
 
 /** The subtitle a session used last time, so the same track comes back. */
-export interface SubtitleMemory {
+interface SubtitleMemory {
   lang: string;
   trackId?: number;
   url?: string;
@@ -319,16 +325,22 @@ export interface SubtitleMemory {
 const SUBTITLE_MEMORY_KEY = "duvy:subtitles";
 const SUBTITLE_MEMORY_LIMIT = 200;
 
+// Same story as the source memory: read once per session, not per start.
+let subtitleMemory: Record<string, SubtitleMemory> | null = null;
+
 function readSubtitleMemory(): Record<string, SubtitleMemory> {
+  if (subtitleMemory) return subtitleMemory;
   try {
     const raw = window.localStorage.getItem(SUBTITLE_MEMORY_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, SubtitleMemory>)
-      : {};
+    subtitleMemory =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, SubtitleMemory>)
+        : {};
   } catch {
-    return {};
+    subtitleMemory = {};
   }
+  return subtitleMemory;
 }
 
 export function rememberedSubtitle(key: string | null | undefined): SubtitleMemory | null {

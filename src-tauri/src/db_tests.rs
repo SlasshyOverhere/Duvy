@@ -29,7 +29,8 @@ fn cleanup(connection: rusqlite::Connection, path: PathBuf) {
 fn schema_migration_is_idempotent_and_keeps_rows() {
     let path = temp_path();
     let version = |conn: &rusqlite::Connection| -> i64 {
-        conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap()
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap()
     };
 
     let conn = db::open(&path).expect("first open");
@@ -60,7 +61,10 @@ fn schema_migration_is_idempotent_and_keeps_rows() {
         "idx_watched_meta",
         "idx_library_added",
     ] {
-        assert!(indexes.iter().any(|name| name == expected), "missing {expected}");
+        assert!(
+            indexes.iter().any(|name| name == expected),
+            "missing {expected}"
+        );
     }
     drop(stmt);
 
@@ -89,7 +93,10 @@ fn existing_database_upgrades_to_the_new_index() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(found, 1, "the new migration must reach an existing database");
+    assert_eq!(
+        found, 1,
+        "the new migration must reach an existing database"
+    );
 
     cleanup(conn, path);
 }
@@ -106,8 +113,14 @@ fn addons_roundtrip() {
         "catalogs": [{ "type": "movie", "id": "top", "name": "Popular" }]
     });
 
-    db::upsert_addon(&conn, "https://example.test", "com.example.test", "Test Addon", &manifest)
-        .expect("insert");
+    db::upsert_addon(
+        &conn,
+        "https://example.test",
+        "com.example.test",
+        "Test Addon",
+        &manifest,
+    )
+    .expect("insert");
     let addons = db::list_addons(&conn).expect("list");
     assert_eq!(addons.len(), 1);
     assert_eq!(addons[0].name, "Test Addon");
@@ -117,8 +130,14 @@ fn addons_roundtrip() {
     assert!(!db::list_addons(&conn).unwrap()[0].enabled);
 
     // Re-installing updates in place instead of duplicating.
-    db::upsert_addon(&conn, "https://example.test", "com.example.test", "Renamed", &manifest)
-        .expect("upsert");
+    db::upsert_addon(
+        &conn,
+        "https://example.test",
+        "com.example.test",
+        "Renamed",
+        &manifest,
+    )
+    .expect("upsert");
     assert_eq!(db::list_addons(&conn).unwrap().len(), 1);
     assert_eq!(db::list_addons(&conn).unwrap()[0].name, "Renamed");
 
@@ -147,7 +166,9 @@ fn progress_tracks_and_clears() {
     };
     db::save_progress(&conn, &item).expect("save");
 
-    let stored = db::get_progress(&conn, "tt123:1:2").expect("get").expect("exists");
+    let stored = db::get_progress(&conn, "tt123:1:2")
+        .expect("get")
+        .expect("exists");
     assert_eq!(stored.position, 605.0);
     assert!(stored.updated_at > 0);
 
@@ -353,8 +374,14 @@ fn clear_history_keeps_library_addons_settings_and_people() {
     )
     .expect("library");
     let manifest = json!({ "id": "com.example.keep", "name": "Keep", "version": "1.0.0" });
-    db::upsert_addon(&conn, "https://example.test", "com.example.keep", "Keep", &manifest)
-        .expect("addon");
+    db::upsert_addon(
+        &conn,
+        "https://example.test",
+        "com.example.keep",
+        "Keep",
+        &manifest,
+    )
+    .expect("addon");
     db::set_people_photo(&conn, "tt7:Jane", "https://example.test/j.jpg").expect("people");
     db::write_settings(&conn, &json!({ "accent": "kept" })).expect("settings");
 
@@ -441,10 +468,16 @@ fn continue_watching_hides_finished_and_merges_episodes() {
     )
     .expect("film");
     // save_progress stamps "now", so pin the play order for the assertion.
-    conn.execute("UPDATE progress SET updated_at = 10 WHERE key = 'tt1:1:1'", [])
-        .unwrap();
-    conn.execute("UPDATE progress SET updated_at = 20 WHERE key = 'tt1:1:2'", [])
-        .unwrap();
+    conn.execute(
+        "UPDATE progress SET updated_at = 10 WHERE key = 'tt1:1:1'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE progress SET updated_at = 20 WHERE key = 'tt1:1:2'",
+        [],
+    )
+    .unwrap();
 
     let continuing = db::list_continue_watching(&conn).expect("continue");
     assert_eq!(continuing.len(), 1);
@@ -500,7 +533,10 @@ fn watched_items_keep_metadata_after_completion() {
     assert_eq!(row.name, "Finished Show");
     assert_eq!(row.media_type, "series");
     assert_eq!(row.poster.as_deref(), Some("https://example.test/p.jpg"));
-    assert_eq!(row.background.as_deref(), Some("https://example.test/b.jpg"));
+    assert_eq!(
+        row.background.as_deref(),
+        Some("https://example.test/b.jpg")
+    );
     assert_eq!(row.season, Some(2));
     assert_eq!(row.episode, Some(5));
 
@@ -664,13 +700,25 @@ fn credentials_are_encrypted_at_rest() {
     let (conn, path) = temp_database();
     let stored = json!({ "tmdbKey": "abc123", "trakt": { "token": "tok" } });
     db::write_settings(&conn, &stored).expect("settings write");
-    assert_eq!(db::read_settings(&conn).unwrap(), stored, "settings roundtrip");
+    assert_eq!(
+        db::read_settings(&conn).unwrap(),
+        stored,
+        "settings roundtrip"
+    );
 
     let raw: String = conn
-        .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| row.get(0))
+        .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| {
+            row.get(0)
+        })
         .expect("raw value");
-    assert!(raw.starts_with("enc1:"), "stored value must be encrypted: {raw}");
-    assert!(!raw.contains("abc123"), "plaintext key must not survive on disk");
+    assert!(
+        raw.starts_with("enc1:"),
+        "stored value must be encrypted: {raw}"
+    );
+    assert!(
+        !raw.contains("abc123"),
+        "plaintext key must not survive on disk"
+    );
 
     // Rows written before encryption existed still load.
     let legacy = json!({ "plain": true }).to_string();
@@ -704,9 +752,16 @@ fn legacy_plaintext_rows_are_encrypted_on_open() {
 
     let conn = db::open(&path).expect("second open");
     let raw: String = conn
-        .query_row("SELECT value FROM settings WHERE key = 'legacy'", [], |row| row.get(0))
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'legacy'",
+            [],
+            |row| row.get(0),
+        )
         .expect("raw value");
-    assert!(raw.starts_with("enc1:"), "legacy row must be upgraded: {raw}");
+    assert!(
+        raw.starts_with("enc1:"),
+        "legacy row must be upgraded: {raw}"
+    );
     assert_eq!(
         db::read_kv(&conn, "legacy").unwrap(),
         Some(json!({ "old": true }))
@@ -718,7 +773,9 @@ fn legacy_plaintext_rows_are_encrypted_on_open() {
 fn settings_patch_merges_and_resets() {
     let (conn, path) = temp_database();
     let mut settings = Settings::default();
-    settings.apply_patch(json!({ "accent": "violet", "seekStep": 30 })).unwrap();
+    settings
+        .apply_patch(json!({ "accent": "violet", "seekStep": 30 }))
+        .unwrap();
     assert_eq!(settings.accent, "violet");
     assert_eq!(settings.seek_step, 30);
     settings.save(&conn).expect("save");
@@ -766,7 +823,10 @@ fn settings_load_clamps_numbers_and_tolerates_unknown_fields() {
 
     let settings = Settings::load(&conn);
     assert_eq!(settings.accent, "violet", "a neighbour is not reset");
-    assert_eq!(settings.seek_step, 1, "zero would make the skip buttons dead");
+    assert_eq!(
+        settings.seek_step, 1,
+        "zero would make the skip buttons dead"
+    );
     assert_eq!(settings.home_rows_limit, 1);
     assert_eq!(settings.buffer_forward_value, 65_536);
     assert_eq!(
