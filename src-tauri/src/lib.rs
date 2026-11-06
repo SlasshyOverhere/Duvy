@@ -41,6 +41,8 @@ pub struct AppState {
 }
 
 #[cfg(test)]
+mod command_tests;
+#[cfg(test)]
 mod db_tests;
 
 /// A panic ends the process, so the hook is the last thing that can say why:
