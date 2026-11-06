@@ -26,7 +26,7 @@ import type {
 import { ContextMenu, Icon, Spinner, type IconName } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
-import { bufferPercent, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
+import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
 import "../components/player/player.css";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -1344,11 +1344,12 @@ export function PlayerView() {
     () => [...new Set((sources ?? []).map((entry) => entry.addon))],
     [sources],
   );
-  const visibleSources = useMemo(
-    () =>
-      sources ? (sourceFilter ? sources.filter((entry) => entry.addon === sourceFilter) : sources) : [],
-    [sources, sourceFilter],
-  );
+  const visibleSources = useMemo(() => {
+    if (!sources) return [];
+    const rows = sourceFilter ? sources.filter((entry) => entry.addon === sourceFilter) : sources;
+    // Biggest file first keeps the source most likely to hold the quality up top.
+    return settings?.sourceSort !== "addon" ? [...rows].sort(byFileSize) : rows;
+  }, [sources, sourceFilter, settings?.sourceSort]);
 
   const activeSub = subTracks.find((track) => track.id === local?.activeSub) ?? null;
   const activeAudio = audioTracks.find((track) => track.id === local?.activeAudio) ?? null;

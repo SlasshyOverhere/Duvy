@@ -34,6 +34,14 @@ export function timeAgo(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
+/** Biggest file first; a source with no size sinks to the end. */
+export function byFileSize(
+  a: { sizeBytes?: number | null },
+  b: { sizeBytes?: number | null },
+): number {
+  return (b.sizeBytes ?? -1) - (a.sizeBytes ?? -1);
+}
+
 /** MiB rounded to one decimal, for update sizes and progress. */
 export function megabytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
