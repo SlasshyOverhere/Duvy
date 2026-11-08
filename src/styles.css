@@ -5154,7 +5154,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 8px 8px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  background: #17140f;
+  background: #0e0e0e;
   transform-origin: top left;
   animation: ctx-in 0.12s var(--ease);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
@@ -5199,7 +5199,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 0;
   border-radius: 6px;
   background: none;
-  color: #e8e6e0;
+  color: #ededed;
   font: inherit;
   font-size: 13.5px;
   line-height: 1.3;
@@ -5225,7 +5225,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .ctx-item:disabled {
-  color: #8a867e;
+  color: #8c8c8c;
   cursor: default;
 }
 
