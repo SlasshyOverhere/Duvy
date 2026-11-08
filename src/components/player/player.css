@@ -1466,9 +1466,20 @@
   align-items: center;
   gap: 2px;
   flex: none;
-  padding: 2px;
+  padding: 4px;
   border-radius: 999px;
   background: var(--pv-control-2);
+}
+
+/* Pill buttons follow the pill shape, so a hover fill meets the pill edge. */
+.pv .pv-pill .pv-cbtn {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+}
+
+.pv .pv-pill .pv-cbtn.is-on {
+  background: var(--pv-control-hover);
 }
 
 /* Volume sits in the playback pill, next to its speaker. */
@@ -1478,19 +1489,25 @@
   min-width: 4rem;
   height: 1.6rem;
   margin: 0 8px 0 2px;
+  background: transparent;
 }
 
 .pv .pv-vslider::-webkit-slider-runnable-track {
   height: 0.35rem;
   border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.72) var(--fill, 50%),
+    rgba(255, 255, 255, 0.16) var(--fill, 50%)
+  );
 }
 
 .pv .pv-vslider::-webkit-slider-thumb {
-  width: 0.9rem;
-  height: 0.9rem;
-  margin-top: -0.275rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-top: -0.225rem;
   background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
 /* ---- transient readouts ------------------------------------------------- */
