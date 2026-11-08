@@ -5149,19 +5149,15 @@ input[type="range"]::-webkit-slider-thumb {
 .ctx {
   position: fixed;
   z-index: 90;
-  min-width: 224px;
-  max-width: 288px;
-  padding: 6px;
-  border-radius: 12px;
-  background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
+  min-width: 248px;
+  max-width: 320px;
+  padding: 8px 8px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: #17140f;
   transform-origin: top left;
-  animation: ctx-in 0.14s var(--ease);
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion),
-    var(--glass-shadow);
+  animation: ctx-in 0.12s var(--ease);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
 }
 
 /* The menu holds focus itself so no row reads as picked before an arrow key. */
@@ -5169,17 +5165,25 @@ input[type="range"]::-webkit-slider-thumb {
   outline: none;
 }
 
+/* Transform only: content is visible by default, never gated on opacity. */
 @keyframes ctx-in {
   from {
-    opacity: 0;
-    transform: scale(0.96) translateY(-4px);
+    transform: translateY(3px) scale(0.985);
   }
 }
 
+.ctx-head {
+  padding: 2px 8px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
 .ctx-title {
-  margin: 3px 9px 6px;
-  font-size: 11.5px;
-  color: var(--muted);
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: #ffffff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5190,33 +5194,53 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 8px 9px;
+  min-height: 36px;
+  padding: 8px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: none;
-  color: var(--muted);
+  color: #e8e6e0;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
+  line-height: 1.3;
   text-align: left;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .ctx-item:hover:not(:disabled),
 .ctx-item:focus-visible {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  outline: none;
+}
+
+.ctx-item.is-primary {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.ctx-item.is-primary svg {
+  color: var(--accent);
 }
 
 .ctx-item:disabled {
-  color: #5b5b5b;
+  color: #8a867e;
+  cursor: default;
 }
 
 .ctx-item svg {
   flex: none;
+  display: block;
+}
+
+.ctx-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ctx-gap {
-  width: 15px;
+  width: 16px;
   flex: none;
 }
 
@@ -5551,7 +5575,6 @@ input[type="range"]::-webkit-slider-thumb {
 /* No blur support: the same glass falls back to its strongest fill. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .drawer,
-  .ctx,
   .toast,
   .hero-actions .btn,
   .hero-link,

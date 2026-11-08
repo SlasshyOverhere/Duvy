@@ -483,21 +483,23 @@ export function ContextMenu({
         items[next]?.focus();
       }}
     >
-      <p className="ctx-title">{title}</p>
+      <div className="ctx-head">
+        <p className="ctx-title">{title}</p>
+      </div>
       {actions.map((action) => (
         <button
           key={action.label}
           type="button"
           role="menuitem"
-          className="ctx-item"
+          className={`ctx-item${action.icon === "play" ? " is-primary" : ""}`}
           disabled={action.disabled}
           onClick={() => {
             onClose();
             action.onSelect();
           }}
         >
-          {action.icon ? <Icon name={action.icon} size={15} /> : <span className="ctx-gap" />}
-          <span>{action.label}</span>
+          {action.icon ? <Icon name={action.icon} size={16} /> : <span className="ctx-gap" />}
+          <span className="ctx-label">{action.label}</span>
         </button>
       ))}
     </div>,
