@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import { WindowControls } from "./TitleBar";
 import { Icon, IconButton, type IconName } from "./ui";
@@ -32,6 +32,30 @@ function NowPlaying() {
 
 export function TopBar() {
   const { navigate, back, route, addons } = useApp();
+  const dockRef = useRef<HTMLElement | null>(null);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  const activeIndex = DOCK.findIndex((item) => isActive(route, item.route));
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nav = dockRef.current;
+      if (!nav) return;
+      if (activeIndex < 0) {
+        setPill(null);
+        return;
+      }
+      const items = nav.querySelectorAll<HTMLButtonElement>(".dock-item");
+      const btn = items[activeIndex];
+      if (!btn) return;
+      const navRect = nav.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      setPill({ left: btnRect.left - navRect.left, width: btnRect.width });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    void document.fonts?.ready.then(measure).catch(() => {});
+    return () => window.removeEventListener("resize", measure);
+  }, [route, activeIndex]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -72,7 +96,12 @@ export function TopBar() {
         </button>
       </div>
 
-      <nav className="dock" aria-label="Primary">
+      <nav ref={dockRef} className="dock" aria-label="Primary">
+        <span
+          className={`dock-pill${pill ? "" : " is-hidden"}`}
+          aria-hidden="true"
+          style={pill ? { left: pill.left, width: pill.width } : { left: 0, width: 0 }}
+        />
         {DOCK.map((item) => {
           const active = isActive(route, item.route);
           return (
@@ -84,10 +113,6 @@ export function TopBar() {
               aria-current={active ? "page" : undefined}
               title={item.label}
             >
-              {active ? (
-                <span className="dock-pill" aria-hidden="true" />
-              ) : null}
-              <Icon name={item.icon} size={19} />
               <span className="dock-label">{item.label}</span>
             </button>
           );

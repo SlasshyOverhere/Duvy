@@ -1,5 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
@@ -23,7 +28,7 @@ import type {
   Track,
   Video,
 } from "../lib/types";
-import { ContextMenu, Icon, Spinner, type IconName } from "../components/ui";
+import { ContextMenu, Icon, Spinner } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -360,11 +365,15 @@ function SidePanel({
   label,
   title,
   onClose,
+  onReload,
+  reloadBusy,
   children,
 }: {
   label: string;
   title: string;
   onClose: () => void;
+  onReload?: () => void;
+  reloadBusy?: boolean;
   children: ReactNode;
 }) {
   useReturnFocus();
@@ -378,16 +387,33 @@ function SidePanel({
       <aside className="pv-side" role="dialog" aria-label={label} aria-modal="true">
         <header className="pv-side-head">
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="pv-overlay-close"
-            onClick={onClose}
-            aria-label="Close"
-            title="Close"
-            autoFocus
-          >
-            <Icon name="x" size={18} />
-          </button>
+          {onReload ? (
+            <div className="pv-side-actions">
+              <button
+                type="button"
+                className="pv-side-action"
+                onClick={onReload}
+                disabled={reloadBusy}
+                autoFocus
+              >
+                {reloadBusy ? "Reloading" : "Reload"}
+              </button>
+              <button type="button" className="pv-side-action" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="pv-overlay-close"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close"
+              autoFocus
+            >
+              <Icon name="x" size={18} />
+            </button>
+          )}
         </header>
         <div className="pv-side-body">{children}</div>
       </aside>
@@ -621,6 +647,7 @@ const SourcesPanel = memo(function SourcesPanel({
   sources,
   visibleSources,
   addonNames,
+  addonLogos,
   sourceBusy,
   sourceFilter,
   playingSource,
@@ -633,6 +660,7 @@ const SourcesPanel = memo(function SourcesPanel({
   sources: StreamOption[] | null;
   visibleSources: StreamOption[];
   addonNames: string[];
+  addonLogos: Record<string, string | null>;
   sourceBusy: boolean;
   sourceFilter: string | null;
   playingSource: StreamOption | null;
@@ -642,7 +670,7 @@ const SourcesPanel = memo(function SourcesPanel({
   onClose: () => void;
 }) {
   return (
-    <SidePanel label="Sources" title="Sources" onClose={onClose}>
+    <SidePanel label="Sources" title="Sources" onClose={onClose} onReload={onRefresh} reloadBusy={sourceBusy}>
       <p className="pv-side-sub">{heading}</p>
       <div className="pv-filters">
         <button
@@ -664,15 +692,6 @@ const SourcesPanel = memo(function SourcesPanel({
             {addon}
           </button>
         ))}
-        <button
-          type="button"
-          className="pv-filter pv-filter--action"
-          disabled={sourceBusy}
-          onClick={onRefresh}
-        >
-          <Icon name="refresh" size={15} />
-          {sourceBusy ? "Loading" : "Refresh"}
-        </button>
       </div>
       <div className="pv-side-list">
         {sourceBusy && !sources ? (
@@ -682,6 +701,40 @@ const SourcesPanel = memo(function SourcesPanel({
         ) : (
           visibleSources.map((stream, at) => {
             const current = sameSource(playingSource, stream);
+            const detail = (stream.description || stream.title || "").trim();
+            const label = stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
+            const body = detail.startsWith(label) ? detail.slice(label.length).trim() : detail;
+            const showQuality =
+              stream.quality !== "Auto" &&
+              !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
+              !(
+                /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
+                /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+              );
+            const bodyLines = body
+              ? body
+                  .split("\n")
+                  .map((line) => line.replace(/\s+/g, " ").trim())
+                  .filter(Boolean)
+              : [];
+            const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
+            const audio = detailHasAudio
+              ? null
+              : stream.languages.length
+                ? stream.languages.includes("Multi")
+                  ? "Multi audio"
+                  : stream.languages.slice(0, 3).join(", ")
+                : null;
+            const hasMeta = Boolean(
+              stream.size || stream.seeders != null || stream.badges.length || stream.cached,
+            );
+            const shownLines = bodyLines.filter((line) => {
+              const upper = line.toUpperCase();
+              const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
+              return !looksMeta;
+            });
+            const shown = shownLines.length ? shownLines : bodyLines;
+            const addonLogo = addonLogos[stream.addon] ?? null;
             return (
               <button
                 key={`${stream.addon}-${stream.infoHash ?? stream.url ?? at}-${at}`}
@@ -689,27 +742,53 @@ const SourcesPanel = memo(function SourcesPanel({
                 className={`pv-source-row${current ? " is-on" : ""}`}
                 disabled={!stream.playable || sourceBusy}
                 onClick={() => onPick(stream)}
+                title={stream.playable ? undefined : "This source has no playing link"}
               >
-                <span className="pv-source-text">
-                  <span className="pv-source-name">
-                    {stream.name ?? stream.addon ?? "Source"}
-                    {current ? <em>Playing</em> : null}
+                <span className="pv-source-main">
+                  <span className="pv-source-text">
+                    <span className="pv-source-title">{label}</span>
+                    {showQuality ? <span className="pv-source-title-2">{stream.quality}</span> : null}
+                    {current ? <span className="pv-source-playing">Playing</span> : null}
+                    {shown.length ? (
+                      <span className="pv-source-details">
+                        {shown.map((line, at) => (
+                          <span className="pv-source-note" key={at}>
+                            {line}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                    {hasMeta ? (
+                      <span className="pv-source-meta">
+                        {stream.seeders != null ? (
+                          <span className="pv-source-seeds">👤 {stream.seeders.toLocaleString()}</span>
+                        ) : null}
+                        {stream.size ? <span className="pv-source-size">💾 {stream.size}</span> : null}
+                        {stream.badges.map((badge) => (
+                          <span key={badge}>{badge}</span>
+                        ))}
+                        {stream.cached ? <span className="pv-source-cached">Cached</span> : null}
+                      </span>
+                    ) : null}
+                    {audio ? <span className="pv-source-audio">{audio}</span> : null}
                   </span>
-                  <span className="pv-source-meta">
-                    {[
-                      stream.quality,
-                      stream.addon,
-                      stream.size,
-                      stream.seeders != null ? `${stream.seeders} seeds` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                  <span className="pv-source-brand" aria-hidden="true">
+                    {addonLogo ? (
+                      <img
+                        className="pv-source-brand-logo"
+                        src={addonLogo}
+                        alt=""
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span className="pv-source-brand-mark">
+                        {stream.addon.trim().charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="pv-source-brand-name">{stream.addon}</span>
                   </span>
-                  {stream.description ? (
-                    <span className="pv-source-note">
-                      {stream.description.replace(/\n/g, " · ")}
-                    </span>
-                  ) : null}
                 </span>
               </button>
             );
@@ -1112,8 +1191,6 @@ export function PlayerView() {
   const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [locked, setLocked] = useState(false);
-  // Narrow player: the right-hand action row folds into one popup.
-  const [btnMenu, setBtnMenu] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
@@ -1145,9 +1222,12 @@ export function PlayerView() {
   const [markMsg, setMarkMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
   const bumpAt = useRef(0);
+  // Last pointer or keyboard activity, and the last keyboard use: the chrome
+  // follows both, but only a keyboard hold outlives a mouse-driven focus.
+  const actAt = useRef(Date.now());
+  const keyAt = useRef(0);
   // When the seek bar was last moved, so a lost echo cannot hold the thumb.
   const scrubAt = useRef(0);
   const scrubTimer = useRef<number | null>(null);
@@ -1344,6 +1424,13 @@ export function PlayerView() {
     () => [...new Set((sources ?? []).map((entry) => entry.addon))],
     [sources],
   );
+  const addonLogos = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const addon of addons) {
+      if (!(addon.name in map)) map[addon.name] = addon.logo ?? null;
+    }
+    return map;
+  }, [addons]);
   const visibleSources = useMemo(() => {
     if (!sources) return [];
     const rows = sourceFilter ? sources.filter((entry) => entry.addon === sourceFilter) : sources;
@@ -1865,42 +1952,53 @@ export function PlayerView() {
     const now = Date.now();
     if (now - bumpAt.current < 150) return;
     bumpAt.current = now;
+    actAt.current = now;
     if (locked) return;
     setChrome(true);
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    // Keep the close controls on screen while a source is opening or has failed.
-    if (loading || failed || paused || local?.ended || surface || showNext) return;
-    if (dragging.current || controlFocused()) return;
-    hideTimer.current = window.setTimeout(() => {
-      if (dragging.current || controlFocused()) return;
-      setChrome(false);
-    }, 2600);
-  }, [controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
+  }, [locked]);
 
+  // Keep the close controls on screen while a source is opening or has failed.
+  const holdChrome =
+    Boolean(loading || failed || paused || local?.ended || surface || showNext);
+
+  // Poll the idle gap instead of arming one timer: a cleared or starved timer
+  // used to strand the chrome on screen for the rest of the session.
   useEffect(() => {
-    bump();
-    return () => {
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    if (holdChrome || locked) return;
+    actAt.current = Date.now();
+    const onKey = () => {
+      keyAt.current = Date.now();
     };
-  }, [bump]);
+    window.addEventListener("keydown", onKey, true);
+    const tick = window.setInterval(() => {
+      if (Date.now() - actAt.current < 2000) return;
+      if (dragging.current) return;
+      // A keyboard-driven focus keeps the chrome; a mouse-clicked slider does
+      // not, or it would hold the controls forever.
+      if (controlFocused() && keyAt.current > actAt.current) return;
+      setChrome(false);
+    }, 200);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.clearInterval(tick);
+    };
+  }, [holdChrome, locked, controlFocused]);
 
   // A panel belongs to the chrome; when the chrome leaves, so does the panel.
   useEffect(() => {
     if (!chrome) setSurface(null);
   }, [chrome]);
 
-  // An open panel holds the chrome on screen, even if the idle timer was
-  // already running when it opened.
+  // An open panel holds the chrome on screen while it is open.
   useEffect(() => {
     if (!surface) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    actAt.current = Date.now();
     setChrome(true);
   }, [surface]);
 
   // Locking hides every control; a panel cannot stay open over the lock.
   useEffect(() => {
     if (!locked) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
     setChrome(false);
     setSurface(null);
   }, [locked]);
@@ -1909,7 +2007,7 @@ export function PlayerView() {
   // card has the timeline it belongs above.
   useEffect(() => {
     if (!showNext) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    actAt.current = Date.now();
     setChrome(true);
   }, [showNext]);
 
@@ -2142,6 +2240,7 @@ export function PlayerView() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      keyAt.current = Date.now();
       if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -2241,7 +2340,6 @@ export function PlayerView() {
             setLocked(false);
             setChrome(true);
           } else if (surface) setSurface(null);
-          else if (btnMenu) setBtnMenu(false);
           else if (showNext) dismissNext();
           else if (fsNow.current) leaveFullscreen();
           // Escape never ends playback; leaving is the explicit Close.
@@ -2257,7 +2355,6 @@ export function PlayerView() {
   }, [
     bump,
     busy,
-    btnMenu,
     changeSpeed,
     changeVolume,
     cycleAudio,
@@ -2332,7 +2429,7 @@ export function PlayerView() {
     [playVideo],
   );
 
-  // Panel rows and transport actions, rebuilt only when their inputs move.
+  // Panel rows, rebuilt only when their inputs move.
   const shortcutRows = useMemo<Array<[string, string]>>(
     () => [
       ["Space / K", "Play and pause"],
@@ -2410,88 +2507,6 @@ export function PlayerView() {
     ],
     [activeSub?.label, activeSub?.lang, activeSub?.external, Boolean(activeSub), loadedSub],
   );
-
-  const actions = useMemo(() => {
-    const rows: Array<{
-      key: string;
-      icon: IconName;
-      label: string;
-      on: () => void;
-    }> = [];
-    rows.push({
-      key: "info",
-      icon: "info",
-      label: "Stream info",
-      on: () => toggleSurface("info"),
-    });
-    rows.push({
-      key: "speed",
-      icon: "speed",
-      label: `Speed ${local?.speed ?? 1}×`,
-      on: cycleSpeed,
-    });
-    rows.push({
-      key: "subs",
-      icon: "subtitle",
-      label: "Subtitles",
-      on: openSubs,
-    });
-    rows.push({
-      key: "audio",
-      icon: "audio",
-      label: "Audio",
-      on: () => toggleSurface("audio"),
-    });
-    if (details?.type === "series") {
-      rows.push({
-        key: "episodes",
-        icon: "episodes",
-        label: "Episodes",
-        on: openEpisodes,
-      });
-    }
-    if (chapters.length > 0) {
-      rows.push({
-        key: "chapters",
-        icon: "chapters",
-        label: "Chapters",
-        on: () => toggleSurface("chapters"),
-      });
-    }
-    rows.push({
-      key: "sources",
-      icon: "sources",
-      label: "Sources",
-      on: () => {
-        toggleSurface("sources");
-        void loadSources();
-      },
-    });
-    rows.push({
-      key: "mode",
-      icon: "aspect",
-      label: mode.label,
-      on: cycleVideoMode,
-    });
-    rows.push({
-      key: "more",
-      icon: "more",
-      label: "More actions",
-      on: () => toggleSurface("more"),
-    });
-    return rows;
-  }, [
-    chapters.length,
-    cycleSpeed,
-    cycleVideoMode,
-    details?.type,
-    loadSources,
-    local?.speed,
-    mode.label,
-    openEpisodes,
-    openSubs,
-    toggleSurface,
-  ]);
 
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
@@ -2582,14 +2597,15 @@ export function PlayerView() {
         setCtxMenu({ x: event.clientX, y: event.clientY });
       }}
       onFocusCapture={() => {
-        if (!locked) setChrome(true);
+        if (locked) return;
+        actAt.current = Date.now();
+        setChrome(true);
       }}
       onClick={(event) => {
         if (locked) return;
         const target = event.target as Element;
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
-        if (btnMenu) setBtnMenu(false);
         if (surface) return;
         if (!chrome) {
           bump();
@@ -2903,6 +2919,7 @@ export function PlayerView() {
               sources={sources}
               visibleSources={visibleSources}
               addonNames={addonNames}
+              addonLogos={addonLogos}
               sourceBusy={sourceBusy}
               sourceFilter={sourceFilter}
               playingSource={playingSource}
@@ -2944,6 +2961,48 @@ export function PlayerView() {
           {surface === "more" ? (
             <Overlay label="Playback options" onClose={closeSurface}>
               <div className="pv-rail-list pv-rail-list--menu">
+                {details?.type === "series" ? (
+                  <button type="button" className="pv-rail-row" onClick={openEpisodes}>
+                    <span className="pv-rail-row-text">
+                      <span className="pv-rail-row-title">Episodes</span>
+                    </span>
+                  </button>
+                ) : null}
+                {chapters.length > 0 ? (
+                  <button
+                    type="button"
+                    className="pv-rail-row"
+                    onClick={() => setSurface("chapters")}
+                  >
+                    <span className="pv-rail-row-text">
+                      <span className="pv-rail-row-title">Chapters</span>
+                    </span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="pv-rail-row"
+                  onClick={() => {
+                    setSurface("sources");
+                    void loadSources();
+                  }}
+                >
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Sources</span>
+                  </span>
+                </button>
+                <button type="button" className="pv-rail-row" onClick={cycleSpeed}>
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Speed</span>
+                  </span>
+                  <span className="pv-rail-row-meta">{local.speed}×</span>
+                </button>
+                <button type="button" className="pv-rail-row" onClick={cycleVideoMode}>
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Picture</span>
+                  </span>
+                  <span className="pv-rail-row-meta">{mode.label}</span>
+                </button>
                 <button
                   type="button"
                   className="pv-rail-row"
@@ -3105,85 +3164,92 @@ export function PlayerView() {
           </div>
 
           <div className="pv-controls">
-            <button
-              type="button"
-              className="pv-cbtn"
-              aria-label={paused ? "Play" : "Pause"}
-              title={paused ? "Play" : "Pause"}
-              onClick={togglePause}
-            >
-              <Icon name={paused ? "play" : "pause"} size={26} />
-            </button>
-            <button
-              type="button"
-              className="pv-cbtn"
-              aria-label={silent ? "Unmute" : "Mute"}
-              title={silent ? "Unmute" : "Mute"}
-              onClick={toggleMute}
-            >
-              <Icon name={silent ? "mute" : "volume"} size={26} />
-            </button>
-            <div className="pv-vslider">
+            <div className="pv-pill">
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label={paused ? "Play" : "Pause"}
+                title={paused ? "Play" : "Pause"}
+                onClick={togglePause}
+              >
+                <Icon name={paused ? "play" : "pause"} size={26} />
+              </button>
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label={silent ? "Unmute" : "Mute"}
+                title={silent ? "Muted" : `Volume ${volLevel}%`}
+                onClick={toggleMute}
+              >
+                <Icon name={silent ? "mute" : "volume"} size={24} />
+              </button>
               <input
                 type="range"
+                className="pv-vslider"
                 min={0}
                 max={MAX_VOLUME}
                 value={volLevel}
                 aria-label="Volume"
-                style={{
-                  backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
-                }}
+                style={{ "--fill": `${volumeFill}%` } as CSSProperties}
                 onChange={(event) => setVolume(Number(event.target.value))}
               />
+              {nextEpisode ? (
+                <button
+                  type="button"
+                  className="pv-cbtn"
+                  aria-label="Next episode"
+                  title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
+                  disabled={busy}
+                  onClick={() => void playVideo(nextEpisode)}
+                >
+                  <Icon name="next" size={24} />
+                </button>
+              ) : null}
             </div>
 
             <div className="pv-spacer" />
 
-            {nextEpisode ? (
+            <div className="pv-pill">
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "subs" ? " is-on" : ""}`}
+                aria-label="Subtitles"
+                title="Subtitles"
+                aria-expanded={surface === "subs" ? true : undefined}
+                onClick={openSubs}
+              >
+                <Icon name="subtitle" size={24} />
+              </button>
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "audio" ? " is-on" : ""}`}
+                aria-label="Audio track"
+                title="Audio track"
+                aria-expanded={surface === "audio" ? true : undefined}
+                onClick={() => toggleSurface("audio")}
+              >
+                <Icon name="languages" size={24} />
+              </button>
               <button
                 type="button"
                 className="pv-cbtn"
-                aria-label="Next episode"
-                title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
+                aria-label={`Speed ${local.speed}×`}
+                title={`Speed ${local.speed}×`}
+                onClick={cycleSpeed}
               >
-                <Icon name="next" size={24} />
+                <Icon name="speed" size={24} />
               </button>
-            ) : null}
-
-            <div
-              className={`pv-cluster${btnMenu ? " is-open" : ""}`}
-              onClick={() => setBtnMenu(false)}
-            >
-              {actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  className={`pv-cbtn${surface === action.key ? " is-on" : ""}`}
-                  aria-label={action.label}
-                  title={action.label}
-                  aria-expanded={surface === action.key ? true : undefined}
-                  onClick={action.on}
-                >
-                  <Icon name={action.icon} size={24} />
-                </button>
-              ))}
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "more" ? " is-on" : ""}`}
+                aria-label="More actions"
+                title="More actions"
+                aria-expanded={surface === "more" ? true : undefined}
+                onClick={() => toggleSurface("more")}
+              >
+                <Icon name="more" size={24} />
+              </button>
             </div>
-
-            <button
-              type="button"
-              className="pv-cbtn pv-cbtn--fold"
-              aria-label="More actions"
-              title="More actions"
-              aria-expanded={btnMenu}
-              onClick={() => {
-                setBtnMenu((current) => !current);
-                bump();
-              }}
-            >
-              <Icon name="more" size={24} />
-            </button>
           </div>
         </footer>
       ) : null}

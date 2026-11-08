@@ -41,7 +41,7 @@ export type IconName =
   | "compress"
   | "replay10"
   | "speed"
-  | "audio"
+  | "languages"
   | "aspect"
   | "more"
   | "next"
@@ -83,10 +83,14 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M18.6 5.4v13.2" />
     </>
   ),
-  audio: (
+  languages: (
     <>
-      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-6.6L7 19.7V16H6a2 2 0 0 1-2-2z" />
-      <path d="M9.2 8.4v4M12 7.2v6.4M14.8 8.4v4" />
+      <path d="m5 8 6 6" />
+      <path d="m4 14 6-6-2-3" />
+      <path d="M2 5h12" />
+      <path d="M7 2h1" />
+      <path d="m22 22-5-10-5 10" />
+      <path d="M14 18h6" />
     </>
   ),
   aspect: (
@@ -164,15 +168,15 @@ const STROKE: Record<IconName, ReactNode> = {
   forward: <path d="M8.5 5 16 12l-7.5 7" />,
   volume: (
     <>
-      <path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3v-5Z" />
-      <path d="M15.5 9a4.5 4.5 0 0 1 0 6" />
-      <path d="M18 6.5a8 8 0 0 1 0 11" />
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     </>
   ),
   mute: (
     <>
-      <path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3v-5Z" />
-      <path d="m16 9.5 5 5M21 9.5l-5 5" />
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="m22 9-6 6M16 9l6 6" />
     </>
   ),
   subtitle: (
@@ -395,7 +399,7 @@ export function ContextMenu({
 }: {
   x: number;
   y: number;
-  title: string;
+  title?: string;
   actions: ContextAction[];
   onClose: () => void;
 }) {
@@ -451,7 +455,7 @@ export function ContextMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label={title}
+      aria-label={title || "Menu"}
       className="ctx"
       tabIndex={-1}
       style={{ left: at.left, top: at.top }}
@@ -479,21 +483,25 @@ export function ContextMenu({
         items[next]?.focus();
       }}
     >
-      <p className="ctx-title">{title}</p>
+      {title ? (
+        <div className="ctx-head">
+          <p className="ctx-title">{title}</p>
+        </div>
+      ) : null}
       {actions.map((action) => (
         <button
           key={action.label}
           type="button"
           role="menuitem"
-          className="ctx-item"
+          className={`ctx-item${action.icon === "play" ? " is-primary" : ""}`}
           disabled={action.disabled}
           onClick={() => {
             onClose();
             action.onSelect();
           }}
         >
-          {action.icon ? <Icon name={action.icon} size={15} /> : <span className="ctx-gap" />}
-          <span>{action.label}</span>
+          {action.icon ? <Icon name={action.icon} size={16} /> : <span className="ctx-gap" />}
+          <span className="ctx-label">{action.label}</span>
         </button>
       ))}
     </div>,

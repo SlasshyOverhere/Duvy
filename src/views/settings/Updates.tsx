@@ -128,7 +128,7 @@ export function Updates() {
               {progress.total ? ` of ${megabytes(progress.total)}` : ""}
             </p>
           ) : null}
-          <div className="about-actions">
+          <div className="about-actions settings-actions">
             <Button
               variant="primary"
               icon="download"
@@ -138,6 +138,7 @@ export function Updates() {
               {installing ? "Installing" : "Install and restart"}
             </Button>
             <Button
+              variant="text"
               disabled={installing}
               onClick={() =>
                 void skipUpdate(update.version).catch((error) =>
@@ -148,6 +149,7 @@ export function Updates() {
               Skip this version
             </Button>
             <Button
+              variant="text"
               icon="external"
               onClick={() =>
                 void openExternal(RELEASES).catch(() => notify("Could not open that link", "error"))

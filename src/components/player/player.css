@@ -6,28 +6,28 @@
    --------------------------------------------------------------------------- */
 
 .pv {
-  /* Glass over a live picture: translucent fills and drawn rims, never a blur.
-     The fill stays dark enough for white text over any frame. */
-  --pv-panel: rgba(18, 18, 21, 0.82);
-  --pv-panel-2: rgba(14, 14, 17, 0.86);
-  --pv-glass-press: rgba(8, 8, 10, 0.9);
+  /* Dark clear lens, same material as the app: dark fill, frosted backdrop,
+     thin white edge, tight top lip. The art shows through blurred, not sharp. */
+  --pv-panel: rgba(18, 20, 24, 0.62);
+  --pv-panel-2: rgba(18, 20, 24, 0.72);
+  --pv-filter: blur(22px) saturate(1.1);
+  --pv-glass-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  --pv-glass-press: rgba(255, 255, 255, 0.12);
   --pv-well: rgba(255, 255, 255, 0.045);
   --pv-control: rgba(255, 255, 255, 0.055);
   --pv-control-2: rgba(255, 255, 255, 0.07);
   --pv-control-hover: rgba(255, 255, 255, 0.12);
   --pv-wash: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.035) 46%,
-    rgba(255, 255, 255, 0.015) 100%
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.012) 46%,
+    rgba(255, 255, 255, 0.02) 100%
   );
   --pv-edge: rgba(255, 255, 255, 0.14);
-  --pv-edge-soft: rgba(255, 255, 255, 0.07);
-  --pv-spec: rgba(255, 255, 255, 0.2);
-  --pv-disp: color-mix(in srgb, var(--accent) 20%, transparent);
-  --pv-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.4),
-    0 16px 36px -24px rgba(0, 0, 0, 0.9);
+  --pv-edge-soft: rgba(255, 255, 255, 0.08);
+  --pv-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   --pv-muted: rgba(255, 255, 255, 0.62);
   --pv-faint: rgba(255, 255, 255, 0.5);
 }
@@ -112,11 +112,9 @@
   padding: 16px 18px 18px;
   border-radius: 12px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    inset 0 -1px 0 var(--pv-disp),
-    var(--pv-shadow);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
 }
 
 /* Only the contents scroll, so the header stays reachable on a short screen. */
@@ -605,16 +603,14 @@
 .pv .pv-side {
   display: flex;
   flex-direction: column;
-  width: min(520px, 100vw);
+  width: min(640px, 100vw);
   height: 100%;
-  padding: 24px;
-  border-radius: 16px 0 0 16px;
-  background: var(--pv-wash), var(--pv-panel-2);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    inset 0 -1px 0 var(--pv-disp),
-    var(--pv-shadow);
+  padding: 20px 18px 14px;
+  border-radius: 18px 0 0 18px;
+  background: rgba(20, 20, 22, 0.92);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .pv .pv-side-head {
@@ -623,15 +619,44 @@
   justify-content: space-between;
   gap: 16px;
   flex: none;
-  padding-bottom: 14px;
+  padding: 2px 2px 10px;
 }
 
 .pv .pv-side-head h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   color: #fff;
+}
+
+.pv .pv-side-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.pv .pv-side-action {
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pv .pv-side-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.11);
+  color: #fff;
+}
+
+.pv .pv-side-action:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .pv .pv-side-body {
@@ -642,19 +667,22 @@
   gap: 12px;
   overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
 .pv .pv-side-sub {
   margin: 0;
-  font-size: 12.5px;
+  padding: 0 2px;
+  font-size: 13px;
   line-height: 1.4;
-  color: var(--pv-muted);
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .pv .pv-side-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
+  padding-right: 2px;
 }
 
 .pv .pv-side-empty {
@@ -667,32 +695,43 @@
 .pv .pv-filters {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 2px;
+  scrollbar-width: none;
+  flex: none;
+}
+
+.pv .pv-filters::-webkit-scrollbar {
+  display: none;
 }
 
 .pv .pv-filter {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--pv-control);
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 12.5px;
-  font-weight: 500;
+  height: 36px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .pv .pv-filter:hover {
-  background: var(--pv-control-hover);
+  background: rgba(255, 255, 255, 0.11);
   color: #fff;
 }
 
 .pv .pv-filter.is-on {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: #ffffff;
+  border-color: transparent;
+  color: #111111;
 }
 
 .pv .pv-filter--action {
@@ -703,68 +742,166 @@
 
 .pv .pv-source-row {
   width: 100%;
-  padding: 11px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
   color: inherit;
   text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 0.14s ease;
 }
 
-.pv .pv-source-row:hover {
-  background: var(--pv-control-2);
+.pv .pv-source-row:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.085);
+}
+
+.pv .pv-source-row:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .pv .pv-source-row.is-on {
-  background: color-mix(in srgb, var(--accent) 14%, var(--pv-panel-2));
+  border-color: rgba(240, 165, 58, 0.55);
+  background: rgba(240, 165, 58, 0.09);
+}
+
+.pv .pv-source-main {
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+  align-items: stretch;
 }
 
 .pv .pv-source-text {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
-.pv .pv-source-name {
+.pv .pv-source-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
-  font-size: 13px;
+}
+
+.pv .pv-source-title {
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pv .pv-source-addon {
+  flex: none;
+  font-size: 10.5px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.52);
   white-space: nowrap;
 }
 
-.pv .pv-source-name em {
-  flex: none;
-  font-style: normal;
-  font-size: 10.5px;
-  font-weight: 600;
+.pv .pv-source-title-2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.35;
+}
+
+.pv .pv-source-playing {
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--accent);
 }
 
-.pv .pv-source-meta {
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: var(--pv-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.pv .pv-source-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+  min-width: 0;
 }
 
 .pv .pv-source-note {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+  overflow-wrap: anywhere;
+}
+
+.pv .pv-source-brand {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 72px;
+}
+
+.pv .pv-source-brand-logo {
+  display: block;
+  width: auto;
+  height: 32px;
+  max-width: 56px;
+  object-fit: contain;
+}
+
+.pv .pv-source-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pv .pv-source-brand-name {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.56);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.pv .pv-source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
   font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--pv-muted);
+  color: rgba(255, 255, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv .pv-source-seeds,
+.pv .pv-source-size {
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+}
+
+.pv .pv-source-cached {
+  color: var(--good);
+}
+
+.pv .pv-source-audio {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.46);
 }
 
 /* ---- chapters ----------------------------------------------------------- */
@@ -994,10 +1131,9 @@
   border: 0;
   border-radius: 50%;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    var(--pv-shadow);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   color: #fff;
 }
 
@@ -1419,10 +1555,9 @@
   padding: 6px;
   border-radius: 8px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    var(--pv-shadow);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   pointer-events: none;
 }
 
@@ -1473,48 +1608,58 @@
   flex: 1;
 }
 
-.pv .pv-cluster {
+/* Two pills: playback on the left, tracks and options on the right. */
+.pv .pv-pill {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: none;
-}
-
-.pv .pv-cbtn--fold {
-  display: none;
-}
-
-/* Stremio's slider: a hairline track with a round thumb, not a chunky rail. */
-.pv .pv-vslider {
-  display: flex;
-  align-items: center;
-  flex: 0 1 10rem;
-  height: 3.5rem;
-  margin: 0 6px;
-}
-
-.pv .pv-vslider input[type="range"] {
-  width: 100%;
-  height: 0.35rem;
-  margin: 0;
-  border: 0;
+  padding: 4px;
   border-radius: 999px;
-  /* Without this the UA slider ignores the thumb below. */
-  appearance: none;
-  background-color: rgba(255, 255, 255, 0.2);
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  cursor: pointer;
+  background: var(--pv-wash), var(--pv-panel);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
 }
 
-.pv .pv-vslider input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 50%;
+/* Pill buttons follow the pill shape, so a hover fill meets the pill edge. */
+.pv .pv-pill .pv-cbtn {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+}
+
+.pv .pv-pill .pv-cbtn.is-on {
+  background: var(--pv-control-hover);
+}
+
+/* Volume sits in the playback pill, next to its speaker. */
+.pv .pv-vslider {
+  flex: 0 1 7rem;
+  width: 7rem;
+  min-width: 4rem;
+  height: 1.6rem;
+  margin: 0 8px 0 2px;
+  background: transparent;
+}
+
+.pv .pv-vslider::-webkit-slider-runnable-track {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.72) var(--fill, 50%),
+    rgba(255, 255, 255, 0.16) var(--fill, 50%)
+  );
+}
+
+.pv .pv-vslider::-webkit-slider-thumb {
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-top: -0.225rem;
   background: #fff;
-  border: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 
 /* ---- transient readouts ------------------------------------------------- */
@@ -1532,9 +1677,9 @@
   padding: 0 1.4rem;
   border-radius: 999px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   color: #fff;
   font-size: 0.95rem;
   font-weight: 600;
@@ -1560,9 +1705,9 @@
   padding: 1.6rem 2rem;
   border-radius: 10px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   color: #fff;
   pointer-events: none;
 }
@@ -1652,10 +1797,9 @@
   padding: 0;
   border-radius: 10px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    var(--pv-shadow);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -1787,10 +1931,9 @@
   border: 0;
   border-radius: 8px;
   background: var(--pv-wash), var(--pv-panel);
-  box-shadow:
-    inset 0 1px 0 var(--pv-spec),
-    inset 0 0 0 1px var(--pv-edge),
-    var(--pv-shadow);
+  -webkit-backdrop-filter: var(--pv-filter);
+  backdrop-filter: var(--pv-filter);
+  box-shadow: var(--pv-glass-shadow);
   color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
@@ -1815,35 +1958,6 @@
   .pv .pv-seek-time {
     width: 4.4rem;
     font-size: 0.95rem;
-  }
-
-  .pv .pv-vslider {
-    display: none;
-  }
-
-  .pv .pv-cluster {
-    position: absolute;
-    right: 8px;
-    bottom: 4.4rem;
-    z-index: 6;
-    display: none;
-    flex-wrap: wrap;
-    max-width: calc(100vw - 16px);
-    padding: 6px;
-    border-radius: 10px;
-    background: var(--pv-wash), var(--pv-panel);
-    box-shadow:
-      inset 0 1px 0 var(--pv-spec),
-      inset 0 0 0 1px var(--pv-edge),
-      var(--pv-shadow);
-  }
-
-  .pv .pv-cluster.is-open {
-    display: flex;
-  }
-
-  .pv .pv-cbtn--fold {
-    display: flex;
   }
 
   .pv .pv-upnext {

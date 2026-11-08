@@ -51,7 +51,6 @@ export function AppMenu() {
     <ContextMenu
       x={at.x}
       y={at.y}
-      title="Duvy"
       actions={actions}
       onClose={() => setAt(null)}
     />

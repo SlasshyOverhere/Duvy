@@ -81,12 +81,6 @@ export function StreamDrawer({
     return () => window.removeEventListener("resize", measure);
   }, [measure, open, groups]);
 
-  const step = (direction: number) => {
-    const node = filtersRef.current;
-    if (!node) return;
-    node.scrollBy({ left: direction * node.clientWidth * 0.8, behavior: "smooth" });
-  };
-
   // The filter row is wider than the panel and a mouse has no sideways wheel,
   // so the row itself is draggable.
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -118,7 +112,7 @@ export function StreamDrawer({
       drag.current.moved = false;
       return;
     }
-    // The chip you are already on clears the filter: there is no All chip.
+    // No All chip: tapping the active addon clears back to every addon.
     setFilter(next === filter ? "all" : next);
   };
 
@@ -171,7 +165,7 @@ export function StreamDrawer({
     () =>
       installed
         .filter((addon) => addon.enabled && addon.resources.includes("stream"))
-        .map((addon) => ({ key: addon.url, name: addon.name })),
+        .map((addon) => ({ key: addon.url, name: addon.name, logo: addon.logo ?? null })),
     [installed],
   );
   const signature = targets.map((target) => target.key).join("|");
@@ -305,12 +299,12 @@ export function StreamDrawer({
         <div className="drawer-filter-bar">
           <button
             type="button"
-            className="filter-step is-left"
-            onClick={() => step(-1)}
-            disabled={!edges.left}
-            aria-label="Earlier addons"
+            className={`drawer-refresh${pending > 0 ? " is-loading" : ""}`}
+            onClick={() => targets.forEach((target) => load(target.key))}
+            aria-label="Refresh sources"
+            title="Refresh sources"
           >
-            <Icon name="chevron" size={14} />
+            <Icon name="refresh" size={16} />
           </button>
           <div
             className={`drawer-filters${edges.left ? " can-left" : ""}${edges.right ? " can-right" : ""}`}
@@ -322,17 +316,6 @@ export function StreamDrawer({
             onScroll={measure}
             title="Drag sideways for more addons"
           >
-            {targets.length ? (
-              <button
-                type="button"
-                className={`chip chip-icon${pending > 0 ? " is-loading" : ""}`}
-                onClick={() => targets.forEach((target) => load(target.key))}
-                aria-label="Refresh sources"
-                title="Refresh sources"
-              >
-                <Icon name="refresh" size={14} />
-              </button>
-            ) : null}
             {groups
               .filter((group) => group.streams.length > 0 || group.state === "loading")
               .map((group) => (
@@ -352,21 +335,47 @@ export function StreamDrawer({
           </div>
           <button
             type="button"
-            className="filter-step is-right"
-            onClick={() => step(1)}
-            disabled={!edges.right}
-            aria-label="More addons"
-          >
-            <Icon name="chevron" size={14} />
-          </button>
-          <button
-            type="button"
             className="drawer-close"
             onClick={onClose}
             aria-label="Close"
           >
             <Icon name="x" size={18} />
           </button>
+        </div>
+
+        <div className="drawer-scrapers">
+          <span className="drawer-scrapers-label">Active addons</span>
+          <div className="drawer-scrapers-row">
+            {targets.map((target) => {
+              const group = groups.find((item) => item.key === target.key);
+              const state = group?.state ?? "loading";
+              const count = group?.streams.length ?? 0;
+              return (
+                <span
+                  key={target.key}
+                  className={`scraper-pill${state === "error" ? " is-error" : ""}${state === "done" && count === 0 ? " is-empty" : ""}`}
+                  title={
+                    state === "loading"
+                      ? "Searching"
+                      : state === "error"
+                        ? (group?.error ?? "Failed")
+                        : count === 0
+                          ? "No sources"
+                          : `${count} sources`
+                  }
+                >
+                  {state === "loading" ? (
+                    <Icon name="refresh" size={11} />
+                  ) : state === "error" ? (
+                    <Icon name="alert" size={11} />
+                  ) : count > 0 ? (
+                    <Icon name="check" size={11} />
+                  ) : null}
+                  {target.name}
+                </span>
+              );
+            })}
+          </div>
         </div>
 
         <div className="drawer-body">
@@ -400,6 +409,10 @@ export function StreamDrawer({
                 </p>
               ) : null}
 
+              {filter === "all" && group.streams.length ? (
+                <h3 className="stream-group-title">{group.addon}</h3>
+              ) : null}
+
               {group.streams.length ? (
                 <ul className="stream-list">
                   {group.streams.map((stream, index) => {
@@ -414,18 +427,40 @@ export function StreamDrawer({
                       : detail;
                     const showQuality =
                       stream.quality !== "Auto" &&
-                      !label.toLowerCase().includes(stream.quality.toLowerCase());
-                    const audio = stream.languages.length
-                      ? stream.languages.includes("Multi")
-                        ? "Multi audio"
-                        : stream.languages.slice(0, 3).join(", ")
-                      : null;
+                      !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
+                      !(
+                        /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
+                        /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+                      );
+                    const bodyLines = body
+                      ? body
+                          .split("\n")
+                          .map((line) => line.replace(/\s+/g, " ").trim())
+                          .filter(Boolean)
+                      : [];
+                    const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
+                    const audio = detailHasAudio
+                      ? null
+                      : stream.languages.length
+                        ? stream.languages.includes("Multi")
+                          ? "Multi audio"
+                          : stream.languages.slice(0, 3).join(", ")
+                        : null;
                     const hasMeta = Boolean(
                       stream.size ||
                         stream.seeders != null ||
                         stream.badges.length ||
                         stream.cached,
                     );
+                    // A run of seeds/size tokens in the addon's own line is the
+                    // meta row in text form; keep the parsed row instead.
+                    const shownLines = bodyLines.filter((line) => {
+                      const upper = line.toUpperCase();
+                      const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
+                      return !looksMeta;
+                    });
+                    const shown = shownLines.length ? shownLines : bodyLines;
+                    const addonLogo = targets.find((target) => target.key === group.key)?.logo ?? null;
                     return (
                       <li key={`${group.key}-${index}`}>
                         <div className="stream-card">
@@ -437,40 +472,57 @@ export function StreamDrawer({
                             title={stream.playable ? undefined : "This source has no playing link"}
                             aria-label={`Play ${label}`}
                           >
-                            <span className="stream-head">
-                              <span className="stream-label">{label}</span>
-                              {showQuality ? (
-                                <span className="stream-quality">{stream.quality}</span>
-                              ) : null}
-                            </span>
-                            {body ? (
-                              <span className="stream-detail">{body}</span>
-                            ) : (
-                              <>
+                            <span className="stream-main">
+                              <span className="stream-texts">
+                                <span className="stream-title">{label}</span>
+                                {showQuality ? (
+                                  <span className="stream-title-2">{stream.quality}</span>
+                                ) : null}
+                                {shown.length ? (
+                                  <span className="stream-details">
+                                    {shown.map((line, at) => (
+                                      <span className="stream-detail" key={at}>
+                                        {line}
+                                      </span>
+                                    ))}
+                                  </span>
+                                ) : null}
                                 {hasMeta ? (
                                   <span className="stream-meta">
-                                    {stream.size ? (
-                                      <span className="stream-size">{stream.size}</span>
-                                    ) : null}
                                     {stream.seeders != null ? (
                                       <span className="stream-seeds">
-                                        {stream.seeders.toLocaleString()} seeds
+                                        👤 {stream.seeders.toLocaleString()}
                                       </span>
+                                    ) : null}
+                                    {stream.size ? (
+                                      <span className="stream-size">💾 {stream.size}</span>
                                     ) : null}
                                     {stream.badges.map((badge) => (
                                       <span key={badge}>{badge}</span>
                                     ))}
-                                    {stream.cached ? (
-                                      <span className="stream-cached">Cached</span>
-                                    ) : null}
+                                    {stream.cached ? <span className="stream-cached">Cached</span> : null}
                                   </span>
                                 ) : null}
                                 {audio ? <span className="stream-audio">{audio}</span> : null}
-                              </>
-                            )}
-                            {body && stream.sizeBytes != null && stream.size ? (
-                              <span className="stream-size-line">{stream.size}</span>
-                            ) : null}
+                              </span>
+                              <span className="stream-brand" aria-hidden="true">
+                                {addonLogo ? (
+                                  <img
+                                    className="stream-brand-logo"
+                                    src={addonLogo}
+                                    alt=""
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                ) : (
+                                  <span className="stream-brand-mark">
+                                    {group.addon.trim().charAt(0).toUpperCase()}
+                                  </span>
+                                )}
+                                <span className="stream-brand-name">{group.addon}</span>
+                              </span>
+                            </span>
                           </button>
                           {url ? (
                             <button
