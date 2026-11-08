@@ -1,5 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  RefObject,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isBrowserPreview, isTauri } from "../lib/bridge";
@@ -3087,30 +3092,25 @@ export function PlayerView() {
               >
                 <Icon name={paused ? "play" : "pause"} size={26} />
               </button>
-              <div className="pv-volwrap">
-                <button
-                  type="button"
-                  className="pv-cbtn"
-                  aria-label={silent ? "Unmute" : "Mute"}
-                  title={`Volume ${volLevel}%`}
-                  onClick={toggleMute}
-                >
-                  <Icon name={silent ? "mute" : "volume"} size={24} />
-                </button>
-                <div className="pv-volpop">
-                  <input
-                    type="range"
-                    min={0}
-                    max={MAX_VOLUME}
-                    value={volLevel}
-                    aria-label="Volume"
-                    style={{
-                      backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
-                    }}
-                    onChange={(event) => setVolume(Number(event.target.value))}
-                  />
-                </div>
-              </div>
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label={silent ? "Unmute" : "Mute"}
+                title={silent ? "Muted" : `Volume ${volLevel}%`}
+                onClick={toggleMute}
+              >
+                <Icon name={silent ? "mute" : "volume"} size={24} />
+              </button>
+              <input
+                type="range"
+                className="pv-vslider"
+                min={0}
+                max={MAX_VOLUME}
+                value={volLevel}
+                aria-label="Volume"
+                style={{ "--fill": `${volumeFill}%` } as CSSProperties}
+                onChange={(event) => setVolume(Number(event.target.value))}
+              />
               {nextEpisode ? (
                 <button
                   type="button"

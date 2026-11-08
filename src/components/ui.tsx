@@ -168,15 +168,15 @@ const STROKE: Record<IconName, ReactNode> = {
   forward: <path d="M8.5 5 16 12l-7.5 7" />,
   volume: (
     <>
-      <path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3v-5Z" />
-      <path d="M15.5 9a4.5 4.5 0 0 1 0 6" />
-      <path d="M18 6.5a8 8 0 0 1 0 11" />
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     </>
   ),
   mute: (
     <>
-      <path d="M4.5 9.5h3l4-3.5v12l-4-3.5h-3v-5Z" />
-      <path d="m16 9.5 5 5M21 9.5l-5 5" />
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="m22 9-6 6M16 9l6 6" />
     </>
   ),
   subtitle: (
