@@ -36,32 +36,31 @@
   --page-max: 1680px;
   --nav-h: 88px;
 
-  /* One glass material: fill, edge, specular lip, dispersion, shadow. */
-  --glass-filter: blur(30px) saturate(1.7) brightness(1.14) contrast(1.04);
-  --glass-filter-lg: blur(44px) saturate(1.6) brightness(1.08) contrast(1.03);
-  --glass-fill: rgba(18, 20, 24, 0.34);
-  --glass-fill-strong: rgba(14, 16, 20, 0.44);
-  --glass-fill-soft: rgba(255, 255, 255, 0.045);
-  --glass-fill-hover: rgba(255, 255, 255, 0.075);
-  --glass-fill-active: rgba(255, 255, 255, 0.14);
-  --glass-well: rgba(0, 0, 0, 0.3);
-  --glass-inset: inset 0 1px 2px rgba(0, 0, 0, 0.45);
-  --glass-edge: rgba(255, 255, 255, 0.18);
-  --glass-edge-soft: rgba(255, 255, 255, 0.07);
-  --glass-spec: rgba(255, 255, 255, 0.85);
-  /* Clear lens: white lip on the bottom, dark rims on the sides. */
-  --glass-dispersion: rgba(255, 255, 255, 0.30);
+  /* One glass material: clear fill, thin edge, tight top lip, no fog. */
+  --glass-filter: blur(14px) saturate(1.2);
+  --glass-filter-lg: blur(18px) saturate(1.15);
+  --glass-fill: rgba(255, 255, 255, 0.08);
+  --glass-fill-strong: rgba(255, 255, 255, 0.12);
+  --glass-fill-soft: rgba(255, 255, 255, 0.04);
+  --glass-fill-hover: rgba(255, 255, 255, 0.08);
+  --glass-fill-active: rgba(255, 255, 255, 0.12);
+  --glass-well: rgba(255, 255, 255, 0.05);
+  --glass-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+  --glass-edge: rgba(255, 255, 255, 0.2);
+  --glass-edge-soft: rgba(255, 255, 255, 0.08);
+  --glass-spec: rgba(255, 255, 255, 0.32);
+  /* Clear lens: thin white edge, nothing else. */
+  --glass-dispersion: rgba(255, 255, 255, 0.12);
   --glass-rim-lr:
-    inset 1px 0 0 rgba(0, 0, 0, 0.28),
-    inset -1px 0 0 rgba(0, 0, 0, 0.28);
-  --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.13);
+    inset 1px 0 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  --glass-glow: inset 0 0 12px rgba(255, 255, 255, 0.04);
   --glass-shadow:
     var(--glass-rim-lr),
     var(--glass-glow),
-    0 1px 1px rgba(0, 0, 0, 0.28),
-    0 14px 34px -18px rgba(0, 0, 0, 0.7);
+    0 1px 2px rgba(0, 0, 0, 0.1);
   --glass-wash:
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0.08) 100%);
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.015) 46%, rgba(255, 255, 255, 0.03) 100%);
 
   /* Static ambient tone under the pages, so a blur has something to sample. */
   --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
@@ -1640,10 +1639,8 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* The play CTA is a real lens: a thin frost that keeps the artwork readable
-   through it, a specular band across the top third, a hairline lip and one
-   tight cast shadow. The fill stays low-opacity on purpose - a solid white
-   disc reads as a sticker, not glass. */
+/* The play CTA is clear glass: the same fill as the dock, a thin frost, a
+   quiet top lip. No band, no halo. */
 .hero-actions .btn.btn-primary {
   width: 56px;
   height: 56px;
@@ -1652,19 +1649,17 @@ button.pill:hover {
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.38) 0%,
-      rgba(255, 255, 255, 0.1) 34%,
+      rgba(255, 255, 255, 0.14) 0%,
+      rgba(255, 255, 255, 0.03) 34%,
       rgba(255, 255, 255, 0) 52%
     ),
-    rgba(255, 255, 255, 0.1);
+    rgba(255, 255, 255, 0.08);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.24),
-    0 1px 1px rgba(0, 0, 0, 0.32),
-    0 8px 20px -12px rgba(0, 0, 0, 0.9);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
@@ -1672,11 +1667,11 @@ button.pill:hover {
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.5) 0%,
-      rgba(255, 255, 255, 0.16) 36%,
+      rgba(255, 255, 255, 0.18) 0%,
+      rgba(255, 255, 255, 0.05) 36%,
       rgba(255, 255, 255, 0.02) 54%
     ),
-    rgba(255, 255, 255, 0.16);
+    rgba(255, 255, 255, 0.1);
 }
 
 .hero-actions .btn-primary svg {
