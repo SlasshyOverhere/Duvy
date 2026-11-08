@@ -2513,8 +2513,8 @@ button.pill:hover {
    stays visible above and below, and the sources scroll inside. */
 .drawer {
   position: relative;
-  width: min(560px, 94vw);
-  max-height: min(720px, 100%);
+  width: min(760px, 94vw);
+  max-height: min(900px, calc(100vh - 48px));
   /* Secondary text steps up one tone: the glass is strongest here, but faint
      grey can still dip under 4.5:1 over a bright frame behind it. */
   --faint: var(--muted);
@@ -2524,13 +2524,12 @@ button.pill:hover {
   border: 1px solid transparent;
   border-right: 0;
   border-radius: 18px 0 0 18px;
-  background: var(--glass-wash), var(--glass-fill-strong);
+  background: var(--glass-wash), rgba(24, 24, 26, 0.88);
   -webkit-backdrop-filter: var(--glass-filter-lg);
   backdrop-filter: var(--glass-filter-lg);
   box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion),
-    var(--glass-shadow);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(0, 0, 0, 0.12);
   animation: drawer-in 0.22s var(--ease);
 }
 
@@ -2552,34 +2551,52 @@ button.pill:hover {
   outline: none;
 }
 
-/* The panel has no title bar: the filter row is the bar, with a step arrow on
-   each side and the close button at the end. Every control owns a column, so
-   nothing overlaps the chips. */
+/* The filter row is the bar: refresh on the left, pills in the middle,
+   close on the right. */
 .drawer-filter-bar {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px 32px;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--glass-edge-soft);
-  background: var(--glass-fill-soft);
+  gap: 10px;
+  padding: 14px 14px 10px;
+  flex: none;
+}
+
+.drawer-refresh {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.drawer-refresh:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.drawer-refresh.is-loading svg {
+  animation: spin 0.9s linear infinite;
 }
 
 .drawer-close {
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
   color: var(--muted);
   cursor: pointer;
 }
 
 .drawer-close:hover {
-  background: var(--glass-fill-hover);
+  background: rgba(255, 255, 255, 0.12);
   color: var(--text);
 }
 
@@ -2664,19 +2681,20 @@ button.pill:hover {
 
 .drawer-filters .chip {
   flex: 0 0 auto;
-  height: 34px;
-  padding: 0 14px;
-  border-color: transparent;
-  background: var(--glass-fill-soft);
-  box-shadow: inset 0 1px 0 var(--glass-edge-soft);
-  color: var(--muted);
-  font-size: 12px;
+  height: 36px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
   font-weight: 600;
 }
 
 .drawer-filters .chip:hover {
   border-color: transparent;
-  background-color: var(--glass-fill-hover);
+  background-color: rgba(255, 255, 255, 0.12);
   color: var(--text);
 }
 
@@ -2688,9 +2706,9 @@ button.pill:hover {
 .drawer-filters .chip.is-active,
 .drawer-filters .chip.is-active:hover {
   border-color: transparent;
-  background: var(--glass-fill-active);
-  box-shadow: inset 0 1px 0 var(--glass-spec), inset 0 0 0 1px var(--glass-edge-soft);
-  color: var(--text);
+  background: #ffffff;
+  box-shadow: none;
+  color: #111111;
 }
 
 .drawer-filters .chip-icon {
@@ -2703,30 +2721,85 @@ button.pill:hover {
   animation: spin 0.9s linear infinite;
 }
 
+.drawer-scrapers {
+  flex: none;
+  padding: 2px 14px 10px;
+}
+
+.drawer-scrapers-label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.drawer-scrapers-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scraper-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scraper-pill.is-empty {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.scraper-pill.is-error {
+  color: var(--danger);
+}
+
+.scraper-pill svg {
+  flex: none;
+}
+
 .drawer-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 20px 0;
+  padding: 2px 14px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
 .stream-list {
   list-style: none;
   margin: 0;
-  padding: 2px 0 12px;
+  padding: 0 0 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* One addon, one section: an addon that answers first is readable while the
    others are still working, and a failing one only costs its own block. */
 .stream-group + .stream-group {
-  margin-top: 8px;
+  margin-top: 16px;
+}
+
+.stream-group-title {
+  margin: 14px 4px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text);
 }
 
 .stream-group-error {
-  padding: 6px 0 2px;
+  padding: 6px 4px 2px;
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--faint);
@@ -2738,103 +2811,80 @@ button.pill:hover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
-  border-radius: 12px;
-  background: var(--glass-wash), var(--glass-fill-soft);
-  box-shadow:
-    inset 0 1px 0 var(--glass-edge-soft),
-    inset 0 0 0 1px var(--glass-edge-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   transition: background-color 0.14s var(--ease);
 }
 
 .stream-card:hover {
-  background-color: var(--glass-fill-hover);
+  background-color: rgba(255, 255, 255, 0.085);
 }
 
 .stream-card:active {
-  background-color: var(--glass-fill-active);
+  background-color: rgba(255, 255, 255, 0.11);
 }
 
 .stream-play {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
-  padding: 12px 2px 12px 14px;
+  padding: 13px 2px 13px 14px;
   border: 0;
   background: none;
   color: inherit;
   text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
 
 .stream-play:disabled {
   opacity: 0.45;
+  cursor: default;
 }
 
-.stream-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.stream-label {
-  min-width: 0;
+.stream-title {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
-.stream-quality {
-  flex: none;
-  margin-left: auto;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+.stream-title-2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
 }
 
 /* The addon's own description, line for line: MediaFusion and friends put the
    filename, source, size, languages and cache there. */
 .stream-detail {
+  margin-top: 2px;
   font-size: 12px;
   line-height: 1.55;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.6);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.stream-size-line {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: 0.01em;
 }
 
 .stream-meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--faint);
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.62);
   font-variant-numeric: tabular-nums;
-}
-
-.stream-meta > span + span::before {
-  content: "·";
-  margin: 0 6px;
-  color: rgba(255, 255, 255, 0.24);
 }
 
 .stream-size,
 .stream-seeds {
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
 }
 
 .stream-cached {
@@ -2842,8 +2892,9 @@ button.pill:hover {
 }
 
 .stream-audio {
-  font-size: 11px;
-  color: var(--faint);
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.46);
 }
 
 .stream-more {

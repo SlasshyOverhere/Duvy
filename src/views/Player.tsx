@@ -365,11 +365,15 @@ function SidePanel({
   label,
   title,
   onClose,
+  onReload,
+  reloadBusy,
   children,
 }: {
   label: string;
   title: string;
   onClose: () => void;
+  onReload?: () => void;
+  reloadBusy?: boolean;
   children: ReactNode;
 }) {
   useReturnFocus();
@@ -383,16 +387,33 @@ function SidePanel({
       <aside className="pv-side" role="dialog" aria-label={label} aria-modal="true">
         <header className="pv-side-head">
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="pv-overlay-close"
-            onClick={onClose}
-            aria-label="Close"
-            title="Close"
-            autoFocus
-          >
-            <Icon name="x" size={18} />
-          </button>
+          {onReload ? (
+            <div className="pv-side-actions">
+              <button
+                type="button"
+                className="pv-side-action"
+                onClick={onReload}
+                disabled={reloadBusy}
+                autoFocus
+              >
+                {reloadBusy ? "Reloading" : "Reload"}
+              </button>
+              <button type="button" className="pv-side-action" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="pv-overlay-close"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close"
+              autoFocus
+            >
+              <Icon name="x" size={18} />
+            </button>
+          )}
         </header>
         <div className="pv-side-body">{children}</div>
       </aside>
@@ -647,7 +668,7 @@ const SourcesPanel = memo(function SourcesPanel({
   onClose: () => void;
 }) {
   return (
-    <SidePanel label="Sources" title="Sources" onClose={onClose}>
+    <SidePanel label="Sources" title="Sources" onClose={onClose} onReload={onRefresh} reloadBusy={sourceBusy}>
       <p className="pv-side-sub">{heading}</p>
       <div className="pv-filters">
         <button
@@ -669,15 +690,6 @@ const SourcesPanel = memo(function SourcesPanel({
             {addon}
           </button>
         ))}
-        <button
-          type="button"
-          className="pv-filter pv-filter--action"
-          disabled={sourceBusy}
-          onClick={onRefresh}
-        >
-          <Icon name="refresh" size={15} />
-          {sourceBusy ? "Loading" : "Refresh"}
-        </button>
       </div>
       <div className="pv-side-list">
         {sourceBusy && !sources ? (
@@ -687,6 +699,19 @@ const SourcesPanel = memo(function SourcesPanel({
         ) : (
           visibleSources.map((stream, at) => {
             const current = sameSource(playingSource, stream);
+            const detail = (stream.description || stream.title || "").trim();
+            const label = stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
+            const body = detail.startsWith(label) ? detail.slice(label.length).trim() : detail;
+            const showQuality =
+              stream.quality !== "Auto" && !label.toLowerCase().includes(stream.quality.toLowerCase());
+            const audio = stream.languages.length
+              ? stream.languages.includes("Multi")
+                ? "Multi audio"
+                : stream.languages.slice(0, 3).join(", ")
+              : null;
+            const hasMeta = Boolean(
+              stream.size || stream.seeders != null || stream.badges.length || stream.cached,
+            );
             return (
               <button
                 key={`${stream.addon}-${stream.infoHash ?? stream.url ?? at}-${at}`}
@@ -694,27 +719,29 @@ const SourcesPanel = memo(function SourcesPanel({
                 className={`pv-source-row${current ? " is-on" : ""}`}
                 disabled={!stream.playable || sourceBusy}
                 onClick={() => onPick(stream)}
+                title={stream.playable ? undefined : "This source has no playing link"}
               >
                 <span className="pv-source-text">
-                  <span className="pv-source-name">
-                    {stream.name ?? stream.addon ?? "Source"}
-                    {current ? <em>Playing</em> : null}
+                  <span className="pv-source-head">
+                    <span className="pv-source-title">{label}</span>
+                    <span className="pv-source-addon">{stream.addon}</span>
                   </span>
-                  <span className="pv-source-meta">
-                    {[
-                      stream.quality,
-                      stream.addon,
-                      stream.size,
-                      stream.seeders != null ? `${stream.seeders} seeds` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                  {stream.description ? (
-                    <span className="pv-source-note">
-                      {stream.description.replace(/\n/g, " · ")}
+                  {showQuality ? <span className="pv-source-title-2">{stream.quality}</span> : null}
+                  {current ? <span className="pv-source-playing">Playing</span> : null}
+                  {body ? <span className="pv-source-note">{body}</span> : null}
+                  {hasMeta ? (
+                    <span className="pv-source-meta">
+                      {stream.seeders != null ? (
+                        <span className="pv-source-seeds">{stream.seeders.toLocaleString()}</span>
+                      ) : null}
+                      {stream.size ? <span className="pv-source-size">{stream.size}</span> : null}
+                      {stream.badges.map((badge) => (
+                        <span key={badge}>{badge}</span>
+                      ))}
+                      {stream.cached ? <span className="pv-source-cached">Cached</span> : null}
                     </span>
                   ) : null}
+                  {audio ? <span className="pv-source-audio">{audio}</span> : null}
                 </span>
               </button>
             );
