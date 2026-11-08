@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -466,6 +466,8 @@ export function SettingsView({ section }: { section?: string }) {
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
   const [p2pReview, setP2pReview] = useState(false);
   const [p2pAck, setP2pAck] = useState(false);
+  const navRef = useRef<HTMLElement | null>(null);
+  const [indicator, setIndicator] = useState<{ top: number; height: number } | null>(null);
 
   useEffect(() => {
     if (knownSection(section)) setTab(section as string);
@@ -521,6 +523,28 @@ export function SettingsView({ section }: { section?: string }) {
   );
   const active = SECTIONS.find((item) => item.id === tab) ?? SECTIONS[0];
 
+  // One shared rail marker behind the active section, the same language as
+  // the top dock pill: it glides instead of snapping. If measurement fails
+  // the buttons still carry their own active surface, so nothing is hidden.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nav = navRef.current;
+      if (!nav) return;
+      const btn = nav.querySelector<HTMLElement>(`button[data-section="${tab}"]`);
+      if (!btn) {
+        setIndicator(null);
+        return;
+      }
+      const navRect = nav.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      setIndicator({ top: btnRect.top - navRect.top, height: btnRect.height });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    void document.fonts?.ready.then(measure).catch(() => {});
+    return () => window.removeEventListener("resize", measure);
+  }, [tab, query, visible.length]);
+
   return (
     <div className="page settings-page">
       <header className="settings-head">
@@ -531,7 +555,12 @@ export function SettingsView({ section }: { section?: string }) {
       </header>
 
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings sections">
+        <nav ref={navRef} className="settings-nav" aria-label="Settings sections">
+          <span
+            className={`settings-nav-marker${indicator ? "" : " is-hidden"}`}
+            aria-hidden="true"
+            style={indicator ? { top: indicator.top, height: indicator.height } : { top: 0, height: 0 }}
+          />
           <label className="settings-search">
             <Icon name="search" size={15} />
             <input
@@ -570,6 +599,7 @@ export function SettingsView({ section }: { section?: string }) {
                   <button
                     key={item.id}
                     type="button"
+                    data-section={item.id}
                     className={tab === item.id ? "is-active" : ""}
                     aria-current={tab === item.id ? "page" : undefined}
                     onClick={() => setTab(item.id)}
@@ -589,8 +619,11 @@ export function SettingsView({ section }: { section?: string }) {
 
         <div className="settings-body">
           <header className="settings-body-head">
-            <h2>{active.label}</h2>
-            <p>{active.blurb}</p>
+            <Icon name={active.icon} size={22} className="settings-body-icon" />
+            <div className="settings-body-titles">
+              <h2>{active.label}</h2>
+              <p>{active.blurb}</p>
+            </div>
           </header>
 
           <Suspense fallback={<Loading label="Loading panel" variant="rows" />}>
