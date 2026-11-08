@@ -2850,7 +2850,7 @@ button.pill:hover {
   display: flex;
   gap: 14px;
   min-width: 0;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .stream-texts {
@@ -2898,28 +2898,28 @@ button.pill:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  width: 64px;
-  padding-top: 2px;
+  justify-content: center;
+  gap: 8px;
+  width: 72px;
 }
 
 .stream-brand-logo {
   display: block;
   width: auto;
-  height: 22px;
-  max-width: 44px;
+  height: 32px;
+  max-width: 56px;
   object-fit: contain;
 }
 
 .stream-brand-mark {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.88);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
