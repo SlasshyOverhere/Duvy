@@ -37,24 +37,33 @@
   --nav-h: 88px;
 
   /* One glass material: fill, edge, specular lip, dispersion, shadow. */
-  --glass-blur: 18px;
-  --glass-blur-lg: 30px;
-  --glass-fill: rgba(22, 22, 25, 0.52);
-  --glass-fill-strong: rgba(16, 16, 19, 0.74);
+  --glass-blur: 9px;
+  --glass-blur-lg: 22px;
+  --glass-filter: blur(9px) saturate(2.2) brightness(1.12) contrast(1.05);
+  --glass-filter-lg: blur(22px) saturate(1.9) brightness(1.06) contrast(1.04);
+  --glass-fill: rgba(18, 20, 24, 0.40);
+  --glass-fill-strong: rgba(14, 16, 20, 0.58);
   --glass-fill-soft: rgba(255, 255, 255, 0.045);
   --glass-fill-hover: rgba(255, 255, 255, 0.075);
   --glass-fill-active: rgba(255, 255, 255, 0.14);
   --glass-well: rgba(0, 0, 0, 0.3);
   --glass-inset: inset 0 1px 2px rgba(0, 0, 0, 0.45);
-  --glass-edge: rgba(255, 255, 255, 0.16);
+  --glass-edge: rgba(255, 255, 255, 0.18);
   --glass-edge-soft: rgba(255, 255, 255, 0.07);
-  --glass-spec: rgba(255, 255, 255, 0.22);
-  --glass-dispersion: color-mix(in srgb, var(--accent) 22%, transparent);
+  --glass-spec: rgba(255, 255, 255, 0.75);
+  /* Clear lens: white lip on the bottom, dark rims on the sides. */
+  --glass-dispersion: rgba(255, 255, 255, 0.30);
+  --glass-rim-lr:
+    inset 1px 0 0 rgba(0, 0, 0, 0.28),
+    inset -1px 0 0 rgba(0, 0, 0, 0.28);
+  --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.10);
   --glass-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.35),
-    0 14px 34px -22px rgba(0, 0, 0, 0.9);
+    var(--glass-rim-lr),
+    var(--glass-glow),
+    0 1px 1px rgba(0, 0, 0, 0.28),
+    0 14px 34px -18px rgba(0, 0, 0, 0.7);
   --glass-wash:
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.035) 44%, rgba(255, 255, 255, 0.015) 100%);
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0.08) 100%);
 
   /* Static ambient tone under the pages, so a blur has something to sample. */
   --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
@@ -458,8 +467,8 @@ select {
   /* The dock is chrome over artwork: real refraction, one blurred layer. The
      fill is strong so every label clears its own surface over bright art. */
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -1612,8 +1621,8 @@ button.pill:hover {
   border-radius: var(--pill);
   color: rgba(255, 255, 255, 0.9);
   background: var(--glass-wash), var(--glass-fill);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -1644,8 +1653,8 @@ button.pill:hover {
       rgba(255, 255, 255, 0) 52%
     ),
     rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
-  backdrop-filter: blur(14px) saturate(180%) contrast(1.12) brightness(1.1);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.75),
     inset 0 -1px 0 rgba(255, 255, 255, 0.1),
@@ -2185,8 +2194,8 @@ button.pill:hover {
   border-radius: var(--pill);
   color: rgba(255, 255, 255, 0.9);
   background: var(--glass-wash), var(--glass-fill);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -2518,8 +2527,8 @@ button.pill:hover {
   border-right: 0;
   border-radius: 18px 0 0 18px;
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur-lg)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter-lg);
+  backdrop-filter: var(--glass-filter-lg);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -3626,8 +3635,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius-lg);
   border: 1px solid var(--line-strong);
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -4014,8 +4023,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius);
   border: 1px solid transparent;
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -5099,8 +5108,8 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 6px;
   border-radius: 12px;
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   transform-origin: top left;
   animation: ctx-in 0.14s var(--ease);
   box-shadow:
@@ -5422,8 +5431,8 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(145%) contrast(1.04);
-  backdrop-filter: blur(var(--glass-blur-lg)) saturate(145%) contrast(1.04);
+  -webkit-backdrop-filter: var(--glass-filter-lg);
+  backdrop-filter: var(--glass-filter-lg);
   box-shadow:
     inset 0 1px 0 var(--glass-spec),
     inset 0 0 0 1px var(--glass-edge),
@@ -5507,7 +5516,7 @@ input[type="range"]::-webkit-slider-thumb {
   .ob-preview {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    background: var(--glass-wash), var(--glass-fill-strong);
+    background: rgba(16, 16, 19, 0.9);
   }
 
   .hero-actions .btn.btn-primary,
