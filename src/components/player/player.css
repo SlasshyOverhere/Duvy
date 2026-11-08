@@ -8,14 +8,14 @@
 .pv {
   /* Clear lens, same material as the app: blurred backdrop, white specular lip,
      dark side rims. Fills stay low so a frame still shows through. */
-  --pv-panel: rgba(14, 16, 20, 0.18);
-  --pv-panel-2: rgba(14, 16, 20, 0.34);
-  --pv-filter: blur(9px) saturate(2.2) brightness(1.12) contrast(1.05);
+  --pv-panel: rgba(14, 16, 20, 0.14);
+  --pv-panel-2: rgba(14, 16, 20, 0.30);
+  --pv-filter: blur(24px) saturate(1.9) brightness(1.1) contrast(1.04);
   --pv-glass-shadow:
     inset 1px 0 0 rgba(0, 0, 0, 0.30),
     inset -1px 0 0 rgba(0, 0, 0, 0.30),
     inset 0 0 0 1px var(--pv-edge),
-    inset 0 0 22px rgba(255, 255, 255, 0.10),
+    inset 0 0 22px rgba(255, 255, 255, 0.13),
     var(--pv-shadow);
   --pv-glass-press: rgba(8, 8, 10, 0.9);
   --pv-well: rgba(255, 255, 255, 0.045);
@@ -24,7 +24,7 @@
   --pv-control-hover: rgba(255, 255, 255, 0.12);
   --pv-wash: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.14) 0%,
     rgba(255, 255, 255, 0.03) 46%,
     rgba(255, 255, 255, 0.08) 100%
   );

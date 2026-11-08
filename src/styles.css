@@ -37,12 +37,10 @@
   --nav-h: 88px;
 
   /* One glass material: fill, edge, specular lip, dispersion, shadow. */
-  --glass-blur: 9px;
-  --glass-blur-lg: 22px;
-  --glass-filter: blur(9px) saturate(2.2) brightness(1.12) contrast(1.05);
-  --glass-filter-lg: blur(22px) saturate(1.9) brightness(1.06) contrast(1.04);
-  --glass-fill: rgba(18, 20, 24, 0.40);
-  --glass-fill-strong: rgba(14, 16, 20, 0.58);
+  --glass-filter: blur(30px) saturate(1.7) brightness(1.14) contrast(1.04);
+  --glass-filter-lg: blur(44px) saturate(1.6) brightness(1.08) contrast(1.03);
+  --glass-fill: rgba(18, 20, 24, 0.34);
+  --glass-fill-strong: rgba(14, 16, 20, 0.44);
   --glass-fill-soft: rgba(255, 255, 255, 0.045);
   --glass-fill-hover: rgba(255, 255, 255, 0.075);
   --glass-fill-active: rgba(255, 255, 255, 0.14);
@@ -50,20 +48,20 @@
   --glass-inset: inset 0 1px 2px rgba(0, 0, 0, 0.45);
   --glass-edge: rgba(255, 255, 255, 0.18);
   --glass-edge-soft: rgba(255, 255, 255, 0.07);
-  --glass-spec: rgba(255, 255, 255, 0.75);
+  --glass-spec: rgba(255, 255, 255, 0.85);
   /* Clear lens: white lip on the bottom, dark rims on the sides. */
   --glass-dispersion: rgba(255, 255, 255, 0.30);
   --glass-rim-lr:
     inset 1px 0 0 rgba(0, 0, 0, 0.28),
     inset -1px 0 0 rgba(0, 0, 0, 0.28);
-  --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.10);
+  --glass-glow: inset 0 0 22px rgba(255, 255, 255, 0.13);
   --glass-shadow:
     var(--glass-rim-lr),
     var(--glass-glow),
     0 1px 1px rgba(0, 0, 0, 0.28),
     0 14px 34px -18px rgba(0, 0, 0, 0.7);
   --glass-wash:
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0.08) 100%);
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0.08) 100%);
 
   /* Static ambient tone under the pages, so a blur has something to sample. */
   --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
