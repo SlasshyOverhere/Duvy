@@ -70,7 +70,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Notifications | **Partial** | Desktop notification for new releases; no notification service or per-event controls |
 | Discord rich presence | **Planned** | Not built |
 | Plugin runtime | **Planned** | Addon protocol only |
-| Auto-updater | **Done** | Signed and verified, single channel, launch and six-hourly checks |
+| Auto-updater | **Done** | Signed and verified, single channel, launch and hourly checks, installs only when asked |
 
 ## Platform
 

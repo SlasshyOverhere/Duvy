@@ -669,12 +669,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<UpdateInfo>("update:available", (event) => {
-      // The prompt in the middle of the window carries this, not a toast.
+      // The corner card carries this, not a toast.
       setUpdate(event.payload);
     })
       .then((stop) => {
         if (disposed) stop();
         else unlisten = stop;
+        // The last launch's answer is already on disk: no network wait.
+        void api.updates
+          .cached()
+          .then((known) => {
+            if (known && !disposed) setUpdate((current) => current ?? known);
+          })
+          .catch(() => undefined);
       })
       .catch(() => {
         // No event bridge: a manual check in Settings still works.

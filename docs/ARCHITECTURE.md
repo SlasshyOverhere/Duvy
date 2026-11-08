@@ -54,7 +54,7 @@ checkout into `src-tauri/libmpv/`, and the build bundles both with the installer
 | `servers.rs` | Jellyfin and Emby sign-in, library browsing, artwork and direct stream URLs. Tested URL builders. |
 | `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision. Tested. |
 | `playback_log.rs` | Small in-memory timeline of playback steps, exposed in Settings. |
-| `updates.rs` | Launch and six-hourly release checks, signature-verified download and install, toast and desktop notification. |
+| `updates.rs` | Launch and hourly release checks, a cached answer for an instant corner card, signature-verified download and install on request. |
 | `frame.rs` | Seek-bar previews from a scratch in-process libmpv, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
