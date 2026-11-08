@@ -6,29 +6,28 @@
    --------------------------------------------------------------------------- */
 
 .pv {
-  /* Clear lens, same material as the app: light blur, thin white edge,
-     tight top lip. No dark fill, no fog, no halo shadow. */
-  --pv-panel: rgba(255, 255, 255, 0.08);
-  --pv-panel-2: rgba(255, 255, 255, 0.12);
-  --pv-filter: blur(14px) saturate(1.2);
+  /* Dark clear lens, same material as the app: dark fill, frosted backdrop,
+     thin white edge, tight top lip. The art shows through blurred, not sharp. */
+  --pv-panel: rgba(18, 20, 24, 0.62);
+  --pv-panel-2: rgba(18, 20, 24, 0.72);
+  --pv-filter: blur(22px) saturate(1.1);
   --pv-glass-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.1);
-  --pv-glass-press: rgba(255, 255, 255, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+  --pv-glass-press: rgba(255, 255, 255, 0.12);
   --pv-well: rgba(255, 255, 255, 0.045);
   --pv-control: rgba(255, 255, 255, 0.055);
   --pv-control-2: rgba(255, 255, 255, 0.07);
   --pv-control-hover: rgba(255, 255, 255, 0.12);
   --pv-wash: linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.06) 0%,
-    rgba(255, 255, 255, 0.015) 46%,
-    rgba(255, 255, 255, 0.03) 100%
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.012) 46%,
+    rgba(255, 255, 255, 0.02) 100%
   );
-  --pv-edge: rgba(255, 255, 255, 0.2);
+  --pv-edge: rgba(255, 255, 255, 0.14);
   --pv-edge-soft: rgba(255, 255, 255, 0.08);
-  --pv-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --pv-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   --pv-muted: rgba(255, 255, 255, 0.62);
   --pv-faint: rgba(255, 255, 255, 0.5);
 }

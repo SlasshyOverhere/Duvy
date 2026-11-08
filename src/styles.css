@@ -36,31 +36,31 @@
   --page-max: 1680px;
   --nav-h: 88px;
 
-  /* One glass material: clear fill, thin edge, tight top lip, no fog. */
-  --glass-filter: blur(14px) saturate(1.2);
-  --glass-filter-lg: blur(18px) saturate(1.15);
-  --glass-fill: rgba(255, 255, 255, 0.08);
-  --glass-fill-strong: rgba(255, 255, 255, 0.12);
+  /* One dark glass material: dark clear fill, thin edge, tight top lip. */
+  --glass-filter: blur(20px) saturate(1.1);
+  --glass-filter-lg: blur(28px) saturate(1.05);
+  --glass-fill: rgba(20, 22, 26, 0.58);
+  --glass-fill-strong: rgba(18, 20, 24, 0.7);
   --glass-fill-soft: rgba(255, 255, 255, 0.04);
   --glass-fill-hover: rgba(255, 255, 255, 0.08);
   --glass-fill-active: rgba(255, 255, 255, 0.12);
   --glass-well: rgba(255, 255, 255, 0.05);
   --glass-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
-  --glass-edge: rgba(255, 255, 255, 0.2);
+  --glass-edge: rgba(255, 255, 255, 0.14);
   --glass-edge-soft: rgba(255, 255, 255, 0.08);
-  --glass-spec: rgba(255, 255, 255, 0.32);
+  --glass-spec: rgba(255, 255, 255, 0.14);
   /* Clear lens: thin white edge, nothing else. */
-  --glass-dispersion: rgba(255, 255, 255, 0.12);
+  --glass-dispersion: rgba(255, 255, 255, 0.08);
   --glass-rim-lr:
-    inset 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
-  --glass-glow: inset 0 0 12px rgba(255, 255, 255, 0.04);
+    inset 1px 0 0 rgba(255, 255, 255, 0.04),
+    inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  --glass-glow: inset 0 0 12px rgba(255, 255, 255, 0.03);
   --glass-shadow:
     var(--glass-rim-lr),
     var(--glass-glow),
-    0 1px 2px rgba(0, 0, 0, 0.1);
+    0 1px 2px rgba(0, 0, 0, 0.12);
   --glass-wash:
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.015) 46%, rgba(255, 255, 255, 0.03) 100%);
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.012) 46%, rgba(255, 255, 255, 0.02) 100%);
 
   /* Static ambient tone under the pages, so a blur has something to sample. */
   --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
