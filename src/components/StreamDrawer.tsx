@@ -165,7 +165,7 @@ export function StreamDrawer({
     () =>
       installed
         .filter((addon) => addon.enabled && addon.resources.includes("stream"))
-        .map((addon) => ({ key: addon.url, name: addon.name })),
+        .map((addon) => ({ key: addon.url, name: addon.name, logo: addon.logo ?? null })),
     [installed],
   );
   const signature = targets.map((target) => target.key).join("|");
@@ -439,6 +439,21 @@ export function StreamDrawer({
                         stream.badges.length ||
                         stream.cached,
                     );
+                    const lines = body
+                      ? body
+                          .split("\n")
+                          .map((line) => line.replace(/\s+/g, " ").trim())
+                          .filter(Boolean)
+                      : [];
+                    // A run of seeds/size tokens in the addon's own line is the
+                    // meta row in text form; keep the parsed row instead.
+                    const shownLines = lines.filter((line) => {
+                      const upper = line.toUpperCase();
+                      const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
+                      return !looksMeta;
+                    });
+                    const shown = shownLines.length ? shownLines : lines;
+                    const addonLogo = targets.find((target) => target.key === group.key)?.logo ?? null;
                     return (
                       <li key={`${group.key}-${index}`}>
                         <div className="stream-card">
@@ -450,28 +465,60 @@ export function StreamDrawer({
                             title={stream.playable ? undefined : "This source has no playing link"}
                             aria-label={`Play ${label}`}
                           >
-                            <span className="stream-title">{label}</span>
-                            {showQuality ? (
-                              <span className="stream-title-2">{stream.quality}</span>
-                            ) : null}
-                            {body ? <span className="stream-detail">{body}</span> : null}
-                            {hasMeta ? (
-                              <span className="stream-meta">
-                                {stream.seeders != null ? (
-                                  <span className="stream-seeds">
-                                    {stream.seeders.toLocaleString()}
+                            <span className="stream-main">
+                              <span className="stream-texts">
+                                <span className="stream-title">{label}</span>
+                                {showQuality ? (
+                                  <span className="stream-title-2">{stream.quality}</span>
+                                ) : null}
+                                {shown.length ? (
+                                  <span className="stream-details">
+                                    {shown.map((line, at) => (
+                                      <span className="stream-detail" key={at}>
+                                        {line}
+                                      </span>
+                                    ))}
                                   </span>
                                 ) : null}
-                                {stream.size ? (
-                                  <span className="stream-size">{stream.size}</span>
+                                {hasMeta ? (
+                                  <span className="stream-meta">
+                                    {stream.seeders != null ? (
+                                      <span className="stream-seeds">
+                                        👤 {stream.seeders.toLocaleString()}
+                                      </span>
+                                    ) : null}
+                                    {stream.size ? (
+                                      <span className="stream-size">💾 {stream.size}</span>
+                                    ) : null}
+                                    {stream.badges.map((badge) => (
+                                      <span key={badge}>{badge}</span>
+                                    ))}
+                                    {stream.cached ? <span className="stream-cached">Cached</span> : null}
+                                  </span>
                                 ) : null}
-                                {stream.badges.map((badge) => (
-                                  <span key={badge}>{badge}</span>
-                                ))}
-                                {stream.cached ? <span className="stream-cached">Cached</span> : null}
+                                {audio ? <span className="stream-audio">{audio}</span> : null}
+                                {stream.size ? (
+                                  <span className="stream-size-badge">SIZE {stream.size}</span>
+                                ) : null}
                               </span>
-                            ) : null}
-                            {audio ? <span className="stream-audio">{audio}</span> : null}
+                              <span className="stream-brand" aria-hidden="true">
+                                {addonLogo ? (
+                                  <img
+                                    className="stream-brand-logo"
+                                    src={addonLogo}
+                                    alt=""
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                ) : (
+                                  <span className="stream-brand-mark">
+                                    {group.addon.trim().charAt(0).toUpperCase()}
+                                  </span>
+                                )}
+                                <span className="stream-brand-name">{group.addon}</span>
+                              </span>
+                            </span>
                           </button>
                           {url ? (
                             <button

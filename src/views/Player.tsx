@@ -647,6 +647,7 @@ const SourcesPanel = memo(function SourcesPanel({
   sources,
   visibleSources,
   addonNames,
+  addonLogos,
   sourceBusy,
   sourceFilter,
   playingSource,
@@ -659,6 +660,7 @@ const SourcesPanel = memo(function SourcesPanel({
   sources: StreamOption[] | null;
   visibleSources: StreamOption[];
   addonNames: string[];
+  addonLogos: Record<string, string | null>;
   sourceBusy: boolean;
   sourceFilter: string | null;
   playingSource: StreamOption | null;
@@ -712,6 +714,19 @@ const SourcesPanel = memo(function SourcesPanel({
             const hasMeta = Boolean(
               stream.size || stream.seeders != null || stream.badges.length || stream.cached,
             );
+            const lines = body
+              ? body
+                  .split("\n")
+                  .map((line) => line.replace(/\s+/g, " ").trim())
+                  .filter(Boolean)
+              : [];
+            const shownLines = lines.filter((line) => {
+              const upper = line.toUpperCase();
+              const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
+              return !looksMeta;
+            });
+            const shown = shownLines.length ? shownLines : lines;
+            const addonLogo = addonLogos[stream.addon] ?? null;
             return (
               <button
                 key={`${stream.addon}-${stream.infoHash ?? stream.url ?? at}-${at}`}
@@ -721,27 +736,54 @@ const SourcesPanel = memo(function SourcesPanel({
                 onClick={() => onPick(stream)}
                 title={stream.playable ? undefined : "This source has no playing link"}
               >
-                <span className="pv-source-text">
-                  <span className="pv-source-head">
+                <span className="pv-source-main">
+                  <span className="pv-source-text">
                     <span className="pv-source-title">{label}</span>
-                    <span className="pv-source-addon">{stream.addon}</span>
+                    {showQuality ? <span className="pv-source-title-2">{stream.quality}</span> : null}
+                    {current ? <span className="pv-source-playing">Playing</span> : null}
+                    {shown.length ? (
+                      <span className="pv-source-details">
+                        {shown.map((line, at) => (
+                          <span className="pv-source-note" key={at}>
+                            {line}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
+                    {hasMeta ? (
+                      <span className="pv-source-meta">
+                        {stream.seeders != null ? (
+                          <span className="pv-source-seeds">👤 {stream.seeders.toLocaleString()}</span>
+                        ) : null}
+                        {stream.size ? <span className="pv-source-size">💾 {stream.size}</span> : null}
+                        {stream.badges.map((badge) => (
+                          <span key={badge}>{badge}</span>
+                        ))}
+                        {stream.cached ? <span className="pv-source-cached">Cached</span> : null}
+                      </span>
+                    ) : null}
+                    {audio ? <span className="pv-source-audio">{audio}</span> : null}
+                    {stream.size ? (
+                      <span className="pv-source-size-badge">SIZE {stream.size}</span>
+                    ) : null}
                   </span>
-                  {showQuality ? <span className="pv-source-title-2">{stream.quality}</span> : null}
-                  {current ? <span className="pv-source-playing">Playing</span> : null}
-                  {body ? <span className="pv-source-note">{body}</span> : null}
-                  {hasMeta ? (
-                    <span className="pv-source-meta">
-                      {stream.seeders != null ? (
-                        <span className="pv-source-seeds">{stream.seeders.toLocaleString()}</span>
-                      ) : null}
-                      {stream.size ? <span className="pv-source-size">{stream.size}</span> : null}
-                      {stream.badges.map((badge) => (
-                        <span key={badge}>{badge}</span>
-                      ))}
-                      {stream.cached ? <span className="pv-source-cached">Cached</span> : null}
-                    </span>
-                  ) : null}
-                  {audio ? <span className="pv-source-audio">{audio}</span> : null}
+                  <span className="pv-source-brand" aria-hidden="true">
+                    {addonLogo ? (
+                      <img
+                        className="pv-source-brand-logo"
+                        src={addonLogo}
+                        alt=""
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span className="pv-source-brand-mark">
+                        {stream.addon.trim().charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="pv-source-brand-name">{stream.addon}</span>
+                  </span>
                 </span>
               </button>
             );
@@ -1377,6 +1419,13 @@ export function PlayerView() {
     () => [...new Set((sources ?? []).map((entry) => entry.addon))],
     [sources],
   );
+  const addonLogos = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const addon of addons) {
+      if (!(addon.name in map)) map[addon.name] = addon.logo ?? null;
+    }
+    return map;
+  }, [addons]);
   const visibleSources = useMemo(() => {
     if (!sources) return [];
     const rows = sourceFilter ? sources.filter((entry) => entry.addon === sourceFilter) : sources;
@@ -2865,6 +2914,7 @@ export function PlayerView() {
               sources={sources}
               visibleSources={visibleSources}
               addonNames={addonNames}
+              addonLogos={addonLogos}
               sourceBusy={sourceBusy}
               sourceFilter={sourceFilter}
               playingSource={playingSource}
