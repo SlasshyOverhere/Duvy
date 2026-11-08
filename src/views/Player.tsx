@@ -23,7 +23,7 @@ import type {
   Track,
   Video,
 } from "../lib/types";
-import { ContextMenu, Icon, Spinner, type IconName } from "../components/ui";
+import { ContextMenu, Icon, Spinner } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -1112,8 +1112,6 @@ export function PlayerView() {
   const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [locked, setLocked] = useState(false);
-  // Narrow player: the right-hand action row folds into one popup.
-  const [btnMenu, setBtnMenu] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
@@ -2256,7 +2254,6 @@ export function PlayerView() {
             setLocked(false);
             setChrome(true);
           } else if (surface) setSurface(null);
-          else if (btnMenu) setBtnMenu(false);
           else if (showNext) dismissNext();
           else if (fsNow.current) leaveFullscreen();
           // Escape never ends playback; leaving is the explicit Close.
@@ -2272,7 +2269,6 @@ export function PlayerView() {
   }, [
     bump,
     busy,
-    btnMenu,
     changeSpeed,
     changeVolume,
     cycleAudio,
@@ -2347,7 +2343,7 @@ export function PlayerView() {
     [playVideo],
   );
 
-  // Panel rows and transport actions, rebuilt only when their inputs move.
+  // Panel rows, rebuilt only when their inputs move.
   const shortcutRows = useMemo<Array<[string, string]>>(
     () => [
       ["Space / K", "Play and pause"],
@@ -2425,88 +2421,6 @@ export function PlayerView() {
     ],
     [activeSub?.label, activeSub?.lang, activeSub?.external, Boolean(activeSub), loadedSub],
   );
-
-  const actions = useMemo(() => {
-    const rows: Array<{
-      key: string;
-      icon: IconName;
-      label: string;
-      on: () => void;
-    }> = [];
-    rows.push({
-      key: "info",
-      icon: "info",
-      label: "Stream info",
-      on: () => toggleSurface("info"),
-    });
-    rows.push({
-      key: "speed",
-      icon: "speed",
-      label: `Speed ${local?.speed ?? 1}×`,
-      on: cycleSpeed,
-    });
-    rows.push({
-      key: "subs",
-      icon: "subtitle",
-      label: "Subtitles",
-      on: openSubs,
-    });
-    rows.push({
-      key: "audio",
-      icon: "audio",
-      label: "Audio",
-      on: () => toggleSurface("audio"),
-    });
-    if (details?.type === "series") {
-      rows.push({
-        key: "episodes",
-        icon: "episodes",
-        label: "Episodes",
-        on: openEpisodes,
-      });
-    }
-    if (chapters.length > 0) {
-      rows.push({
-        key: "chapters",
-        icon: "chapters",
-        label: "Chapters",
-        on: () => toggleSurface("chapters"),
-      });
-    }
-    rows.push({
-      key: "sources",
-      icon: "sources",
-      label: "Sources",
-      on: () => {
-        toggleSurface("sources");
-        void loadSources();
-      },
-    });
-    rows.push({
-      key: "mode",
-      icon: "aspect",
-      label: mode.label,
-      on: cycleVideoMode,
-    });
-    rows.push({
-      key: "more",
-      icon: "more",
-      label: "More actions",
-      on: () => toggleSurface("more"),
-    });
-    return rows;
-  }, [
-    chapters.length,
-    cycleSpeed,
-    cycleVideoMode,
-    details?.type,
-    loadSources,
-    local?.speed,
-    mode.label,
-    openEpisodes,
-    openSubs,
-    toggleSurface,
-  ]);
 
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
@@ -2606,7 +2520,6 @@ export function PlayerView() {
         const target = event.target as Element;
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
-        if (btnMenu) setBtnMenu(false);
         if (surface) return;
         if (!chrome) {
           bump();
@@ -2961,6 +2874,48 @@ export function PlayerView() {
           {surface === "more" ? (
             <Overlay label="Playback options" onClose={closeSurface}>
               <div className="pv-rail-list pv-rail-list--menu">
+                {details?.type === "series" ? (
+                  <button type="button" className="pv-rail-row" onClick={openEpisodes}>
+                    <span className="pv-rail-row-text">
+                      <span className="pv-rail-row-title">Episodes</span>
+                    </span>
+                  </button>
+                ) : null}
+                {chapters.length > 0 ? (
+                  <button
+                    type="button"
+                    className="pv-rail-row"
+                    onClick={() => setSurface("chapters")}
+                  >
+                    <span className="pv-rail-row-text">
+                      <span className="pv-rail-row-title">Chapters</span>
+                    </span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="pv-rail-row"
+                  onClick={() => {
+                    setSurface("sources");
+                    void loadSources();
+                  }}
+                >
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Sources</span>
+                  </span>
+                </button>
+                <button type="button" className="pv-rail-row" onClick={cycleSpeed}>
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Speed</span>
+                  </span>
+                  <span className="pv-rail-row-meta">{local.speed}×</span>
+                </button>
+                <button type="button" className="pv-rail-row" onClick={cycleVideoMode}>
+                  <span className="pv-rail-row-text">
+                    <span className="pv-rail-row-title">Picture</span>
+                  </span>
+                  <span className="pv-rail-row-meta">{mode.label}</span>
+                </button>
                 <button
                   type="button"
                   className="pv-rail-row"
@@ -3122,85 +3077,97 @@ export function PlayerView() {
           </div>
 
           <div className="pv-controls">
-            <button
-              type="button"
-              className="pv-cbtn"
-              aria-label={paused ? "Play" : "Pause"}
-              title={paused ? "Play" : "Pause"}
-              onClick={togglePause}
-            >
-              <Icon name={paused ? "play" : "pause"} size={26} />
-            </button>
-            <button
-              type="button"
-              className="pv-cbtn"
-              aria-label={silent ? "Unmute" : "Mute"}
-              title={silent ? "Unmute" : "Mute"}
-              onClick={toggleMute}
-            >
-              <Icon name={silent ? "mute" : "volume"} size={26} />
-            </button>
-            <div className="pv-vslider">
-              <input
-                type="range"
-                min={0}
-                max={MAX_VOLUME}
-                value={volLevel}
-                aria-label="Volume"
-                style={{
-                  backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
-                }}
-                onChange={(event) => setVolume(Number(event.target.value))}
-              />
+            <div className="pv-pill">
+              <button
+                type="button"
+                className="pv-cbtn"
+                aria-label={paused ? "Play" : "Pause"}
+                title={paused ? "Play" : "Pause"}
+                onClick={togglePause}
+              >
+                <Icon name={paused ? "play" : "pause"} size={26} />
+              </button>
+              <div className="pv-volwrap">
+                <button
+                  type="button"
+                  className="pv-cbtn"
+                  aria-label={silent ? "Unmute" : "Mute"}
+                  title={`Volume ${volLevel}%`}
+                  onClick={toggleMute}
+                >
+                  <Icon name={silent ? "mute" : "volume"} size={24} />
+                </button>
+                <div className="pv-volpop">
+                  <input
+                    type="range"
+                    min={0}
+                    max={MAX_VOLUME}
+                    value={volLevel}
+                    aria-label="Volume"
+                    style={{
+                      backgroundImage: `linear-gradient(to right, #fff ${volumeFill}%, rgba(255, 255, 255, 0.2) ${volumeFill}%)`,
+                    }}
+                    onChange={(event) => setVolume(Number(event.target.value))}
+                  />
+                </div>
+              </div>
+              {nextEpisode ? (
+                <button
+                  type="button"
+                  className="pv-cbtn"
+                  aria-label="Next episode"
+                  title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
+                  disabled={busy}
+                  onClick={() => void playVideo(nextEpisode)}
+                >
+                  <Icon name="next" size={24} />
+                </button>
+              ) : null}
             </div>
 
             <div className="pv-spacer" />
 
-            {nextEpisode ? (
+            <div className="pv-pill">
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "subs" ? " is-on" : ""}`}
+                aria-label="Subtitles"
+                title="Subtitles"
+                aria-expanded={surface === "subs" ? true : undefined}
+                onClick={openSubs}
+              >
+                <Icon name="subtitle" size={24} />
+              </button>
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "audio" ? " is-on" : ""}`}
+                aria-label="Audio track"
+                title="Audio track"
+                aria-expanded={surface === "audio" ? true : undefined}
+                onClick={() => toggleSurface("audio")}
+              >
+                <Icon name="audio" size={24} />
+              </button>
               <button
                 type="button"
                 className="pv-cbtn"
-                aria-label="Next episode"
-                title={`Next episode${nextEpisode.title ? ` · ${nextEpisode.title}` : ""}`}
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
+                aria-label={`Speed ${local.speed}×`}
+                title={`Speed ${local.speed}×`}
+                onClick={cycleSpeed}
               >
-                <Icon name="next" size={24} />
+                <Icon name="speed" size={24} />
               </button>
-            ) : null}
-
-            <div
-              className={`pv-cluster${btnMenu ? " is-open" : ""}`}
-              onClick={() => setBtnMenu(false)}
-            >
-              {actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  className={`pv-cbtn${surface === action.key ? " is-on" : ""}`}
-                  aria-label={action.label}
-                  title={action.label}
-                  aria-expanded={surface === action.key ? true : undefined}
-                  onClick={action.on}
-                >
-                  <Icon name={action.icon} size={24} />
-                </button>
-              ))}
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "more" ? " is-on" : ""}`}
+                aria-label="More actions"
+                title="More actions"
+                aria-expanded={surface === "more" ? true : undefined}
+                onClick={() => toggleSurface("more")}
+              >
+                <Icon name="more" size={24} />
+              </button>
             </div>
-
-            <button
-              type="button"
-              className="pv-cbtn pv-cbtn--fold"
-              aria-label="More actions"
-              title="More actions"
-              aria-expanded={btnMenu}
-              onClick={() => {
-                setBtnMenu((current) => !current);
-                bump();
-              }}
-            >
-              <Icon name="more" size={24} />
-            </button>
           </div>
         </footer>
       ) : null}
