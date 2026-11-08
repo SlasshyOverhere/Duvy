@@ -2667,21 +2667,21 @@ export function PlayerView() {
 
       {failed && surface === null ? (
         <section className="pv-failed" role="alert" aria-live="assertive">
-          <h2>This source did not play.</h2>
+          <h2>This source didn’t play.</h2>
           <p className="pv-failed-body">{failed}</p>
           <div className="pv-failed-actions">
             {session ? (
-              <button type="button" className="pv-text-action" onClick={retrySource}>
+              <button type="button" className="pv-failed-primary" onClick={retrySource}>
                 Choose another source
               </button>
             ) : (
-              <button type="button" className="pv-text-action" onClick={() => void stop()}>
+              <button type="button" className="pv-failed-primary" onClick={() => void stop()}>
                 Back to home
               </button>
             )}
             <button
               type="button"
-              className="pv-text-action pv-text-action--quiet"
+              className="pv-text-action pv-text-action--underline"
               onClick={() => void stop()}
             >
               Close player
