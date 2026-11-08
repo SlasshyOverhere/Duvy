@@ -459,18 +459,8 @@ select {
   width: max-content;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px;
-  border-radius: var(--pill);
-  /* The dock is chrome over artwork: real refraction, one blurred layer. The
-     fill is strong so every label clears its own surface over bright art. */
-  background: var(--glass-wash), var(--glass-fill-strong);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion),
-    var(--glass-shadow);
+  gap: 6px;
+  /* Bare bar: only the active item carries a surface. */
 }
 
 .dock-item {
@@ -478,14 +468,15 @@ select {
   z-index: 0;
   display: inline-flex;
   align-items: center;
-  height: 44px;
-  padding: 0 14px;
+  height: 52px;
+  padding: 0 22px;
   border: 0;
   border-radius: var(--pill);
   background: none;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 14.5px;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 15px;
   font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   transition: color 0.16s var(--ease);
 }
@@ -500,10 +491,11 @@ select {
   inset: 0;
   z-index: -1;
   border-radius: var(--pill);
-  background: var(--glass-wash), var(--glass-fill-hover);
+  background: rgba(255, 255, 255, 0.08);
   box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 0 0 1px var(--glass-edge-soft);
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+    0 0 18px rgba(255, 255, 255, 0.06);
   /* Transform-only: the pill used to be measured every frame while the bar
      resized, which is what made the labels feel like they dragged. */
   animation: dock-pill-in 0.16s var(--ease);
@@ -516,25 +508,20 @@ select {
   }
 }
 
-/* Names appear when the dock is reached, so the bar stays icon-sized. */
 .dock-label {
   display: inline-block;
-  max-width: 0;
-  margin-left: 0;
-  overflow: hidden;
-  opacity: 0;
+  margin-left: 8px;
   white-space: nowrap;
-  transition:
-    max-width 0.14s var(--ease),
-    margin-left 0.14s var(--ease),
-    opacity 0.1s linear;
 }
 
-.dock:hover .dock-label,
-.dock:focus-within .dock-label {
-  max-width: 90px;
-  margin-left: 8px;
-  opacity: 1;
+@media (max-width: 780px) {
+  .dock-label {
+    display: none;
+  }
+
+  .dock-item {
+    padding: 0 12px;
+  }
 }
 
 .topbar-left {
@@ -5496,7 +5483,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* No blur support: the same glass falls back to its strongest fill. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .dock,
   .drawer,
   .ctx,
   .toast,
