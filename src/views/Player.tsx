@@ -1874,7 +1874,7 @@ export function PlayerView() {
     hideTimer.current = window.setTimeout(() => {
       if (dragging.current || controlFocused()) return;
       setChrome(false);
-    }, 2600);
+    }, 2000);
   }, [controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
 
   useEffect(() => {
