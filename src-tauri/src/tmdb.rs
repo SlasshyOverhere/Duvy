@@ -59,6 +59,11 @@ fn preview_from_item(item: &Value) -> Option<MetaPreview> {
         .or_else(|| item.get("id").and_then(|v| v.as_str()))
         .filter(|s| s.starts_with("tt"))
         .map(|s| s.to_string());
+    // An IMDb id has a Cinemeta logo without another round trip; TMDB ids get
+    // theirs from the images endpoint once the item reaches the hero.
+    let logo = imdb
+        .as_ref()
+        .map(|id| format!("https://images.metahub.space/logo/medium/{id}/img"));
     let id = match (imdb, item.get("id").and_then(|v| v.as_i64())) {
         (Some(imdb), _) => imdb,
         (None, Some(numeric)) => format!("tmdb:{media_type}:{numeric}"),
@@ -88,7 +93,7 @@ fn preview_from_item(item: &Value) -> Option<MetaPreview> {
         poster,
         poster_shape: Some("poster".into()),
         background,
-        logo: None,
+        logo,
         description: item
             .get("overview")
             .and_then(|v| v.as_str())
@@ -197,6 +202,64 @@ fn catalog_url(path: &str) -> String {
         "{CINEMETA_CATALOG}/{}.json",
         path.strip_prefix('/').unwrap_or(path)
     )
+}
+
+/// Picks the clearest English logo from an images payload, falling back to the
+/// best rated one when TMDB has no English art.
+fn best_logo(value: &Value) -> Option<String> {
+    let logos = value.get("logos").and_then(Value::as_array)?;
+    let best = logos
+        .iter()
+        .filter_map(|logo| {
+            let path = logo.get("file_path").and_then(Value::as_str)?;
+            let english = logo.get("iso_639_1").and_then(Value::as_str) == Some("en");
+            let votes = logo.get("vote_average").and_then(Value::as_f64).unwrap_or(0.0);
+            Some(((english as u8, (votes * 1000.0) as i64), path))
+        })
+        .max_by_key(|(rank, _)| *rank)
+        .map(|(_, path)| path)?;
+    Some(format!("{IMG}/original{best}"))
+}
+
+async fn logo_for(
+    client: &reqwest::Client,
+    key: &str,
+    kind: &str,
+    tmdb_id: &str,
+) -> Option<String> {
+    let value = get(
+        client,
+        key,
+        &format!("/{kind}/{tmdb_id}/images"),
+        &[("include_image_language", "en,null")],
+    )
+    .await
+    .ok()?;
+    best_logo(&value)
+}
+
+/// TMDB list payloads carry no title art, so the row on screen asks for it.
+async fn attach_logos(client: &reqwest::Client, key: &str, items: &mut [MetaPreview]) {
+    let mut set = tokio::task::JoinSet::new();
+    for (slot, item) in items.iter().enumerate() {
+        let Some((kind, tmdb_id)) = item.id.strip_prefix("tmdb:").and_then(|r| r.split_once(':'))
+        else {
+            continue;
+        };
+        let (kind, tmdb_id) = (kind.to_string(), tmdb_id.to_string());
+        let (client, key) = (client.clone(), key.to_string());
+        set.spawn(async move {
+            (slot, logo_for(&client, &key, &kind, &tmdb_id).await)
+        });
+    }
+    while let Some(joined) = set.join_next().await {
+        let Ok((slot, Some(logo))) = joined else {
+            continue;
+        };
+        if let Some(item) = items.get_mut(slot) {
+            item.logo = Some(logo);
+        }
+    }
 }
 
 async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
@@ -353,9 +416,16 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
             slots[index] = Some(row);
         }
     }
-    let rows: Vec<HomeRow> = slots.into_iter().flatten().collect();
+    let mut rows: Vec<HomeRow> = slots.into_iter().flatten().collect();
     if rows.is_empty() {
         return Err("No discovery source answered. Try again in a moment.".into());
+    }
+    // Only the hero shows title art, so only the first row pays for the lookup.
+    // Cinemeta items already carry a logo and skip it.
+    if let Some(hero) = rows.first_mut()
+        && !key.is_empty()
+    {
+        attach_logos(client, key, &mut hero.items).await;
     }
     Ok(rows)
 }
@@ -492,7 +562,7 @@ pub async fn details(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let details = MetaDetails {
+    let mut details = MetaDetails {
         id: format!("tmdb:{media_type}:{tmdb_id}"),
         media_type: if kind == "tv" {
             "series".into()
@@ -532,6 +602,9 @@ pub async fn details(
         tmdb_id: tmdb_id.parse().ok(),
         source: "tmdb".into(),
     };
+    if details.logo.is_none() {
+        details.logo = logo_for(client, key, kind, tmdb_id).await;
+    }
     Ok(details)
 }
 
@@ -573,6 +646,32 @@ mod catalog_tests {
         assert_eq!(
             catalog_url("movie/top/genre=Action"),
             format!("{base}/movie/top/genre=Action.json")
+        );
+    }
+
+    #[test]
+    fn best_logo_prefers_english_then_votes() {
+        let payload = serde_json::json!({
+            "logos": [
+                { "file_path": "/de.png", "iso_639_1": "de", "vote_average": 9.0 },
+                { "file_path": "/en-low.png", "iso_639_1": "en", "vote_average": 1.0 },
+                { "file_path": "/en-high.png", "iso_639_1": "en", "vote_average": 7.0 }
+            ]
+        });
+        assert_eq!(
+            best_logo(&payload).as_deref(),
+            Some("https://image.tmdb.org/t/p/original/en-high.png")
+        );
+        assert_eq!(best_logo(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn imdb_rows_get_a_logo_without_a_request() {
+        let item = serde_json::json!({ "id": "tt37287335", "title": "Obsession" });
+        let preview = preview_from_item(&item).expect("preview");
+        assert_eq!(
+            preview.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt37287335/img")
         );
     }
 }
