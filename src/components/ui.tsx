@@ -399,7 +399,7 @@ export function ContextMenu({
 }: {
   x: number;
   y: number;
-  title: string;
+  title?: string;
   actions: ContextAction[];
   onClose: () => void;
 }) {
@@ -455,7 +455,7 @@ export function ContextMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label={title}
+      aria-label={title || "Menu"}
       className="ctx"
       tabIndex={-1}
       style={{ left: at.left, top: at.top }}
@@ -483,9 +483,11 @@ export function ContextMenu({
         items[next]?.focus();
       }}
     >
-      <div className="ctx-head">
-        <p className="ctx-title">{title}</p>
-      </div>
+      {title ? (
+        <div className="ctx-head">
+          <p className="ctx-title">{title}</p>
+        </div>
+      ) : null}
       {actions.map((action) => (
         <button
           key={action.label}
