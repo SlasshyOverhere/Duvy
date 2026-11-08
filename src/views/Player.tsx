@@ -705,27 +705,35 @@ const SourcesPanel = memo(function SourcesPanel({
             const label = stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
             const body = detail.startsWith(label) ? detail.slice(label.length).trim() : detail;
             const showQuality =
-              stream.quality !== "Auto" && !label.toLowerCase().includes(stream.quality.toLowerCase());
-            const audio = stream.languages.length
-              ? stream.languages.includes("Multi")
-                ? "Multi audio"
-                : stream.languages.slice(0, 3).join(", ")
-              : null;
-            const hasMeta = Boolean(
-              stream.size || stream.seeders != null || stream.badges.length || stream.cached,
-            );
-            const lines = body
+              stream.quality !== "Auto" &&
+              !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
+              !(
+                /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
+                /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+              );
+            const bodyLines = body
               ? body
                   .split("\n")
                   .map((line) => line.replace(/\s+/g, " ").trim())
                   .filter(Boolean)
               : [];
-            const shownLines = lines.filter((line) => {
+            const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
+            const audio = detailHasAudio
+              ? null
+              : stream.languages.length
+                ? stream.languages.includes("Multi")
+                  ? "Multi audio"
+                  : stream.languages.slice(0, 3).join(", ")
+                : null;
+            const hasMeta = Boolean(
+              stream.size || stream.seeders != null || stream.badges.length || stream.cached,
+            );
+            const shownLines = bodyLines.filter((line) => {
               const upper = line.toUpperCase();
               const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
               return !looksMeta;
             });
-            const shown = shownLines.length ? shownLines : lines;
+            const shown = shownLines.length ? shownLines : bodyLines;
             const addonLogo = addonLogos[stream.addon] ?? null;
             return (
               <button
@@ -763,9 +771,6 @@ const SourcesPanel = memo(function SourcesPanel({
                       </span>
                     ) : null}
                     {audio ? <span className="pv-source-audio">{audio}</span> : null}
-                    {stream.size ? (
-                      <span className="pv-source-size-badge">SIZE {stream.size}</span>
-                    ) : null}
                   </span>
                   <span className="pv-source-brand" aria-hidden="true">
                     {addonLogo ? (

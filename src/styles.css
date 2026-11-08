@@ -2812,7 +2812,7 @@ button.pill:hover {
 .stream-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
-  align-items: center;
+  align-items: start;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.055);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -2932,19 +2932,6 @@ button.pill:hover {
   overflow-wrap: anywhere;
 }
 
-.stream-size-badge {
-  align-self: flex-start;
-  margin-top: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.09);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
-
 .stream-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2975,8 +2962,15 @@ button.pill:hover {
 .stream-more {
   width: 30px;
   height: 30px;
-  margin-right: 3px;
+  margin: 10px 3px 0 0;
   color: var(--faint);
+  opacity: 0;
+  transition: opacity 0.14s var(--ease);
+}
+
+.stream-card:hover .stream-more,
+.stream-more:focus-visible {
+  opacity: 1;
 }
 
 .drawer-foot {

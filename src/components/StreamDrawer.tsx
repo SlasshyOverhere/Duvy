@@ -427,32 +427,39 @@ export function StreamDrawer({
                       : detail;
                     const showQuality =
                       stream.quality !== "Auto" &&
-                      !label.toLowerCase().includes(stream.quality.toLowerCase());
-                    const audio = stream.languages.length
-                      ? stream.languages.includes("Multi")
-                        ? "Multi audio"
-                        : stream.languages.slice(0, 3).join(", ")
-                      : null;
+                      !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
+                      !(
+                        /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
+                        /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+                      );
+                    const bodyLines = body
+                      ? body
+                          .split("\n")
+                          .map((line) => line.replace(/\s+/g, " ").trim())
+                          .filter(Boolean)
+                      : [];
+                    const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
+                    const audio = detailHasAudio
+                      ? null
+                      : stream.languages.length
+                        ? stream.languages.includes("Multi")
+                          ? "Multi audio"
+                          : stream.languages.slice(0, 3).join(", ")
+                        : null;
                     const hasMeta = Boolean(
                       stream.size ||
                         stream.seeders != null ||
                         stream.badges.length ||
                         stream.cached,
                     );
-                    const lines = body
-                      ? body
-                          .split("\n")
-                          .map((line) => line.replace(/\s+/g, " ").trim())
-                          .filter(Boolean)
-                      : [];
                     // A run of seeds/size tokens in the addon's own line is the
                     // meta row in text form; keep the parsed row instead.
-                    const shownLines = lines.filter((line) => {
+                    const shownLines = bodyLines.filter((line) => {
                       const upper = line.toUpperCase();
                       const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
                       return !looksMeta;
                     });
-                    const shown = shownLines.length ? shownLines : lines;
+                    const shown = shownLines.length ? shownLines : bodyLines;
                     const addonLogo = targets.find((target) => target.key === group.key)?.logo ?? null;
                     return (
                       <li key={`${group.key}-${index}`}>
@@ -497,9 +504,6 @@ export function StreamDrawer({
                                   </span>
                                 ) : null}
                                 {audio ? <span className="stream-audio">{audio}</span> : null}
-                                {stream.size ? (
-                                  <span className="stream-size-badge">SIZE {stream.size}</span>
-                                ) : null}
                               </span>
                               <span className="stream-brand" aria-hidden="true">
                                 {addonLogo ? (

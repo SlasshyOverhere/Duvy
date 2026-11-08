@@ -877,19 +877,6 @@
   overflow-wrap: anywhere;
 }
 
-.pv .pv-source-size-badge {
-  align-self: flex-start;
-  margin-top: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.09);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
-
 .pv .pv-source-meta {
   display: flex;
   flex-wrap: wrap;
