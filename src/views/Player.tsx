@@ -1145,9 +1145,12 @@ export function PlayerView() {
   const [markMsg, setMarkMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const hideTimer = useRef<number | null>(null);
   const dragging = useRef(false);
   const bumpAt = useRef(0);
+  // Last pointer or keyboard activity, and the last keyboard use: the chrome
+  // follows both, but only a keyboard hold outlives a mouse-driven focus.
+  const actAt = useRef(Date.now());
+  const keyAt = useRef(0);
   // When the seek bar was last moved, so a lost echo cannot hold the thumb.
   const scrubAt = useRef(0);
   const scrubTimer = useRef<number | null>(null);
@@ -1865,42 +1868,53 @@ export function PlayerView() {
     const now = Date.now();
     if (now - bumpAt.current < 150) return;
     bumpAt.current = now;
+    actAt.current = now;
     if (locked) return;
     setChrome(true);
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    // Keep the close controls on screen while a source is opening or has failed.
-    if (loading || failed || paused || local?.ended || surface || showNext) return;
-    if (dragging.current || controlFocused()) return;
-    hideTimer.current = window.setTimeout(() => {
-      if (dragging.current || controlFocused()) return;
-      setChrome(false);
-    }, 2000);
-  }, [controlFocused, loading, failed, paused, local?.ended, surface, showNext, locked]);
+  }, [locked]);
 
+  // Keep the close controls on screen while a source is opening or has failed.
+  const holdChrome =
+    Boolean(loading || failed || paused || local?.ended || surface || showNext);
+
+  // Poll the idle gap instead of arming one timer: a cleared or starved timer
+  // used to strand the chrome on screen for the rest of the session.
   useEffect(() => {
-    bump();
-    return () => {
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    if (holdChrome || locked) return;
+    actAt.current = Date.now();
+    const onKey = () => {
+      keyAt.current = Date.now();
     };
-  }, [bump]);
+    window.addEventListener("keydown", onKey, true);
+    const tick = window.setInterval(() => {
+      if (Date.now() - actAt.current < 2000) return;
+      if (dragging.current) return;
+      // A keyboard-driven focus keeps the chrome; a mouse-clicked slider does
+      // not, or it would hold the controls forever.
+      if (controlFocused() && keyAt.current > actAt.current) return;
+      setChrome(false);
+    }, 200);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.clearInterval(tick);
+    };
+  }, [holdChrome, locked, controlFocused]);
 
   // A panel belongs to the chrome; when the chrome leaves, so does the panel.
   useEffect(() => {
     if (!chrome) setSurface(null);
   }, [chrome]);
 
-  // An open panel holds the chrome on screen, even if the idle timer was
-  // already running when it opened.
+  // An open panel holds the chrome on screen while it is open.
   useEffect(() => {
     if (!surface) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    actAt.current = Date.now();
     setChrome(true);
   }, [surface]);
 
   // Locking hides every control; a panel cannot stay open over the lock.
   useEffect(() => {
     if (!locked) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
     setChrome(false);
     setSurface(null);
   }, [locked]);
@@ -1909,7 +1923,7 @@ export function PlayerView() {
   // card has the timeline it belongs above.
   useEffect(() => {
     if (!showNext) return;
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    actAt.current = Date.now();
     setChrome(true);
   }, [showNext]);
 
@@ -2142,6 +2156,7 @@ export function PlayerView() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      keyAt.current = Date.now();
       if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -2582,7 +2597,9 @@ export function PlayerView() {
         setCtxMenu({ x: event.clientX, y: event.clientY });
       }}
       onFocusCapture={() => {
-        if (!locked) setChrome(true);
+        if (locked) return;
+        actAt.current = Date.now();
+        setChrome(true);
       }}
       onClick={(event) => {
         if (locked) return;
