@@ -3,18 +3,19 @@
 //! The plugin owns the release feed and signature check; this module decides
 //! when to look, what to tell the user, and when to stay quiet.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-use crate::AppState;
+use crate::db;
 use crate::settings::Settings;
+use crate::AppState;
 
 /// A release newer than the running build.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     pub version: String,
@@ -34,9 +35,6 @@ struct Progress {
 /// How often a running app looks again after a successful check.
 const RECHECK: Duration = Duration::from_secs(60 * 60);
 
-/// Startup traffic settles fast; the launch check must not wait out a timer.
-const WARMUP: Duration = Duration::from_secs(2);
-
 /// A check must answer (or fail) instead of hanging on a stalled host.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -46,8 +44,8 @@ const RETRIES: [u64; 3] = [60, 300, 900];
 /// The release the last check found, so install starts downloading at once.
 static CHECKED: Mutex<Option<Update>> = Mutex::new(None);
 
-/// The package the announcement already fetched, so "Update now" only installs.
-static PACKAGE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// The last answer, kept in the DB so the next launch can announce it at once.
+const CACHE_KEY: &str = "update.cache";
 
 /// One download or install at a time: a second caller waits instead of racing.
 static WORK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -96,6 +94,25 @@ fn info(update: &Update) -> UpdateInfo {
     }
 }
 
+fn stored(app: &AppHandle) -> Option<UpdateInfo> {
+    let state = app.try_state::<AppState>()?;
+    let value = db::read_kv(&state.db.conn(), CACHE_KEY).ok().flatten()?;
+    serde_json::from_value(value).ok()
+}
+
+fn store(app: &AppHandle, found: Option<&UpdateInfo>) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let conn = state.db.conn();
+    let _ = match found {
+        Some(info) => serde_json::to_value(info)
+            .map_err(|e| e.to_string())
+            .and_then(|value| db::write_kv(&conn, CACHE_KEY, &value).map_err(|e| e.to_string())),
+        None => db::delete_kv(&conn, CACHE_KEY).map_err(|e| e.to_string()),
+    };
+}
+
 fn settings(app: &AppHandle) -> Settings {
     let Some(state) = app.try_state::<AppState>() else {
         return Settings::default();
@@ -109,7 +126,25 @@ fn settings(app: &AppHandle) -> Settings {
 pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
     let found = fetch(&app).await?;
     remember(found.as_ref());
-    Ok(found.as_ref().map(info))
+    let answer = found.as_ref().map(info);
+    store(&app, answer.as_ref());
+    Ok(answer)
+}
+
+/// The release a previous launch already found, for an instant announcement.
+#[tauri::command]
+pub fn update_cached(app: AppHandle) -> Option<UpdateInfo> {
+    let current = settings(&app);
+    if !current.auto_update_check {
+        return None;
+    }
+    let known = stored(&app)?;
+    if known.version == app.package_info().version.to_string()
+        || known.version == current.ignored_update_version
+    {
+        return None;
+    }
+    Some(known)
 }
 
 /// Download the package, reporting progress, and verify its signature.
@@ -135,27 +170,6 @@ async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Fetch the package while the announcement is on screen, so the button does
-/// not start a 6 MB transfer the moment it is pressed.
-#[tauri::command]
-pub async fn update_prefetch(app: AppHandle) -> Result<(), String> {
-    if PACKAGE.lock().is_ok_and(|slot| slot.is_some()) {
-        return Ok(());
-    }
-    let _busy = WORK.lock().await;
-    if PACKAGE.lock().is_ok_and(|slot| slot.is_some()) {
-        return Ok(());
-    }
-    let update = match cached() {
-        Some(update) => update,
-        None => fetch(&app).await?.ok_or("Duvy is already up to date.")?,
-    };
-    let bytes = download(&app, &update).await?;
-    let mut slot = PACKAGE.lock().map_err(|_| "Update state is unavailable.")?;
-    *slot = Some(bytes);
-    Ok(())
-}
-
 /// Download and install the newest release. On Windows the installer takes
 /// over and the process exits, so this only returns when something failed.
 #[tauri::command]
@@ -167,11 +181,7 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
         Some(update) => update,
         None => fetch(&app).await?.ok_or("Duvy is already up to date.")?,
     };
-    // The prefetch usually beat the click; a missing package just downloads.
-    let bytes = match PACKAGE.lock().ok().and_then(|mut slot| slot.take()) {
-        Some(bytes) => bytes,
-        None => download(&app, &update).await?,
-    };
+    let bytes = download(&app, &update).await?;
     update.install(bytes).map_err(|e| e.to_string())
 }
 
@@ -182,8 +192,6 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
 /// reports it.
 pub fn watch(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        // Let startup traffic settle before the first request.
-        tokio::time::sleep(WARMUP).await;
         let mut failures = 0u32;
         loop {
             let current = settings(&app);
