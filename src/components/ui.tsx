@@ -41,7 +41,7 @@ export type IconName =
   | "compress"
   | "replay10"
   | "speed"
-  | "audio"
+  | "languages"
   | "aspect"
   | "more"
   | "next"
@@ -83,10 +83,14 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M18.6 5.4v13.2" />
     </>
   ),
-  audio: (
+  languages: (
     <>
-      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-6.6L7 19.7V16H6a2 2 0 0 1-2-2z" />
-      <path d="M9.2 8.4v4M12 7.2v6.4M14.8 8.4v4" />
+      <path d="m5 8 6 6" />
+      <path d="m4 14 6-6-2-3" />
+      <path d="M2 5h12" />
+      <path d="M7 2h1" />
+      <path d="m22 22-5-10-5 10" />
+      <path d="M14 18h6" />
     </>
   ),
   aspect: (

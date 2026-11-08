@@ -3146,7 +3146,7 @@ export function PlayerView() {
                 aria-expanded={surface === "audio" ? true : undefined}
                 onClick={() => toggleSurface("audio")}
               >
-                <Icon name="audio" size={24} />
+                <Icon name="languages" size={24} />
               </button>
               <button
                 type="button"
