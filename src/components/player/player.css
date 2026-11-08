@@ -10,7 +10,6 @@
      thin white edge, tight top lip. The art shows through blurred, not sharp. */
   --pv-panel: rgba(18, 20, 24, 0.62);
   --pv-panel-2: rgba(18, 20, 24, 0.72);
-  --pv-filter: blur(22px) saturate(1.1);
   --pv-glass-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 1px 2px rgba(0, 0, 0, 0.12);
@@ -112,8 +111,6 @@
   padding: 16px 18px 18px;
   border-radius: 12px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
 }
 
@@ -608,8 +605,6 @@
   padding: 20px 18px 14px;
   border-radius: 18px 0 0 18px;
   background: rgba(20, 20, 22, 0.92);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -1131,8 +1126,6 @@
   border: 0;
   border-radius: 50%;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   color: #fff;
 }
@@ -1555,8 +1548,6 @@
   padding: 6px;
   border-radius: 8px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   pointer-events: none;
 }
@@ -1618,8 +1609,6 @@
   padding: 4px;
   border-radius: 999px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
 }
 
@@ -1677,8 +1666,6 @@
   padding: 0 1.4rem;
   border-radius: 999px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   color: #fff;
   font-size: 0.95rem;
@@ -1705,8 +1692,6 @@
   padding: 1.6rem 2rem;
   border-radius: 10px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   color: #fff;
   pointer-events: none;
@@ -1797,8 +1782,6 @@
   padding: 0;
   border-radius: 10px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   display: flex;
   flex-direction: row;
@@ -1931,8 +1914,6 @@
   border: 0;
   border-radius: 8px;
   background: var(--pv-wash), var(--pv-panel);
-  -webkit-backdrop-filter: var(--pv-filter);
-  backdrop-filter: var(--pv-filter);
   box-shadow: var(--pv-glass-shadow);
   color: #fff;
   font-size: 0.9rem;
