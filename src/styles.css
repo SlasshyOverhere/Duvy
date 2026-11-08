@@ -2606,6 +2606,7 @@ button.pill:hover {
    mouse has no sideways wheel, and an arrow shows up on any edge that still
    hides chips so the drag is discoverable. */
 .drawer-filters {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-wrap: nowrap;

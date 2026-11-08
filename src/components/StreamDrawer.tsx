@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { byFileSize, errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
@@ -51,6 +51,7 @@ export function StreamDrawer({
 }) {
   const { addons: installed, notify, settings } = useApp();
   const [groups, setGroups] = useState<Group[]>([]);
+  const [filter, setFilter] = useState<string>("all");
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -59,6 +60,61 @@ export function StreamDrawer({
   } | null>(null);
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  // Which edges still hide chips, so the row can say so and offer a step arrow.
+  const measure = useCallback(() => {
+    const node = filtersRef.current;
+    if (!node) return;
+    const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
+    const next = { left: node.scrollLeft > 1, right: rest > 1 };
+    setEdges((current) =>
+      current.left === next.left && current.right === next.right ? current : next,
+    );
+  }, []);
+
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure, open, groups]);
+
+  // The filter row is wider than the panel and a mouse has no sideways wheel,
+  // so the row itself is draggable.
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (!node) return;
+    drag.current = { down: true, moved: false, x: event.clientX, left: node.scrollLeft };
+  };
+
+  const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (!node || !drag.current.down) return;
+    if (event.buttons === 0) {
+      drag.current.down = false;
+      return;
+    }
+    const dx = event.clientX - drag.current.x;
+    // A click drifts a few pixels; only a real drag may pan the row.
+    if (!drag.current.moved && Math.abs(dx) < 8) return;
+    drag.current.moved = true;
+    node.scrollLeft = drag.current.left - dx;
+  };
+
+  const endDrag = () => {
+    drag.current.down = false;
+  };
+
+  const chooseFilter = (next: string) => {
+    if (drag.current.moved) {
+      drag.current.moved = false;
+      return;
+    }
+    // No All chip: tapping the active addon clears back to every addon.
+    setFilter(next === filter ? "all" : next);
+  };
 
   const copyLink = (url: string) => {
     copyText(url)
@@ -117,6 +173,9 @@ export function StreamDrawer({
   useEffect(() => {
     if (!open || !request) return;
     runId.current += 1;
+    // Always open on every addon: a remembered filter hid the answers that
+    // had already arrived and left the panel looking empty.
+    setFilter("all");
     setMenu(null);
     setGroups(
       targets.map((target) => ({
@@ -140,6 +199,13 @@ export function StreamDrawer({
     request?.imdbId,
     signature,
   ]);
+
+  // A filter that can no longer show anything must not leave an empty panel.
+  useEffect(() => {
+    if (!open || filter === "all") return;
+    const group = groups.find((item) => item.key === filter);
+    if (!group || (group.state !== "loading" && !group.streams.length)) setFilter("all");
+  }, [open, filter, groups]);
 
   // Focus moves into the drawer on open and back to the opener on close, and
   // Tab stays inside it: it is a modal surface, so the page behind is off limits.
@@ -206,7 +272,7 @@ export function StreamDrawer({
   // largest source in the panel is the first row.
   const biggest = (group: Group) =>
     group.streams.reduce((max, stream) => Math.max(max, stream.sizeBytes ?? -1), -1);
-  const visible = groups
+  const visible = (filter === "all" ? groups : groups.filter((group) => group.key === filter))
     .map((group) =>
       sortBySize ? { ...group, streams: group.streams.slice().sort(byFileSize) } : group,
     )
@@ -240,6 +306,33 @@ export function StreamDrawer({
           >
             <Icon name="refresh" size={16} />
           </button>
+          <div
+            className={`drawer-filters${edges.left ? " can-left" : ""}${edges.right ? " can-right" : ""}`}
+            ref={filtersRef}
+            onPointerDown={startDrag}
+            onPointerMove={moveDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onScroll={measure}
+            title="Drag sideways for more addons"
+          >
+            {groups
+              .filter((group) => group.streams.length > 0 || group.state === "loading")
+              .map((group) => (
+                <button
+                  key={group.key}
+                  type="button"
+                  className={`chip${filter === group.key ? " is-active" : ""}`}
+                  aria-pressed={filter === group.key}
+                  onClick={() => chooseFilter(group.key)}
+                  title={
+                    filter === group.key ? "Show every addon" : `Only ${group.addon}`
+                  }
+                >
+                  {group.addon}
+                </button>
+              ))}
+          </div>
           <button
             type="button"
             className="drawer-close"
@@ -316,7 +409,7 @@ export function StreamDrawer({
                 </p>
               ) : null}
 
-              {group.streams.length ? (
+              {filter === "all" && group.streams.length ? (
                 <h3 className="stream-group-title">{group.addon}</h3>
               ) : null}
 
