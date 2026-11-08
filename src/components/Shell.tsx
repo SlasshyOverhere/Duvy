@@ -87,7 +87,6 @@ export function TopBar() {
               {active ? (
                 <span className="dock-pill" aria-hidden="true" />
               ) : null}
-              <Icon name={item.icon} size={19} />
               <span className="dock-label">{item.label}</span>
             </button>
           );

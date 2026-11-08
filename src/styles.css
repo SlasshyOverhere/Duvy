@@ -515,12 +515,14 @@ select {
 }
 
 @media (max-width: 780px) {
-  .dock-label {
-    display: none;
+  .dock-item {
+    height: 44px;
+    padding: 0 10px;
+    font-size: 13.5px;
   }
 
-  .dock-item {
-    padding: 0 12px;
+  .dock-label {
+    margin-left: 0;
   }
 }
 
