@@ -53,12 +53,19 @@ $tag = $env:TAG
 $repo = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
 $prev = git tag --list 'v*' --sort=-v:refname |
   Where-Object { $_ -ne $tag } | Select-Object -First 1
+# A dispatch runs before its tag exists; the checked-out commit is the target.
+$target = if (git rev-parse --verify --quiet "refs/tags/$tag" 2>$null) {
+  $tag
+} else {
+  (git rev-parse HEAD)  # the API cannot resolve "HEAD"
+}
+$global:LASTEXITCODE = 0
 if ($prev) {
   $request = @{ tag_name = $tag; previous_tag_name = $prev }
-  $compare = "$repo/compare/$prev...$tag"
+  $compare = "$repo/compare/$prev...$target"
 } else {
   $request = @{ tag_name = $tag }
-  $compare = "$repo/commits/$tag"
+  $compare = "$repo/commits/$target"
 }
 
 $raw = $request | ConvertTo-Json |
@@ -85,16 +92,17 @@ foreach ($line in $generated -split "`n") {
 # describe pulls, so these would go unmentioned.
 $commits = @()
 $commitPath = if ($prev) {
-  "repos/$env:GITHUB_REPOSITORY/compare/$($prev)...$($tag)"
+  "repos/$env:GITHUB_REPOSITORY/compare/$($prev)...$target"
 } else {
-  "repos/$env:GITHUB_REPOSITORY/commits?sha=$($tag)&per_page=100"
+  "repos/$env:GITHUB_REPOSITORY/commits?sha=$target&per_page=100"
 }
 # A compare answer nests its commits, a plain listing does not.
-$rows = gh api $commitPath --jq '(if type == "object" then .commits else . end) | .[] | [.sha, (.commit.message | split("\n")[0]), (.author.login // "")] | @tsv' 2>$null
+# --paginate: a large range spans pages, and gh would silently drop the rest.
+$rows = gh api --paginate $commitPath --jq '(if type == "object" then .commits else . end) | .[] | [.sha, (.commit.message | split("\n")[0]), (.author.login // "")] | @tsv' 2>$null
 if ($LASTEXITCODE -eq 0 -and $rows) {
   # Only the mainline: a PR's own commits are already summarised by its bullet,
   # and mainline merges carry no new information.
-  $range = if ($prev) { "$prev..$tag" } else { $tag }
+  $range = if ($prev) { "$prev..$target" } else { $target }
   $mainline = @(git rev-list --first-parent $range)
   $titles = @($bullets | ForEach-Object {
     if ($_ -match '^\* (.+?) by @') { $matches[1].ToLowerInvariant() }
@@ -120,7 +128,7 @@ $bullets = @($bullets | ForEach-Object {
   $out = @($_)
   if ($_ -match '/pull/(\d+)') {
     $number = $matches[1]
-    $prRows = gh api "repos/$env:GITHUB_REPOSITORY/pulls/$number/commits?per_page=100" --jq '.[] | [.sha, (.commit.message | split("\n")[0])] | @tsv' 2>$null
+    $prRows = gh api --paginate "repos/$env:GITHUB_REPOSITORY/pulls/$number/commits?per_page=100" --jq '.[] | [.sha, (.commit.message | split("\n")[0])] | @tsv' 2>$null
     if ($LASTEXITCODE -eq 0 -and $prRows) {
       $items = @(foreach ($row in @($prRows)) {
         $sha, $subject = $row -split "`t", 2

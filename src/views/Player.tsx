@@ -978,10 +978,11 @@ export function PlayerView() {
 
   const dragging = useRef(false);
   const bumpAt = useRef(0);
-  // Last pointer or keyboard activity, and the last keyboard use: the chrome
-  // follows both, but only a keyboard hold outlives a mouse-driven focus.
+  // Last pointer activity. The chrome follows it; keyboard focus is checked
+  // separately, because focus lands after the key that caused it.
   const actAt = useRef(Date.now());
-  const keyAt = useRef(0);
+  // The pointer sits on the timeline, so the preview is worth keeping.
+  const overTrack = useRef(false);
   // When the seek bar was last moved, so a lost echo cannot hold the thumb.
   const scrubAt = useRef(0);
   const scrubTimer = useRef<number | null>(null);
@@ -1720,20 +1721,15 @@ export function PlayerView() {
   useEffect(() => {
     if (holdChrome || locked || !chrome) return;
     actAt.current = Date.now();
-    const onKey = () => {
-      keyAt.current = Date.now();
-    };
-    window.addEventListener("keydown", onKey, true);
     const tick = window.setInterval(() => {
       if (Date.now() - actAt.current < 500) return;
-      if (dragging.current) return;
-      // A keyboard-driven focus keeps the chrome; a mouse-clicked slider does
-      // not, or it would hold the controls forever.
-      if (controlFocused() && keyAt.current > actAt.current) return;
+      if (dragging.current || overTrack.current) return;
+      // :focus-visible is the keyboard signal; a mouse-clicked slider does not
+      // match it, or it would hold the controls forever.
+      if (controlFocused()) return;
       setChrome(false);
     }, 100);
     return () => {
-      window.removeEventListener("keydown", onKey, true);
       window.clearInterval(tick);
     };
   }, [holdChrome, locked, chrome, controlFocused]);
@@ -1994,7 +1990,6 @@ export function PlayerView() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      keyAt.current = Date.now();
       if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -2886,7 +2881,15 @@ export function PlayerView() {
       ) : null}
 
       {!locked && !failed ? (
-        <footer className="pv-timeline">
+        <footer
+          className="pv-timeline"
+          onPointerEnter={() => {
+            overTrack.current = true;
+          }}
+          onPointerLeave={() => {
+            overTrack.current = false;
+          }}
+        >
           <div className="pv-seek">
             <span className="pv-seek-time">{formatTime(shownPosition)}</span>
 
