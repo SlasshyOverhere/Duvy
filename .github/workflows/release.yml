@@ -153,11 +153,26 @@ jobs:
           }
           $global:LASTEXITCODE = 0
 
+          # The ten newest stay open; the rest folds away so the notes open short.
+          $fold = {
+            param($heading, $items)
+            $out = @($heading) + @($items | Select-Object -First 10)
+            if ($items.Count -gt 10) {
+              $out += @('', "<details><summary>$($items.Count - 10) more</summary>", '')
+              $out += @($items | Select-Object -Skip 10)
+              $out += @('', '</details>')
+            }
+            $out
+          }
+
           $sections = @()
-          if ($bullets.Count) { $sections += @('### Pull requests') + $bullets }
+          if ($bullets.Count) {
+            if ($sections.Count) { $sections += '' }
+            $sections += & $fold '### Pull requests' $bullets
+          }
           if ($commits.Count) {
             if ($sections.Count) { $sections += '' }
-            $sections += @('### Direct commits') + $commits
+            $sections += & $fold '### Direct commits' $commits
           }
           $body = (@($sections) + @('', "**Full changelog:** $compare")) -join "`n"
           "body<<EOF" >> $env:GITHUB_OUTPUT
