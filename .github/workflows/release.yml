@@ -80,9 +80,8 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "Releasing $version"
 
-      # The notes are the PRs and nothing else: GitHub resolves a squash or a
-      # rebase to its pull request, so only the bullets of its generated body
-      # are kept and the changelog is written once, by us.
+      # Pulls get GitHub's own bullets, and every commit in the range is listed
+      # under them: a push that never became a PR still shows up in the notes.
       - name: Write release notes
         id: notes
         shell: pwsh
@@ -121,7 +120,46 @@ jobs:
             }
           }
 
-          $body = (@($bullets) + @('', "**Full changelog:** $compare")) -join "`n"
+          # Commits that reached main without a PR: the generated notes above
+          # only ever describe pulls, so these would go unmentioned.
+          $commits = @()
+          $commitPath = if ($prev) {
+            "repos/$env:GITHUB_REPOSITORY/compare/$($prev)...$($env:TAG)"
+          } else {
+            "repos/$env:GITHUB_REPOSITORY/commits?sha=$($env:TAG)&per_page=100"
+          }
+          # A compare answer nests its commits, a plain listing does not.
+          $rows = gh api $commitPath --jq '(if type == "object" then .commits else . end) | .[] | [.sha, (.commit.message | split("\n")[0]), (.author.login // "")] | @tsv' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $rows) {
+            # Only the mainline: a PR's own commits are already summarised by
+            # its bullet, and mainline merges carry no new information.
+            $range = if ($prev) { "$prev..$($env:TAG)" } else { $env:TAG }
+            $mainline = @(git rev-list --first-parent $range)
+            $titles = @($bullets | ForEach-Object {
+              if ($_ -match '^\* (.+?) by @') { $matches[1].ToLowerInvariant() }
+            })
+            foreach ($row in @($rows)) {
+              $sha, $subject, $login = $row -split "`t", 3
+              if (-not $subject -or -not $mainline.Contains($sha)) { continue }
+              # A merge commit only restates the PR already listed above.
+              if ($subject -like 'Merge *') { continue }
+              # Squash and rebase merges restate the PR; the bullet has it.
+              if ($titles -contains ($subject -replace '\s*\(#\d+\)$', '').ToLowerInvariant()) { continue }
+              $link = "[$($sha.Substring(0, 7))]($repo/commit/$sha)"
+              $commits += if ($login) { "* $subject by @$login in $link" } else { "* $subject in $link" }
+            }
+            # Newest first, as the PR bullets are.
+            [array]::Reverse($commits)
+          }
+          $global:LASTEXITCODE = 0
+
+          $sections = @()
+          if ($bullets.Count) { $sections += @('### Pull requests') + $bullets }
+          if ($commits.Count) {
+            if ($sections.Count) { $sections += '' }
+            $sections += @('### Direct commits') + $commits
+          }
+          $body = (@($sections) + @('', "**Full changelog:** $compare")) -join "`n"
           "body<<EOF" >> $env:GITHUB_OUTPUT
           $body.Trim() >> $env:GITHUB_OUTPUT
           "EOF" >> $env:GITHUB_OUTPUT
