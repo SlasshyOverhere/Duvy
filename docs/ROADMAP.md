@@ -25,6 +25,8 @@ Effort is a rough single-developer estimate, not a promise:
 | Recent searches: last 8, deduped, clickable, removable, clearable |
 | Stream drawer remembers the addon filter; per-row copy-link and open-in-browser |
 | Addon reorder, manifest refresh and a Configure button from `behaviorHints` |
+| Opt-in crash reports with scrubbed events, a masked replay and a local `playback.log` |
+| Player chrome hides on an idle watchdog; source lists sort by file size or addon order |
 
 ## Start here
 
@@ -34,7 +36,7 @@ The five highest value-per-effort items, in order:
 2. **PF-01 profiles + PIN** - every per-profile feature is blocked behind it.
 3. **PL-01 subtitle auto-sync + PL-05 visible skip button** - the player polish users actually feel.
 4. **RG-07 deep links + RG-08 window restore** - small, and they unblock party and trailer links.
-5. **RG-04 crash reporting** - the app cannot ship without it.
+5. **SP-13 real cached status** - the cache-check command exists and nothing calls it.
 
 ## Playback
 
@@ -217,9 +219,9 @@ feature.
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| RG-01 | Update channels | Stable/beta selection | S | Signed updater, skip-version and six-hourly checks shipped; single channel only |
+| RG-01 | Update channels | Stable/beta selection | S | Signed updater, skip-version and hourly checks shipped; single channel only |
 | RG-03 | Delta updates | zsync metadata | M | |
-| RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | No crash path at all |
+| RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | Shipped: opt-in Sentry reports in release builds with a DSN, scrubbed and capped; off by default |
 | RG-06 | Installer signing | Authenticode certificate | M | Updater bundles are signed in CI; the installer itself is unsigned |
 | RG-07 | Deep links | `duvy://` registration, launch args, routing to meta / downloads / party | M | Nothing registered |
 | RG-08 | Window state restore | Geometry, maximized, fullscreen on relaunch | S | Recreates 1440x920 every launch |
@@ -249,7 +251,7 @@ Deliberately out of scope. Do not reopen these without a specific reason:
 2. **Sources** - SP-01..03, SP-06..13, SP-19..21, SP-23.
 3. **Downloads** - DL-01..09.
 4. **Profiles** - PF-01..07, then UI-09.
-5. **Platform basics** - RG-03, RG-04, RG-06, RG-07, RG-08.
+5. **Platform basics** - RG-03, RG-06, RG-07, RG-08.
 6. **Tracking** - PF-09..20, then PF-21, PF-22.
 7. **Catalog surface** - CT-01..08, DT-01..07.
 8. **Localization** - UI-04, UI-05.

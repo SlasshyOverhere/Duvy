@@ -27,7 +27,7 @@ In scope:
 - the Rust backend and Tauri command surface;
 - the React UI and its handling of untrusted addon, metadata and subtitle data;
 - credential storage and the local database;
-- the update and first-run player download paths;
+- the update path;
 - the loopback torrent stream server.
 
 Out of scope:
@@ -46,5 +46,6 @@ Out of scope:
 - Addon URLs are validated and response bodies are bounded.
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port.
 - Update bundles are signature-verified before install.
-- The first-run player download is checked against a published sha256 manifest.
-- There is no telemetry, analytics or crash reporting.
+- There is no analytics or usage tracking. Crash reports are opt-in, off by default, capped per
+  session and scrubbed of links, credentials, magnets and account names. Only a release build with
+  a configured Sentry DSN can send one; local builds and switched-off installs send nothing.

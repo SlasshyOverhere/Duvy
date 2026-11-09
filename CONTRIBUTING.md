@@ -19,7 +19,7 @@ Requirements are Windows 10/11 x64, WebView2, Rust 1.85+ and Bun 1.2+.
 
 ```bash
 bun install
-bun run app        # desktop app; first run downloads mpv in the background
+bun run app        # desktop app; first run fetches libmpv for this checkout
 bun run dev        # Vite only, with the in-browser mock backend
 ```
 
@@ -33,7 +33,7 @@ Run the narrowest check that covers your change, then the full set before you op
 ```bash
 bun run check      # tsc --noEmit
 bun run build      # tsc && vite build
-bun run test       # player HUD regression checks
+bun run test       # player HUD, regression and crash-report checks
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
@@ -50,6 +50,8 @@ by hand.
   does.
 - Keep the Rust core owning I/O and parsing; the UI should not grow network or stream parsing.
 - New user-facing strings are English for now (there is no i18n layer yet).
+- Crash reporting is opt-in. Do not add a network request that reports errors or usage without
+  the user's consent.
 
 ## Commits
 

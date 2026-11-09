@@ -38,6 +38,19 @@ Playback runs in-process through libmpv, so there is no separate player to find 
 `scripts/fetch-libmpv.ps1` pulls `libmpv-2.dll` and builds the MSVC import library once per
 checkout into `src-tauri/libmpv/`, and the build bundles both with the installer.
 
+## Frontend layout
+
+```
+src/views/            Home, Search, Details, Library, Watched, Addons, Debrid, Torrent,
+                      Onboarding, Player, Settings
+src/views/settings/   media servers, sync panels, updates
+src/components/       shell, title bar, poster rows, stream drawer, player HUD
+src/components/player/ HUD styles and skip helpers
+src/lib/bridge.ts     typed invoke() wrappers (mock fallback in browser)
+src/lib/store.tsx     routing, settings, library, progress, playback orchestration
+src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback watchdog
+```
+
 ## Modules
 
 | File | Responsibility |
@@ -53,12 +66,13 @@ checkout into `src-tauri/libmpv/`, and the build bundles both with the installer
 | `*_sync.rs` | Cloud-account and addon-account sync: sign-in and pull/merge/push of profiles, progress, watched, library and addon collections, merged by normalised manifest URL. Tested helpers. |
 | `servers.rs` | Jellyfin and Emby sign-in, library browsing, artwork and direct stream URLs. Tested URL builders. |
 | `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision. Tested. |
-| `playback_log.rs` | Small in-memory timeline of playback steps, exposed in Settings. |
+| `playback_log.rs` | Playback timeline written to `playback.log` beside the database (capped), exposed in Settings. Tested. |
 | `updates.rs` | Launch and hourly release checks, a cached answer for an instant corner card, signature-verified download and install on request. |
-| `frame.rs` | Seek-bar previews from a scratch in-process libmpv, bucketed and capped. |
+| `frame.rs` | Seek-bar previews from a scratch in-process libmpv into the system temp folder, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
 | `secret.rs` | DPAPI `enc1:` encoding for stored credentials, with legacy plaintext pass-through. |
+| `json.rs` | Small readers for untrusted JSON returned by account APIs. |
 | `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out with budgets, source resolution, metadata merge. |
 | `models.rs` | Serde shapes shared by commands and events. |
 | `lib.rs` | State wiring, HTTP client, window helpers, background jobs (updates, Cinemeta seeding), command registration. |
@@ -161,10 +175,22 @@ not read SQLite per call.
 
 ## Privacy and trust boundaries
 
-- No telemetry, analytics or crash reporting is built in.
+- No analytics or usage tracking is built in. Crash reports are opt-in and off by default; they
+  only exist in a release build that was compiled with a Sentry DSN, and the user is asked once,
+  after onboarding, with the same switch in Settings -> Privacy. The UI loads the Sentry SDK only
+  after consent. `errors.ts` scrubs the event before it leaves: links lose their query and
+  fragment, magnets are redacted, home paths lose the account name, secret-shaped keys are
+  blanked, payloads are truncated, duplicates are dropped and a session is capped. Any replay is
+  masked and media is blocked. A Rust panic is forwarded as `app:error` and reported the same way;
+  `playback.log` stays local in every build.
 - Credential values in the local settings table are encrypted with Windows DPAPI for the current
   user before they are written, and legacy plaintext rows are upgraded when the database opens.
-  A database copied to another Windows account or machine cannot be decrypted.
+  A database copied to another Windows account or machine cannot be decrypted. The app can still
+  read them while the user is signed in, so the data directory is a credential store.
+- Disconnecting Trakt revokes the token best effort and clears it locally, keeping the API app
+  credentials so a reconnect does not need a re-paste. Signing out of an account session clears
+  the stored tokens; the cloud sync keeps a non-secret account id so a later sign-in can tell
+  accounts apart.
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
   binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
   opt-in.
@@ -188,7 +214,9 @@ bun run test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-`bun run test` (`scripts/player.check.ts`) guards the player HUD layout and control wiring.
+`bun run test` runs three script suites: `player.check.ts` guards the player HUD layout and
+control wiring, `regression.check.ts` guards the updater and player lifecycle wiring, and
+`telemetry.check.ts` guards crash-report scrubbing, deduplication and the playback watchdog.
 
 The Rust unit tests cover addon URL/id building, stream parsing and ranking, metadata helpers,
 SQLite round-trips, settings merge/reset, debrid and torrent parsers, Trakt and account-sync merge
@@ -204,8 +232,10 @@ have.
 - Windows is the supported platform. The in-window player path is Windows-specific; other
   platforms fall back to libmpv's own window and are untested.
 - One player and one torrent at a time.
-- No downloads/offline library, local profiles or PIN, translations, app icon packs, crash
-  reporting or a dedicated Discover browser.
+- No downloads/offline library, local profiles or PIN, translations, app icon packs or a
+  dedicated Discover browser.
+- Crash reports need a release build with a Sentry DSN; a local build has no endpoint and sends
+  nothing even when reports are switched on.
 - Intro/outro skipping is automatic. There is no visible skip button, and only intro and outro
   segments are understood (no recap or credits taxonomy).
 - Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
