@@ -575,7 +575,8 @@ const SeekTrack = memo(function SeekTrack({
         rect.current = event.currentTarget.getBoundingClientRect();
       }}
       onPointerDown={(event) => {
-        if (!duration) return;
+        // Only the primary button seeks; the right button opens the menu.
+        if (!duration || event.button !== 0) return;
         rect.current = event.currentTarget.getBoundingClientRect();
         dragging.current = true;
         event.currentTarget.setPointerCapture(event.pointerId);
