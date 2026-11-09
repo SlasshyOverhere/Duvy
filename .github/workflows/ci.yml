@@ -34,4 +34,11 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch-libmpv.ps1
 
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # The release notes step is only reachable from a tag; check its fold here.
+      - name: Release notes self-test
+        shell: pwsh
+        run: ./scripts/release-notes.ps1 -SelfTest

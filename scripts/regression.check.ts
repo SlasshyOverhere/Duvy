@@ -11,6 +11,8 @@ const commands = read("src-tauri/src/commands.rs");
 const player = read("src-tauri/src/player.rs");
 const store = read("src/lib/store.tsx");
 const playerView = read("src/views/Player.tsx");
+// Subtitle clamps and helpers live in the player hud module now.
+const playerHud = read("src/components/player/hud.ts");
 const drawer = read("src/components/StreamDrawer.tsx");
 const settingsView = read("src/views/Settings.tsx");
 const rustSettings = read("src-tauri/src/settings.rs");
@@ -223,7 +225,7 @@ run("cancelled start cannot clear the next start", () => {
 run("subtitle size can go below the old floor", () => {
   const out: string[] = [];
   const floors = [
-    ...playerView.matchAll(/whole\((?:stored\.size|subStyle\.size [+-] 2),\s*(\d+),\s*(\d+)/g),
+    ...(playerView + playerHud).matchAll(/whole\((?:stored\.size|subStyle\.size [+-] 2),\s*(\d+),\s*(\d+)/g),
   ].map((match) => Number(match[1]));
   if (floors.length < 3) {
     return ["Player.tsx: subtitle size clamp not found in read and stepper"];

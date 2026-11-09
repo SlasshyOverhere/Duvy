@@ -80,9 +80,8 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "Releasing $version"
 
-      # The notes are the PRs and nothing else: GitHub resolves a squash or a
-      # rebase to its pull request, so only the bullets of its generated body
-      # are kept and the changelog is written once, by us.
+      # Pulls get GitHub's own bullets, and every commit in the range is listed
+      # under them: a push that never became a PR still shows up in the notes.
       - name: Write release notes
         id: notes
         shell: pwsh
@@ -90,42 +89,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.version.outputs.version }}
         run: |
-          $prev = git tag --list 'v*' --sort=-v:refname |
-            Where-Object { $_ -ne $env:TAG } | Select-Object -First 1
-          $repo = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
-          if ($prev) {
-            $request = @{ tag_name = $env:TAG; previous_tag_name = $prev }
-            $compare = "$repo/compare/$prev...$env:TAG"
-          } else {
-            $request = @{ tag_name = $env:TAG }
-            $compare = "$repo/commits/$env:TAG"
-          }
-
-          $raw = $request | ConvertTo-Json |
-            gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" --method POST --input -
-          # A notes hiccup must not block the release: the changelog still ships.
-          $generated = if ($LASTEXITCODE -eq 0 -and $raw) { ($raw | ConvertFrom-Json).body } else { "" }
-          # The fallback above is the whole response to a notes failure.
-          $global:LASTEXITCODE = 0
-          $bullets = @()
-          $skip = $false
-          foreach ($line in $generated -split "`n") {
-            if ($line -match '^##\s+(.+)$') {
-              # "What's Changed" opens the list; every later section (new
-              # contributors) is not a change and is dropped with its heading.
-              if ($matches[1] -notmatch "What.s Changed") { $skip = $true }
-              continue
-            }
-            if (-not $skip -and $line.TrimStart().StartsWith('* ')) {
-              $bullets += $line.Trim()
-            }
-          }
-
-          $body = (@($bullets) + @('', "**Full changelog:** $compare")) -join "`n"
-          "body<<EOF" >> $env:GITHUB_OUTPUT
-          $body.Trim() >> $env:GITHUB_OUTPUT
-          "EOF" >> $env:GITHUB_OUTPUT
-          $body
+          ./scripts/release-notes.ps1
 
       # libmpv's import library and DLL are not committed, so every build
       # fetches them; the installer then bundles libmpv-2.dll beside the exe.
