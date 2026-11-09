@@ -1972,13 +1972,13 @@ export function PlayerView() {
     };
     window.addEventListener("keydown", onKey, true);
     const tick = window.setInterval(() => {
-      if (Date.now() - actAt.current < 2000) return;
+      if (Date.now() - actAt.current < 500) return;
       if (dragging.current) return;
       // A keyboard-driven focus keeps the chrome; a mouse-clicked slider does
       // not, or it would hold the controls forever.
       if (controlFocused() && keyAt.current > actAt.current) return;
       setChrome(false);
-    }, 200);
+    }, 100);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.clearInterval(tick);
