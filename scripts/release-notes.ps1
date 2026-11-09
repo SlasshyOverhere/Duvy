@@ -17,6 +17,14 @@ function Fold($heading, $items) {
   $out
 }
 
+# A many-commit PR carries its own list, folded so the notes stay short.
+function CommitBlock($items) {
+  if ($items.Count -lt 2) { return @() }
+  $out = @("  <details><summary>$($items.Count) commits</summary>", '')
+  $out += @($items | ForEach-Object { "  $_" })
+  $out + @('', '  </details>')
+}
+
 if ($SelfTest) {
   $fail = @()
   $short = Fold '### Pull requests' @('* a', '* b')
@@ -30,6 +38,12 @@ if ($SelfTest) {
   if (($open -split "`n" | Where-Object { $_ -like '* bullet *' }).Count -ne 10) { $fail += 'wrong number of open bullets' }
   if (($body -split "`n" | Where-Object { $_ -like '* bullet *' }).Count -ne 23) { $fail += 'bullets lost in the fold' }
   if ($long[-1] -ne '</details>') { $fail += 'dropdown left open' }
+  $single = CommitBlock @('* only')
+  if ($single.Count) { $fail += 'a one-commit PR grew a dropdown' }
+  $many = CommitBlock @('* one', '* two', '* three')
+  if ($many[0] -ne '  <details><summary>3 commits</summary>') { $fail += "commit summary: $($many[0])" }
+  if ($many -notcontains '  * two') { $fail += 'commits are not indented into the bullet' }
+  if ($many[-1] -ne '  </details>') { $fail += 'commit dropdown left open' }
   if ($fail) { $fail | ForEach-Object { Write-Error $_ }; exit 1 }
   'self-test ok'
   exit 0
@@ -99,6 +113,26 @@ if ($LASTEXITCODE -eq 0 -and $rows) {
   [array]::Reverse($commits)
 }
 $global:LASTEXITCODE = 0
+
+# Each PR's own commits fold under its bullet: a 15-commit PR would otherwise
+# arrive as one line and hide its work.
+$bullets = @($bullets | ForEach-Object {
+  $out = @($_)
+  if ($_ -match '/pull/(\d+)') {
+    $number = $matches[1]
+    $prRows = gh api "repos/$env:GITHUB_REPOSITORY/pulls/$number/commits?per_page=100" --jq '.[] | [.sha, (.commit.message | split("\n")[0])] | @tsv' 2>$null
+    if ($LASTEXITCODE -eq 0 -and $prRows) {
+      $items = @(foreach ($row in @($prRows)) {
+        $sha, $subject = $row -split "`t", 2
+        if (-not $subject) { continue }
+        "* $subject in [$($sha.Substring(0, 7))]($repo/commit/$sha)"
+      })
+      $out += CommitBlock $items
+    }
+    $global:LASTEXITCODE = 0
+  }
+  $out -join "`n"
+})
 
 $sections = @()
 if ($bullets.Count) { $sections += Fold '### Pull requests' $bullets }
