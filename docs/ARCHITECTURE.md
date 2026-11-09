@@ -38,6 +38,19 @@ Playback runs in-process through libmpv, so there is no separate player to find 
 `scripts/fetch-libmpv.ps1` pulls `libmpv-2.dll` and builds the MSVC import library once per
 checkout into `src-tauri/libmpv/`, and the build bundles both with the installer.
 
+## Frontend layout
+
+```
+src/views/            Home, Search, Details, Library, Watched, Addons, Debrid, Torrent,
+                      Onboarding, Player, Settings
+src/views/settings/   media servers, sync panels, updates
+src/components/       shell, title bar, poster rows, stream drawer, player HUD
+src/components/player/ HUD styles and skip helpers
+src/lib/bridge.ts     typed invoke() wrappers (mock fallback in browser)
+src/lib/store.tsx     routing, settings, library, progress, playback orchestration
+src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback watchdog
+```
+
 ## Modules
 
 | File | Responsibility |
@@ -55,7 +68,7 @@ checkout into `src-tauri/libmpv/`, and the build bundles both with the installer
 | `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision. Tested. |
 | `playback_log.rs` | Playback timeline written to `playback.log` beside the database (capped), exposed in Settings. Tested. |
 | `updates.rs` | Launch and hourly release checks, a cached answer for an instant corner card, signature-verified download and install on request. |
-| `frame.rs` | Seek-bar previews from a scratch in-process libmpv, bucketed and capped. |
+| `frame.rs` | Seek-bar previews from a scratch in-process libmpv into the system temp folder, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
 | `secret.rs` | DPAPI `enc1:` encoding for stored credentials, with legacy plaintext pass-through. |
@@ -172,7 +185,12 @@ not read SQLite per call.
   `playback.log` stays local in every build.
 - Credential values in the local settings table are encrypted with Windows DPAPI for the current
   user before they are written, and legacy plaintext rows are upgraded when the database opens.
-  A database copied to another Windows account or machine cannot be decrypted.
+  A database copied to another Windows account or machine cannot be decrypted. The app can still
+  read them while the user is signed in, so the data directory is a credential store.
+- Disconnecting Trakt revokes the token best effort and clears it locally, keeping the API app
+  credentials so a reconnect does not need a re-paste. Signing out of an account session clears
+  the stored tokens; the cloud sync keeps a non-secret account id so a later sign-in can tell
+  accounts apart.
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
   binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
   opt-in.

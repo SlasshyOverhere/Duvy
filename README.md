@@ -12,66 +12,31 @@ A lightweight desktop media hub for Windows: addons, library and playback in one
 
 ## Why this exists
 
-Most desktop media hubs run the whole app, including a large shared UI layer, on one runtime.
-Duvy takes a different route: a small Rust core and a WebView that never touches a video
-frame:
+Most desktop media hubs run the whole app, player included, on one runtime. Duvy keeps the video
+path native:
 
 - **Playback is in-process.** libmpv decodes with `hwdec=auto-safe` and paints into the app
-  window's client area, with a transparent web layer above it for the controls. The UI calls
-  libmpv directly, so there is no player process, no IPC socket and no protocol between them. A
-  large remux cannot stall the interface, and video never travels through the WebView.
-- **Streams are parsed once, in Rust.** Quality, size, seeders, HDR and cached badges are ranked in
-  a native module with unit tests, not per-render string work in JavaScript.
-- **Addon fan-out is concurrent.** Catalogs, search, streams and subtitles run as parallel Tokio
-  tasks with a shared pooled HTTP client, an 18s timeout and per-host idle limits.
-- **One local SQLite file in WAL mode** holds addons, library, progress, watched state, settings
-  and integration credentials. Credential values are encrypted with Windows DPAPI for the
-  current user. No account is required, and nothing leaves the machine unless you opt in to
-  crash reports.
+  window, with a transparent web layer above it for the controls. There is no player process and
+  no video through the WebView, so a large remux cannot stall the interface.
+- **Rust owns I/O and parsing.** Streams are ranked in a tested native module, and addon catalogs,
+  search, streams and subtitles fan out on parallel Tokio tasks.
+- **One local SQLite file in WAL mode** holds addons, library, progress, settings and credentials,
+  with the credentials encrypted for the current Windows user. No account is required, and
+  nothing leaves the machine unless you opt in to crash reports.
 
-## What works now (0.1.11 beta)
+## What it does
 
-- First-run onboarding: choose a sync account or skip it; playback needs no setup.
-- Addon protocol: install from URL, reorder, refresh, open the addon's configure page when it
-  advertises one, enable/disable and remove. Cinemeta is installed on first launch.
-- Home rows from addon catalogs, an auto-rotating art-led hero, drag-to-scroll rows, poster
-  context menus and Continue Watching that updates live.
-- Global search across addon search catalogs plus TMDB when a key is set. Addon results stream in
-  as each one answers, and the last eight searches are kept as chips.
-- Details: artwork and title logos, rating, genres, cast photos, director, trailer link, similar
-  titles, seasons and episodes with per-episode progress.
-- Search recommendations based on watch history.
-- Stream picker: quality, size, seeders, cached marker, languages, HDR/REMUX badges, addon filter,
-  size-first or addon-order sorting, copy link and open in browser.
-- Sources:
-  - direct HTTP(S) streams;
-  - local video files;
-  - P2P via a local BitTorrent engine, off until you explicitly allow it in Settings;
-  - debrid resolution through Real-Debrid, AllDebrid, Premiumize or TorBox keys you provide,
-    including the requested file inside a torrent pack;
-  - Jellyfin and Emby libraries and direct playback.
-- Playback: embedded libmpv, hardware decoding toggle, configurable forward and backward cache
-  buffers, resume per episode, seeking, speed, volume, audio/subtitle track switching, addon
-  subtitles, local subtitle files, subtitle styling (size, bold, colour, outline, background,
-  position) and delay, auto-advance, and watched-at-92% bookkeeping.
-- Subtitle choices are remembered per episode, and ASS tracks keep their own styling until you
-  change a style control.
-- Intro and outro skipping from IntroDB community markers, with manual per-show markers that win.
-- Library, Continue Watching, Watched, four accent themes, custom title bar.
-- Optional TMDB enrichment, Trakt device-code sync and scrobbling, plus optional cloud and
-  addon-account sync for library, progress and resume points.
-- Settings with grouped navigation and search: playback and source order, cache buffers, language
-  pickers, connections, updates and a Privacy panel for opt-in crash reports and the local
-  playback log.
-- Signed, verified updates: the app checks the release feed on launch and hourly, warns
-  with a toast and a desktop notification, and installs from Settings -> Update.
+- Addon protocol browsing, global search, details with cast and episodes, and a stream picker that
+  ranks quality, size, seeders, cache and HDR.
+- Library, Continue Watching, Watched, and resume per episode.
+- In-app libmpv playback: hardware decoding, cache buffers, audio/subtitle tracks, subtitle styling
+  and delay, intro/outro skipping, seek-bar previews, speed and volume.
+- Sources: direct HTTP(S), local files, opt-in P2P, four debrid providers, and Jellyfin or Emby.
+- Optional TMDB enrichment, Trakt scrobbling and account sync; signed updates.
+- Four accent themes, settings with grouped navigation and search.
 
-Not built yet: downloads/offline library, local profiles or PIN-protected profile switching
-(only cloud-account profile selection exists), a dedicated Discover browser (browse through Home
-and Search), app icon packs, translations, update channels, Simkl, MDBList, watch party, JS
-plugins, hover previews, subtitle auto-sync and subtitle folder scanning. See
-[docs/FEATURES.md](docs/FEATURES.md) for the per-feature status and
-[docs/ROADMAP.md](docs/ROADMAP.md) for what is planned.
+Status per feature, including what is narrower or not built, is in
+[docs/FEATURES.md](docs/FEATURES.md). Planned work is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -80,7 +45,8 @@ plugins, hover previews, subtitle auto-sync and subtitle folder scanning. See
 - [Bun](https://bun.sh) 1.2 or newer
 
 Playback runs on libmpv loaded into the app process. The import library and the runtime DLL live
-in `src-tauri/libmpv/`, which is not committed; fetch them once per checkout:
+in `src-tauri/libmpv/`, which is not committed; `bun run app` fetches them once per checkout, or
+run the script yourself:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/fetch-libmpv.ps1
@@ -95,18 +61,12 @@ no separate player install. The bundled build's license is a shipping decision: 
 ```bash
 bun install
 bun run app        # desktop app (Tauri dev)
-```
-
-The first launch shows onboarding; playback is ready as soon as the app opens.
-
-For UI work without Rust rebuilds:
-
-```bash
 bun run dev        # Vite only, with an in-browser mock backend
 ```
 
-Development builds use the `app.duvy.desktop.dev` identifier, so their database lives beside,
-not inside, a production install.
+The first launch shows onboarding; playback is ready as soon as the app opens. Development builds
+use the `app.duvy.desktop.dev` identifier, so their database lives beside, not inside, a
+production install.
 
 ## Checks
 
@@ -117,60 +77,22 @@ bun run test       # player HUD, regression and crash-report checks
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-CI runs `check`, `build`, `test` and the Rust tests on Windows. Interactive playback and
-third-party services are not covered by automated tests.
-
-## Releasing
-
-Releases are built and published by CI only. Push a tag and `.github/workflows/release.yml` does
-the rest: it sets the version from the tag, builds the MSI and NSIS installers, signs the updater
-bundles, publishes the GitHub release and uploads `latest.json` (the manifest the in-app updater
-reads). The installers carry `libmpv-2.dll` beside the executable, so playback works offline.
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-One-time setup: the workflow signs with a minisign key that has to match
-`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Add the private key as a repository
-secret:
-
-```bash
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/duvy.key
-```
-
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is only needed if the key has a password. Keep the key safe:
-lose it and every install already in the wild can no longer verify updates.
-
-The installer takes `src-tauri/libmpv/libmpv-2.dll` and places it next to the executable. Run
-`scripts/fetch-libmpv.ps1` before a local build; the file is not committed.
-
-A local `bun run tauri build` still works for smoke tests, but it needs the same key
-(`TAURI_SIGNING_PRIVATE_KEY_PATH`) and its artifacts are never published.
+CI runs all four on Windows. Interactive playback and third-party services are not covered by
+automated tests.
 
 ## Bring your own content
 
-Duvy ships no media, no catalogs, no addons and no scrapers. Everything comes from addon
-URLs you add, servers you connect, or files you open.
+Duvy ships no media, no catalogs, no addons and no scrapers. Everything comes from addon URLs you
+add, servers you connect, or files you open:
 
-1. **Metadata and catalogs:** Cinemeta is installed on first launch and gives artwork,
-   descriptions and episodes. Add more from the Addons panel.
-2. **Streams:** add a stream addon that returns HTTP(S) links, magnets or info hashes. Torrent
-   sources stay disabled until P2P is allowed in Settings.
-3. **Debrid (optional):** add a Real-Debrid, AllDebrid, Premiumize or TorBox API key. Links are
-   unrestricted through your account.
-4. **TMDB (optional):** add a free v3 API key for curated rows and richer artwork.
-5. **Trakt (optional):** create your own Trakt API application and enter its client id and secret.
-6. **Cloud sync (optional, best effort):** sign in with a supported account to sync library,
-   progress and watched state. It talks to that provider's backend and may break without notice.
-7. **Addon-account sync (optional, best effort):** sign in to pull addons, library and resume
-   points from an existing addon client account, and push local changes back. It uses that
-   provider's API and may break without notice.
+- **Metadata and catalogs:** Cinemeta is installed on first launch; add more from the Addons panel.
+- **Streams:** an addon returning HTTP(S) links, magnets or info hashes. Torrent sources stay
+  disabled until P2P is allowed in Settings.
+- **Optional keys and accounts:** TMDB, a debrid provider, Trakt, or an account for cloud and
+  addon-account sync. Each uses that provider's backend and may break without notice.
 
-Addon support follows the documented addon protocol: `manifest.json`,
-`/catalog/{type}/{id}`, `/meta`, `/stream`, `/subtitles`, including `skip`/`search` extras and
-`tt123:1:2` episode ids.
+Addon support follows the documented protocol: `manifest.json`, `/catalog/{type}/{id}`, `/meta`,
+`/stream`, `/subtitles`, including `skip`/`search` extras and `tt123:1:2` episode ids.
 
 You are responsible for the addons, servers, accounts and sources you configure, and for
 complying with the law and the terms of those services where you live. P2P playback makes your IP
@@ -178,78 +100,36 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Privacy and local data
 
-- Everything is stored locally in one SQLite file. There is no analytics or usage tracking.
-  Crash reports are opt-in, off by default, and only a release build with a configured Sentry
-  DSN can send one.
-- Credentials (TMDB key, Trakt tokens, debrid keys, Jellyfin/Emby tokens, sync sessions) are kept
-  in the local settings table. Each value is encrypted with Windows DPAPI for the current user
-  before it is written (existing plaintext rows are upgraded on the next launch), so a copy of
-  the database cannot be read by another Windows account or on another machine. The app can still
-  read them while you are signed in, so treat the data directory like any other credential store.
-- Crash reports can be turned on or off in Settings -> Privacy. A report carries the error, the
-  screen, the app version and the last few playback steps; links lose their query and fragment,
-  and tokens, magnets, account names and timezone context are blanked. Any session replay is
-  masked, and reports are capped per session. A build without a DSN never sends one.
-- Network requests go to the addons you install, image hosts, the optional services you configure
-  (TMDB, Trakt, debrid, Jellyfin/Emby, sync accounts), IntroDB for skip markers, GitHub for the
-  update feed, and Sentry when crash reports are on. Addon developers and service operators see
-  requests from your IP.
-- Skip lookups send only an IMDb id plus season and episode to IntroDB. Addon URLs are validated
-  and fetches are bounded, and the WebView runs under a strict Content Security Policy.
-- P2P traffic goes directly to other peers while a torrent source is playing.
-- Signing out of Trakt or a sync account removes the stored tokens; the cloud integration keeps a
-  non-secret account identifier so a later sign-in can tell accounts apart. Deleting the database
-  resets everything.
+- Everything is stored locally in one SQLite file. There is no analytics or usage tracking. Crash
+  reports are opt-in, off by default, and only a release build with a configured Sentry DSN can
+  send one.
+- Credentials are encrypted with Windows DPAPI for the current user before they are written, so a
+  copied database cannot be read by another Windows account or machine.
+- Network requests go to the addons and services you configure, plus IntroDB for skip markers,
+  GitHub for the update feed, and Sentry when crash reports are on. P2P traffic goes directly to
+  other peers while a torrent source plays.
+- Data lives in `%APPDATA%\app.duvy.desktop`: `duvy.db`, `mpv.log`, `playback.log` and the
+  temporary `torrent-cache` folder. Delete the database to reset the app.
 
-## Where data lives
-
-`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`, `playback.log`
-(the local playback timeline) and the temporary `torrent-cache` directory. Seek-bar previews decode
-into the system temp folder and are removed when they expire. Delete the database file to reset
-the app.
-
-Development builds use `%APPDATA%\app.duvy.desktop.dev`, so they never touch production
-data.
+What a crash report carries, and how it is scrubbed, is described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#privacy-and-trust-boundaries).
 
 ## Project layout
 
 ```
-src/                     React + TypeScript UI
-  components/            shell, title bar, poster rows, stream drawer
-  components/player/     player HUD styles and skip helpers
-  views/                 Home, Search, Details, Library, Watched, Addons, Debrid, Torrent,
-                         Onboarding, Player
-  views/settings/        media servers, sync panels, updates
-  lib/bridge.ts          typed invoke() wrappers (mock fallback in browser)
-  lib/store.tsx          routing, settings, library, progress, playback orchestration
-  lib/telemetry.ts       opt-in crash reports, scrubbing rules and the playback watchdog
-src-tauri/src/
-  addons.rs              protocol models, URL builders (+ tests)
-  streams.rs             quality/size/seeders parsing and ranking (+ tests)
-  meta.rs                Cinemeta-first metadata and cast photos (+ tests)
-  tmdb.rs                optional discovery/enrichment (+ tests)
-  player.rs              libmpv lifecycle, commands, events, subtitle loading, progress
-  torrent.rs             librqbit session and loopback HTTP stream (+ tests)
-  debrid.rs              four debrid providers and link resolution (+ tests)
-  trakt.rs               device auth, scrobble and watched sync (+ tests)
-  nuvio_sync.rs          cloud account sync: profiles, library and progress (+ tests)
-  stremio_sync.rs        addon-account sync: addons, library and resume points (+ tests)
-  json.rs                small readers for untrusted account JSON
-  servers.rs             Jellyfin/Emby sign-in, libraries and streams (+ tests)
-  skip.rs                IntroDB lookup, manual markers, skip decision (+ tests)
-  updates.rs             update checks, background polling, install
-  settings.rs            defaults, merge patch, cached load
-  secret.rs              DPAPI credential encoding
-  frame.rs               seek-bar preview frames
-  playback_log.rs        playback timeline written to playback.log (+ tests)
-  db.rs                  SQLite schema and queries (+ tests)
-  commands.rs            Tauri command surface
-  lib.rs                 state wiring, window helpers, background jobs
-scripts/                 libmpv fetch plus player, regression and crash-report checks
-docs/                    architecture, features, roadmap
+src/            React + TypeScript UI: views, components, typed bridge, store
+src-tauri/src/  Rust core: addons, streams, metadata, player, sources, sync, db, commands
+scripts/        libmpv fetch and the check suites
+docs/           architecture, features, roadmap, releasing
 ```
 
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The module-by-module breakdown is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Releasing
+
+Releases are built and published by CI only: dispatch the release workflow with a version (or
+push a `v*` tag) and it builds, signs and publishes the installers and `latest.json`. Setup and
+the signing key are covered in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Contributing
 
@@ -259,8 +139,8 @@ Security problems go through [SECURITY.md](SECURITY.md), not the public issue tr
 
 ## License
 
-MIT for this repository's code. Duvy is an independent implementation; no third-party
-client code is included here.
+MIT for this repository's code. Duvy is an independent implementation; no third-party client
+code is included here.
 
 Installers bundle a Windows build of libmpv, which also contains FFmpeg, libplacebo and other
 libraries, each under its own license. The build fetched by `scripts/fetch-libmpv.ps1` is
