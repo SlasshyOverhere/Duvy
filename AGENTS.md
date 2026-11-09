@@ -5,7 +5,7 @@ Instructions for every agent working in Duvy.
 ## Repo facts
 
 - Tauri 2 desktop app: React 19 + TypeScript + Vite frontend, Rust backend in `src-tauri/`.
-- No test framework configured. The only checks are `bun run check` (`tsc --noEmit`) and `bun run build` (`tsc && vite build`).
+- No test framework configured. Checks are `bun run check` (`tsc --noEmit`), `bun run build` (`tsc && vite build`), `bun run test` (script suites in `scripts/`) and `cargo test --manifest-path src-tauri/Cargo.toml`.
 - Run `bun run app` for the desktop app, `bun run dev` for the web frontend only.
 - Never add a dependency without a reason; prefer what is already installed.
 - Do not edit `dist/`, `node_modules/`, `bun.lock`, or generated Tauri output.

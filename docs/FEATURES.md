@@ -1,6 +1,6 @@
 # Features
 
-What works in Duvy 0.1.0 beta, and where each area stops. This is a per-area snapshot, not
+What works in Duvy 0.1.11 beta, and where each area stops. This is a per-area snapshot, not
 a delivery promise. Planned work lives in [`ROADMAP.md`](./ROADMAP.md).
 
 Legend: **Done** works in the beta · **Partial** works but is narrower · **Planned** not built.
@@ -16,7 +16,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Episode browser | **Done** | Season tabs, episode list, per-episode progress |
 | Addon protocol | **Done** | Catalog, meta, stream and subtitle endpoints; install, remove, enable, disable |
 | Addon management | **Partial** | Reorder, manifest refresh and a Configure button from `behaviorHints`; no permissions, collections or per-catalog toggles |
-| Stream picker | **Done** | Quality, size, seeds, cached, HDR, languages, addon filter, copy link and open in browser; no presets or regex autoplay |
+| Stream picker | **Done** | Quality, size, seeds, cached, HDR, languages, addon filter, size-first or addon-order sorting, copy link and open in browser; no presets or regex autoplay |
 | Library | **Done** | Toggle from any title, filters, local SQLite |
 | Continue watching | **Done** | One row per title, per-episode resume, updates live |
 | Resume and autoplay next | **Done** | Configurable, uses the best playable source |
@@ -39,7 +39,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Subtitle auto-sync | **Planned** | No analysis or automatic offset |
 | Cache buffers | **Done** | Forward and backward demuxer buffers in seconds, minutes or megabytes from Settings |
 | Speed, volume, seek | **Done** | Player console controls; volume is applied immediately |
-| In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels |
+| In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels, hidden by an idle watchdog |
 | Start screen | **Done** | Backdrop and title logo while the source resolves, then the first frame |
 | Seek-bar previews | **Done** | Frame previews from a scratch in-process libmpv |
 | Skip intro/outro | **Partial** | Community markers plus manual per-show overrides; automatic only, no visible skip button, recap or credits segments |
@@ -68,6 +68,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Simkl | **Planned** | Not built |
 | MDBList | **Planned** | Not built |
 | Notifications | **Partial** | Desktop notification for new releases; no notification service or per-event controls |
+| Crash reports | **Done (opt-in)** | Sentry reports from release builds that carry a DSN: the error, screen, version and last playback steps, with links and secrets scrubbed and any replay masked; off until the user agrees, and every build keeps a local `playback.log` |
 | Discord rich presence | **Planned** | Not built |
 | Plugin runtime | **Planned** | Addon protocol only |
 | Auto-updater | **Done** | Signed and verified, single channel, launch and hourly checks, installs only when asked |
@@ -83,8 +84,8 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 
 ## Design choices
 
-- **No account required, no telemetry, no bundled content.** Every integration is optional and
-  uses credentials the user supplies.
+- **No account required, no usage tracking, no bundled content.** Every integration is optional
+  and uses credentials the user supplies; crash reports are off until the user opts in.
 - **Rust owns I/O.** Addon fan-out runs in parallel Tokio tasks; the UI never parses stream
   strings.
 - **libmpv is linked in, not spawned.** Video decodes in-process and paints into the app window's

@@ -26,9 +26,10 @@ frame:
   tasks with a shared pooled HTTP client, an 18s timeout and per-host idle limits.
 - **One local SQLite file in WAL mode** holds addons, library, progress, watched state, settings
   and integration credentials. Credential values are encrypted with Windows DPAPI for the
-  current user. No account is required, and there is no telemetry.
+  current user. No account is required, and nothing leaves the machine unless you opt in to
+  crash reports.
 
-## What works now (0.1.0 beta)
+## What works now (0.1.11 beta)
 
 - First-run onboarding: choose a sync account or skip it; playback needs no setup.
 - Addon protocol: install from URL, reorder, refresh, open the addon's configure page when it
@@ -41,7 +42,7 @@ frame:
   titles, seasons and episodes with per-episode progress.
 - Search recommendations based on watch history.
 - Stream picker: quality, size, seeders, cached marker, languages, HDR/REMUX badges, addon filter,
-  copy link and open in browser.
+  size-first or addon-order sorting, copy link and open in browser.
 - Sources:
   - direct HTTP(S) streams;
   - local video files;
@@ -59,15 +60,16 @@ frame:
 - Library, Continue Watching, Watched, four accent themes, custom title bar.
 - Optional TMDB enrichment, Trakt device-code sync and scrobbling, plus optional cloud and
   addon-account sync for library, progress and resume points.
-- Settings with grouped navigation and search: player path, cache buffers, language pickers,
-  connections and updates.
-- Signed, verified updates: the app checks the release feed on launch and every six hours, warns
+- Settings with grouped navigation and search: playback and source order, cache buffers, language
+  pickers, connections, updates and a Privacy panel for opt-in crash reports and the local
+  playback log.
+- Signed, verified updates: the app checks the release feed on launch and hourly, warns
   with a toast and a desktop notification, and installs from Settings -> Update.
 
 Not built yet: downloads/offline library, local profiles or PIN-protected profile switching
 (only cloud-account profile selection exists), a dedicated Discover browser (browse through Home
 and Search), app icon packs, translations, update channels, Simkl, MDBList, watch party, JS
-plugins, hover previews, subtitle auto-sync, subtitle folder scanning and crash reporting. See
+plugins, hover previews, subtitle auto-sync and subtitle folder scanning. See
 [docs/FEATURES.md](docs/FEATURES.md) for the per-feature status and
 [docs/ROADMAP.md](docs/ROADMAP.md) for what is planned.
 
@@ -103,15 +105,15 @@ For UI work without Rust rebuilds:
 bun run dev        # Vite only, with an in-browser mock backend
 ```
 
-Development builds use the `app.duvy.desktop.dev` identifier, so their database and
-downloaded player live beside, not inside, a production install.
+Development builds use the `app.duvy.desktop.dev` identifier, so their database lives beside,
+not inside, a production install.
 
 ## Checks
 
 ```bash
 bun run check      # tsc --noEmit
 bun run build      # tsc && vite build
-bun run test       # player HUD regression checks
+bun run test       # player HUD, regression and crash-report checks
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
@@ -176,16 +178,21 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Privacy and local data
 
-- Everything is stored locally in one SQLite file. There is no telemetry, analytics or crash
-  reporting.
+- Everything is stored locally in one SQLite file. There is no analytics or usage tracking.
+  Crash reports are opt-in, off by default, and only a release build with a configured Sentry
+  DSN can send one.
 - Credentials (TMDB key, Trakt tokens, debrid keys, Jellyfin/Emby tokens, sync sessions) are kept
   in the local settings table. Each value is encrypted with Windows DPAPI for the current user
   before it is written (existing plaintext rows are upgraded on the next launch), so a copy of
   the database cannot be read by another Windows account or on another machine. The app can still
   read them while you are signed in, so treat the data directory like any other credential store.
+- Crash reports can be turned on or off in Settings -> Privacy. A report carries the error, the
+  screen, the app version and the last few playback steps; links lose their query and fragment,
+  and tokens, magnets, account names and timezone context are blanked. Any session replay is
+  masked, and reports are capped per session. A build without a DSN never sends one.
 - Network requests go to the addons you install, image hosts, the optional services you configure
   (TMDB, Trakt, debrid, Jellyfin/Emby, sync accounts), IntroDB for skip markers, GitHub for the
-  first-run player download and the update feed. Addon developers and service operators see
+  update feed, and Sentry when crash reports are on. Addon developers and service operators see
   requests from your IP.
 - Skip lookups send only an IMDb id plus season and episode to IntroDB. Addon URLs are validated
   and fetches are bounded, and the WebView runs under a strict Content Security Policy.
@@ -196,9 +203,10 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Where data lives
 
-`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`, the temporary
-`torrent-cache` directory. Seek-bar previews decode into the system temp folder and are removed
-when they expire. Delete the database file to reset the app.
+`%APPDATA%\app.duvy.desktop\duvy.db` on Windows. The same folder holds `mpv.log`, `playback.log`
+(the local playback timeline) and the temporary `torrent-cache` directory. Seek-bar previews decode
+into the system temp folder and are removed when they expire. Delete the database file to reset
+the app.
 
 Development builds use `%APPDATA%\app.duvy.desktop.dev`, so they never touch production
 data.
@@ -209,10 +217,12 @@ data.
 src/                     React + TypeScript UI
   components/            shell, title bar, poster rows, stream drawer
   components/player/     player HUD styles and skip helpers
-  views/                 Home, Search, Details, Library, Watched, Addons, Onboarding, Player
-  views/settings/        media servers, account sync panels, updates
+  views/                 Home, Search, Details, Library, Watched, Addons, Debrid, Torrent,
+                         Onboarding, Player
+  views/settings/        media servers, sync panels, updates
   lib/bridge.ts          typed invoke() wrappers (mock fallback in browser)
   lib/store.tsx          routing, settings, library, progress, playback orchestration
+  lib/telemetry.ts       opt-in crash reports, scrubbing rules and the playback watchdog
 src-tauri/src/
   addons.rs              protocol models, URL builders (+ tests)
   streams.rs             quality/size/seeders parsing and ranking (+ tests)
@@ -222,17 +232,20 @@ src-tauri/src/
   torrent.rs             librqbit session and loopback HTTP stream (+ tests)
   debrid.rs              four debrid providers and link resolution (+ tests)
   trakt.rs               device auth, scrobble and watched sync (+ tests)
+  nuvio_sync.rs          cloud account sync: profiles, library and progress (+ tests)
+  stremio_sync.rs        addon-account sync: addons, library and resume points (+ tests)
+  json.rs                small readers for untrusted account JSON
   servers.rs             Jellyfin/Emby sign-in, libraries and streams (+ tests)
   skip.rs                IntroDB lookup, manual markers, skip decision (+ tests)
   updates.rs             update checks, background polling, install
   settings.rs            defaults, merge patch, cached load
   secret.rs              DPAPI credential encoding
   frame.rs               seek-bar preview frames
-  playback_log.rs        in-memory playback timeline
+  playback_log.rs        playback timeline written to playback.log (+ tests)
   db.rs                  SQLite schema and queries (+ tests)
   commands.rs            Tauri command surface
   lib.rs                 state wiring, window helpers, background jobs
-scripts/                 player HUD regression checks
+scripts/                 libmpv fetch plus player, regression and crash-report checks
 docs/                    architecture, features, roadmap
 ```
 
