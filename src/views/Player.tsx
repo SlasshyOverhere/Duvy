@@ -1962,10 +1962,10 @@ export function PlayerView() {
   const holdChrome =
     Boolean(loading || failed || paused || local?.ended || surface || showNext);
 
-  // Poll the idle gap instead of arming one timer: a cleared or starved timer
-  // used to strand the chrome on screen for the rest of the session.
+  // The HUD only needs a countdown while it is on screen, and the poll only
+  // runs then: a hidden HUD asking every 100ms is a wakeup for nothing.
   useEffect(() => {
-    if (holdChrome || locked) return;
+    if (holdChrome || locked || !chrome) return;
     actAt.current = Date.now();
     const onKey = () => {
       keyAt.current = Date.now();
@@ -1983,7 +1983,7 @@ export function PlayerView() {
       window.removeEventListener("keydown", onKey, true);
       window.clearInterval(tick);
     };
-  }, [holdChrome, locked, controlFocused]);
+  }, [holdChrome, locked, chrome, controlFocused]);
 
   // A panel belongs to the chrome; when the chrome leaves, so does the panel.
   useEffect(() => {
