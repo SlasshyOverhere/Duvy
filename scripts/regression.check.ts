@@ -317,6 +317,35 @@ run("source list is ordered by file size", () => {
   return out;
 });
 
+run("a disabled addon is not used", () => {
+  const out: string[] = [];
+  const addonsView = read("src/views/Addons.tsx");
+  // The switch has to be there and it has to say what it does.
+  if (!/api\.addons\.setEnabled/.test(addonsView)) {
+    out.push("Addons.tsx has no control that switches an addon off");
+  }
+  if (!/addon-switch-state/.test(addonsView)) {
+    out.push("Addons.tsx does not show whether the addon is on or off");
+  }
+  // Every fan-out asks only the addons that are switched on.
+  for (const [name, body] of [
+    ["home_feed", rustFn(commands, "home_feed")],
+    ["search", rustFn(commands, "search")],
+    ["streams", rustFn(commands, "streams")],
+    ["subtitles", rustFn(commands, "subtitles")],
+    ["addon_meta", rustFn(commands, "addon_meta")],
+  ] as const) {
+    if (!body) {
+      out.push(`commands.rs: ${name}() not found`);
+      continue;
+    }
+    if (!/filter\(\|a\| a\.enabled\)/.test(body)) {
+      out.push(`commands.rs: ${name}() asks a switched-off addon`);
+    }
+  }
+  return out;
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];

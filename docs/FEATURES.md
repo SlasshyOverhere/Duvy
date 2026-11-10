@@ -15,7 +15,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Title details | **Done** | Artwork and title logos, ratings, cast photos, trailer link, similar titles |
 | Episode browser | **Done** | Season tabs, episode list, per-episode progress |
 | Addon protocol | **Done** | Catalog, meta, stream and subtitle endpoints; install, remove, enable, disable |
-| Addon management | **Partial** | Reorder, manifest refresh and a Configure button from `behaviorHints`; no permissions, collections or per-catalog toggles |
+| Addon management | **Partial** | Reorder, manifest refresh and a Configure button from `behaviorHints`; a user-installed addon can be switched off without being removed, and a switched-off addon is never asked. Cinemeta is the built-in default and has no switch. No permissions, collections or per-catalog toggles |
 | Stream picker | **Done** | Quality, size, seeds, cached, HDR, languages, addon filter, size-first or addon-order sorting, copy link and open in browser; no presets or regex autoplay |
 | Library | **Done** | Toggle from any title, filters, local SQLite |
 | Continue watching | **Done** | One row per title, per-episode resume, updates live |
