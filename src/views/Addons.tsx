@@ -12,6 +12,14 @@ const RESOURCE_LABELS: Record<string, string> = {
   meta: "Metadata",
 };
 
+// Cinemeta is the app's own default: it is seeded on first launch and the app
+// has built-in paths for it, so it never gets a switch.
+const BUILTIN_ADDON_ID = "com.linvo.cinemeta";
+
+function isBuiltin(addon: AddonInfo): boolean {
+  return addon.addonId === BUILTIN_ADDON_ID;
+}
+
 function normalizeUrl(raw: string): string {
   const value = raw.trim();
   if (!value) throw new Error("Enter an addon URL");
@@ -106,6 +114,7 @@ export function AddonsPanel() {
     try {
       await api.addons.setEnabled(addon.url, enabled);
       await reload();
+      notify(`${addon.name} ${enabled ? "switched on" : "switched off"}`);
     } catch (e) {
       notify(errorMessage(e), "error");
       await reload();
@@ -229,6 +238,7 @@ export function AddonsPanel() {
             addon.configureUrl && /^https?:\/\//i.test(addon.configureUrl)
               ? addon.configureUrl
               : null;
+          const builtin = isBuiltin(addon);
 
           return (
             <article className={`addon-card${addon.enabled ? "" : " is-off"}`} key={addon.url}>
@@ -244,7 +254,6 @@ export function AddonsPanel() {
                   <h3>{addon.name}</h3>
                   {addon.version ? <span className="addon-version">v{addon.version}</span> : null}
                   {addon.configurationRequired ? <Badge tone="warn">Setup required</Badge> : null}
-                  {addon.enabled ? null : <Badge tone="warn">Disabled</Badge>}
                 </div>
                 <p className="addon-url" title={addon.url}>
                   {addon.url}
@@ -255,6 +264,26 @@ export function AddonsPanel() {
                     <span className="addon-count">{tags}</span>
                   </div>
                 ) : null}
+                <div className="addon-switch">
+                  {builtin ? null : (
+                    <Toggle
+                      checked={addon.enabled}
+                      label={`${addon.enabled ? "Disable" : "Enable"} ${addon.name}`}
+                      disabled={pendingAny}
+                      onChange={(value) => void setEnabled(addon, value)}
+                    />
+                  )}
+                  <span className="addon-switch-state">
+                    {addon.enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  <span className="addon-switch-hint">
+                    {builtin
+                      ? "Installed by default."
+                      : addon.enabled
+                        ? "Used for catalogs, metadata and streams."
+                        : "Installed, but switched off."}
+                  </span>
+                </div>
                 {refreshError && refreshError.url === addon.url ? (
                   <p className="form-error" role="alert">
                     {refreshError.message}
@@ -310,12 +339,6 @@ export function AddonsPanel() {
                         Configure
                       </Button>
                     ) : null}
-                    <Toggle
-                      checked={addon.enabled}
-                      label={`${addon.enabled ? "Disable" : "Enable"} ${addon.name}`}
-                      disabled={pendingAny}
-                      onChange={(value) => void setEnabled(addon, value)}
-                    />
                     <button
                       type="button"
                       className="icon-btn danger"

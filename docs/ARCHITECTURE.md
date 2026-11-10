@@ -96,6 +96,10 @@ src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback wat
    parallel, normalises, de-duplicates by URL or info hash, and sorts by score.
 6. `subtitles` does the same for `/subtitles/...` addons.
 
+A disabled addon is off, not merely hidden: every fan-out filters on `enabled`, so the app stops
+asking it for catalogs, metadata, streams and subtitles. The switch lives on the addon card and
+only user-installed addons get one; Cinemeta is seeded by default and stays on.
+
 Fan-out is bounded: each catalog, meta and stream task has its own budget, so one slow or dead
 addon cannot hold a screen. Commands read settings through `settings::load_cached` instead of a
 SQLite query each, and playback progress writes are merged rather than issued per tick.
