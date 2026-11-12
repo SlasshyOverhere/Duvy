@@ -82,6 +82,8 @@ interface Store {
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
   /** Mark a key watched or unwatched, then refresh the rows it affects. */
   markWatched: (key: string, metaId: string, watched: boolean) => Promise<void>;
+  /** Mark many keys of one title watched, with a single refresh at the end. */
+  markWatchedMany: (keys: string[], metaId: string) => Promise<void>;
   /** Intentional stop, so the close it causes is not reported as a crash. */
   stopPlayer: () => void;
   /** A player control, watched so one that lands nowhere can be reported. */
@@ -932,6 +934,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [progress, refreshProgress],
   );
 
+  /** Catch-up marking: one refresh for the whole batch, not one per episode. */
+  const markWatchedMany = useCallback(
+    async (keys: string[], metaId: string) => {
+      note("mark watched many", { metaId, count: keys.length });
+      for (const key of keys) await api.progress.setWatched(key, metaId, true);
+      await refreshProgress();
+    },
+    [refreshProgress],
+  );
+
   /** The user asked to stop: a close that follows is not a failure. */
   const stopPlayer = useCallback(() => {
     stopRequested.current = true;
@@ -1430,6 +1442,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshProgress,
       saveSettings,
       markWatched,
+      markWatchedMany,
       stopPlayer,
       playerControl,
       toggleLibrary,
@@ -1471,6 +1484,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       refreshProgress,
       saveSettings,
       markWatched,
+      markWatchedMany,
       stopPlayer,
       playerControl,
       toggleLibrary,

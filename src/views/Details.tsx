@@ -4,10 +4,11 @@ import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
-import { PosterCard, Row } from "../components/media";
-import { Button, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
+import { PosterCard, Row, menuFromKey } from "../components/media";
+import { Button, ContextMenu, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
 import {
   episodeCode,
+  episodesUpTo,
   placeholderGradient,
   progressPercent,
   scoreLabel,
@@ -47,6 +48,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     progressFor,
     resumeEntry,
     markWatched,
+    markWatchedMany,
     watched,
     notify,
     buildSession,
@@ -62,6 +64,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<{ key: string; season: number } | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; video: Video } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
@@ -156,6 +159,28 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         .catch(() => notify("Could not update that", "error"));
     },
     [markWatched, id, notify],
+  );
+
+  /** Every unmarked episode from the first one through `target`, in air order. */
+  const unmarkedUpTo = useCallback(
+    (target: Video) => {
+      if (!details) return [];
+      return episodesUpTo(details.videos, target)
+        .map((video) => buildSession(details, video).key)
+        .filter((key) => !marks.has(key));
+    },
+    [details, buildSession, marks],
+  );
+
+  const markUpTo = useCallback(
+    (target: Video) => {
+      const keys = unmarkedUpTo(target);
+      if (!keys.length) return;
+      markWatchedMany(keys, id)
+        .then(() => notify(`${keys.length} episodes marked as watched`))
+        .catch(() => notify("Could not update those", "error"));
+    },
+    [unmarkedUpTo, markWatchedMany, id, notify],
   );
 
   const defaultSeason = useMemo(() => (details ? firstSeason(details) : null), [details]);
@@ -261,11 +286,19 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <div
           key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
           className="episode"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, video });
+          }}
         >
           <button
             type="button"
             className="episode-open"
             onClick={() => openSources(video)}
+            onKeyDown={(event) => {
+              const at = menuFromKey(event);
+              if (at) setMenu({ ...at, video });
+            }}
             aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
           >
             <span className="episode-thumb">
@@ -560,6 +593,43 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           </Row>
         </section>
       ) : null}
+
+      {menu
+        ? (() => {
+            const key = buildSession(details, menu.video).key;
+            const entry = progressFor(key);
+            const done =
+              marks.has(key) ||
+              (entry ? progressPercent(entry.position, entry.duration) >= 90 : false);
+            const earlier = unmarkedUpTo(menu.video);
+            return (
+              <ContextMenu
+                x={menu.x}
+                y={menu.y}
+                title={`${episodeCode(menu.video)}${
+                  menu.video.title ? ` · ${menu.video.title}` : ""
+                }`}
+                onClose={() => setMenu(null)}
+                actions={[
+                  {
+                    label: done ? "Mark as unwatched" : "Mark as watched",
+                    icon: "check",
+                    onSelect: () => toggleEpisodeWatched(key, !done),
+                  },
+                  {
+                    label:
+                      earlier.length > 0
+                        ? `Mark all ${earlier.length} up to here watched`
+                        : "Nothing earlier to mark",
+                    icon: "check",
+                    disabled: earlier.length === 0,
+                    onSelect: () => markUpTo(menu.video),
+                  },
+                ]}
+              />
+            );
+          })()
+        : null}
 
       <StreamDrawer
         open={drawer !== null}

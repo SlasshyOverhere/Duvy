@@ -80,6 +80,26 @@ export function episodeCode(video: { season?: number | null; episode?: number | 
   return `S${String(video.season).padStart(2, "0")}E${String(number).padStart(2, "0")}`;
 }
 
+/** Air order across the whole show: season first, so Specials stay first. */
+export function airOrder(video: {
+  season?: number | null;
+  episode?: number | null;
+  number?: number | null;
+}): [number, number] {
+  return [video.season ?? 1, video.episode ?? video.number ?? 0];
+}
+
+/** Everything from the first episode through `target`, for catch-up marking. */
+export function episodesUpTo<
+  T extends { season?: number | null; episode?: number | null; number?: number | null },
+>(videos: T[], target: T): T[] {
+  const [targetSeason, targetEpisode] = airOrder(target);
+  return videos.filter((video) => {
+    const [season, episode] = airOrder(video);
+    return season < targetSeason || (season === targetSeason && episode <= targetEpisode);
+  });
+}
+
 /** Stable tonal backdrop for artwork placeholders, derived from a title. */
 export function placeholderGradient(seed: string): string {
   let hash = 0;
