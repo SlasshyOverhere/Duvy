@@ -2307,16 +2307,57 @@ button.pill:hover {
 
 .episode {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 16px 8px 16px 0;
+  border-bottom: 1px solid var(--glass-edge-soft);
+  background: var(--glass-fill-soft);
+  transition: background-color 0.15s var(--ease);
+}
+
+.episode-open {
+  display: grid;
   grid-template-columns: 196px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
   width: 100%;
-  padding: 16px 8px 16px 0;
+  padding: 0;
   border: 0;
-  border-bottom: 1px solid var(--glass-edge-soft);
-  background: var(--glass-fill-soft);
+  background: none;
+  color: inherit;
   text-align: left;
-  transition: background-color 0.15s var(--ease);
+  font: inherit;
+}
+
+.episode-watch {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-edge);
+  background: transparent;
+  color: var(--faint);
+  opacity: 0.45;
+  transition:
+    opacity 0.14s var(--ease),
+    background-color 0.14s var(--ease),
+    border-color 0.14s var(--ease);
+}
+
+.episode:hover .episode-watch,
+.episode-watch:focus-visible {
+  opacity: 1;
+}
+
+.episode-watch[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+  opacity: 1;
 }
 
 .episode:hover {
@@ -2360,8 +2401,8 @@ button.pill:hover {
 }
 
 .episode:hover .episode-play,
-.episode:focus-visible .episode-play,
-.episode:focus-within .episode-play {
+.episode-open:focus-visible .episode-play,
+.episode-open:focus-within .episode-play {
   opacity: 1;
 }
 
@@ -5011,7 +5052,7 @@ input[type="range"]::-webkit-slider-thumb {
     flex-basis: 262px;
   }
 
-  .episode {
+  .episode-open {
     grid-template-columns: 168px minmax(0, 1fr);
   }
 }
@@ -5022,7 +5063,7 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 24px 14px;
   }
 
-  .episode {
+  .episode-open {
     grid-template-columns: 146px minmax(0, 1fr);
   }
 
@@ -5186,7 +5227,7 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 14px;
   }
 
-  .episode {
+  .episode-open {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
