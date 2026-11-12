@@ -3923,8 +3923,8 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text);
 }
 
-/* Trakt, Debrid and Torrent ship as standalone pages; inside a settings card
-   their own page chrome and card shells would nest, so they flatten. */
+/* Trakt and Debrid ship as standalone pages; inside a settings card their own
+   page chrome and card shells would nest, so they flatten. */
 .settings-embed > .page {
   padding: 0;
   margin: 10px 0 0;

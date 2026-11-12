@@ -37,10 +37,6 @@ pub struct Settings {
     pub nuvio_base_url: String,
     /// Override for the Nuvio publishable key. Empty means the bundled one.
     pub nuvio_api_key: String,
-    /// User consent to peer-to-peer streaming (off until explicitly accepted).
-    pub p2p_consent: bool,
-    /// Upper bound for the torrent cache, in megabytes.
-    pub p2p_cache_mb: i64,
     /// How much to cache ahead of the playhead. Unit is "sec", "min", "mb" or "gb".
     pub buffer_forward_value: i64,
     pub buffer_forward_unit: String,
@@ -81,8 +77,6 @@ impl Default for Settings {
             stremio_auto_sync: true,
             nuvio_base_url: String::new(),
             nuvio_api_key: String::new(),
-            p2p_consent: false,
-            p2p_cache_mb: 2048,
             buffer_forward_value: 256,
             buffer_forward_unit: "mb".into(),
             buffer_backward_value: 75,
@@ -126,7 +120,6 @@ impl Settings {
         }
         self.seek_step = self.seek_step.clamp(1, 600);
         self.home_rows_limit = self.home_rows_limit.clamp(1, 24);
-        self.p2p_cache_mb = self.p2p_cache_mb.clamp(64, 1_048_576);
         // Megabyte maths in the player multiplies these by up to 1024.
         self.buffer_forward_value = self.buffer_forward_value.clamp(1, 65_536);
         self.buffer_backward_value = self.buffer_backward_value.clamp(1, 65_536);

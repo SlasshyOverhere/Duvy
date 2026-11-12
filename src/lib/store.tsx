@@ -215,13 +215,10 @@ function resumePosition(position: number, duration: number): number {
 export function pickSource(
   options: StreamOption[],
   quality: string,
-  p2pAllowed = true,
   playing?: StreamOption | null,
   remembered?: SourceMemory | null,
 ): StreamOption | undefined {
-  const playable = options.filter(
-    (stream) => stream.playable && (p2pAllowed || Boolean(stream.url)),
-  );
+  const playable = options.filter((stream) => stream.playable);
   if (playing?.infoHash) {
     const pack = playing.infoHash.toLowerCase();
     const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
@@ -368,11 +365,14 @@ export function rememberSubtitle(key: string | null | undefined, choice: Subtitl
   }
 }
 
-/** Explain why nothing could play, without sending the user to the addons page for a consent gate. */
-export function noSourceError(options: StreamOption[], p2pAllowed: boolean): Error {
-  if (!p2pAllowed && options.some((stream) => stream.playable && stream.infoHash)) {
+/** Explain why nothing could play, without sending the user to the addons page. */
+export function noSourceError(options: StreamOption[]): Error {
+  const torrentOnly = options.some(
+    (stream) => stream.playable && (stream.infoHash || /^magnet:/i.test(stream.url ?? "")),
+  );
+  if (torrentOnly) {
     return new Error(
-      "Only torrent sources are available. Enable P2P playback in Settings to play them.",
+      "Only torrent sources are available. Connect a debrid account in Settings → Integrations to play them.",
     );
   }
   return new Error("No playable source found for this title.");
@@ -1112,8 +1112,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /**
    * Turn a source row into something mpv can actually open: HTTP links pass
-   * through (debrid accounts may still need to unrestrict them), torrents try
-   * the connected debrid first, then the local engine behind the P2P gate.
+   * through (debrid accounts may still need to unrestrict them), and torrent
+   * rows are resolved by the connected debrid provider.
    */
   const resolveStream = useCallback(
     async (stream: StreamOption): Promise<string> => {
@@ -1148,33 +1148,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Only the hash and the file index: a stray addon parameter never rides along.
       const magnet = `magnet:?xt=urn:btih:${hash}${stream.fileIdx != null ? `&fileIdx=${stream.fileIdx}` : ""}`;
 
-      // A connected debrid beats the local engine: it has the file already.
+      // A torrent row plays through debrid only: the file is already there.
       const providers = await api.debrid.providers().catch(() => []);
-      let debridError: unknown = null;
-      if (providers.some((provider) => provider.connected)) {
-        try {
-          const url = await api.debrid.resolve(magnet);
-          setPlayingSource(stream);
-          return url;
-        } catch (error) {
-          debridError = error;
-        }
-      }
-      if (!settings?.p2pConsent) {
-        // Surface the real debrid failure instead of blaming the P2P gate.
-        if (debridError) throw debridError;
+      if (!providers.some((provider) => provider.connected)) {
         throw new Error(
-          "That is a torrent source. Allow P2P playback in Settings before starting it.",
+          "That is a torrent source. Connect a debrid account in Settings → Integrations to play it.",
         );
       }
-      const url = await api.torrent.start(
-        magnet,
-        stream.fileIdx != null ? String(stream.fileIdx) : undefined,
-      );
+      const url = await api.debrid.resolve(magnet);
       setPlayingSource(stream);
       return url;
     },
-    [settings?.p2pConsent],
+    [],
   );
 
   /** Resolve metadata, resume point, and the best playable source in one go. */
@@ -1249,11 +1234,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const found = pickSource(
             options,
             settings?.preferredQuality ?? "auto",
-            settings?.p2pConsent ?? false,
             playingSource,
             memory,
           );
-          if (!found) throw noSourceError(options, settings?.p2pConsent ?? false);
+          if (!found) throw noSourceError(options);
           url = await resolveStream(found);
           source = found;
         }
@@ -1295,7 +1279,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       progressFor,
       resolveStream,
       settings?.autoResume,
-      settings?.p2pConsent,
       settings?.preferredQuality,
       playingSource,
     ],
@@ -1361,11 +1344,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const found = pickSource(
             sources,
             settings?.preferredQuality ?? "auto",
-            settings?.p2pConsent ?? false,
             playingSource,
             memory,
           );
-          if (!found) throw noSourceError(sources, settings?.p2pConsent ?? false);
+          if (!found) throw noSourceError(sources);
           url = await resolveStream(found);
           source = found;
         }
@@ -1413,7 +1395,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       playRequest,
       resolveStream,
-      settings?.p2pConsent,
       settings?.preferredQuality,
       playingSource,
     ],

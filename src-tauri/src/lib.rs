@@ -21,7 +21,6 @@ mod skip;
 mod streams;
 mod stremio_sync;
 mod tmdb;
-mod torrent;
 mod trakt;
 mod updates;
 
@@ -697,9 +696,6 @@ pub fn run() {
             servers::srv_remove,
             servers::srv_items,
             servers::srv_stream,
-            torrent::start,
-            torrent::stats,
-            torrent::stop,
             trakt::status,
             trakt::begin,
             trakt::poll,

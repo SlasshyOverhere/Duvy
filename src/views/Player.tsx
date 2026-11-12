@@ -1241,7 +1241,6 @@ export function PlayerView() {
           pickSource(
             rows,
             settings?.preferredQuality ?? "auto",
-            settings?.p2pConsent ?? false,
             playingSource,
             memory,
           );
@@ -1253,7 +1252,7 @@ export function PlayerView() {
           sources = await api.streams(request);
           source = choose(sources);
         }
-        if (!source) throw noSourceError(sources, settings?.p2pConsent ?? false);
+        if (!source) throw noSourceError(sources);
         const url = await resolveStream(source);
         // A pending open that resolves after the screen closed must bail.
         if (!alive.current) return;
@@ -1286,7 +1285,6 @@ export function PlayerView() {
       progressFor,
       pushPlaybackPrefs,
       resolveStream,
-      settings?.p2pConsent,
       settings?.preferredQuality,
       playingSource,
     ],

@@ -5,8 +5,8 @@ import { useApp } from "../lib/store";
 import { telemetryAvailable } from "../lib/telemetry";
 import { Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 
-// Panels are split per tab: opening Settings must not fetch the addon, Trakt,
-// debrid and torrent code before any of them is on screen.
+// Panels are split per tab: opening Settings must not fetch the addon, Trakt and
+// debrid code before any of them is on screen.
 const NuvioSync = lazy(() =>
   import("./settings/NuvioSync").then((m) => ({ default: m.NuvioSync })),
 );
@@ -16,7 +16,6 @@ const StremioSync = lazy(() =>
 const AddonsPanel = lazy(() => import("./Addons").then((m) => ({ default: m.AddonsPanel })));
 const TraktView = lazy(() => import("./Trakt"));
 const DebridView = lazy(() => import("./Debrid"));
-const TorrentView = lazy(() => import("./Torrent"));
 const MediaServers = lazy(() =>
   import("./settings/MediaServers").then((m) => ({ default: m.MediaServers })),
 );
@@ -47,7 +46,7 @@ const SECTIONS: Section[] = [
     group: "Playback",
     blurb: "How playback remembers your place and moves between episodes.",
     keywords:
-      "player quality 4k 1080p source order sort size biggest addon hardware decoding resume next episode skip seek p2p torrent cache disk buffer memory ram forward backward",
+      "player quality 4k 1080p source order sort size biggest addon hardware decoding resume next episode skip seek buffer memory ram forward backward",
   },
   {
     id: "addons",
@@ -464,8 +463,6 @@ export function SettingsView({ section }: { section?: string }) {
   const [tab, setTab] = useState(knownSection(section) ? (section as string) : "general");
   const [query, setQuery] = useState("");
   const [tmdbKey, setTmdbKey] = useState(settings?.tmdbApiKey ?? "");
-  const [p2pReview, setP2pReview] = useState(false);
-  const [p2pAck, setP2pAck] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
   const [indicator, setIndicator] = useState<{ top: number; height: number } | null>(null);
 
@@ -818,96 +815,6 @@ export function SettingsView({ section }: { section?: string }) {
                     per second.
                   </span>
                 </p>
-              </Card>
-
-              <Card
-                title="Peer-to-peer streaming"
-                description="Torrent sources stay off until you opt in. Debrid and direct links work either way."
-              >
-                {settings.p2pConsent ? (
-                  <>
-                    <Row
-                      title="P2P playback is on"
-                      description="Torrent sources appear in search and detail pages. A running session keeps going until you stop it below."
-                      control={
-                        <Toggle
-                          label="Allow P2P playback"
-                          checked
-                          onChange={(next) => update({ p2pConsent: next })}
-                        />
-                      }
-                    />
-                    <Callout tone="warn" title="Your IP is visible to the swarm">
-                      Streamed pieces are cached on disk and deleted when the session stops. Leftovers
-                      above {settings.p2pCacheMb} MB are wiped before the next torrent starts.
-                    </Callout>
-                  </>
-                ) : (
-                  <>
-                    <Row
-                      title="P2P playback is off"
-                      description="Torrent sources stay out of search and detail pages."
-                      control={
-                        <Button
-                          onClick={() => {
-                            setP2pReview((open) => !open);
-                            setP2pAck(false);
-                          }}
-                        >
-                          {p2pReview ? "Close" : "Review and enable"}
-                        </Button>
-                      }
-                    />
-                    {p2pReview ? (
-                      <Callout tone="warn" title="Enabling P2P exposes your IP address">
-                        <ul>
-                          <li>
-                            Every peer in the swarm sees the address you connect from, exactly like any
-                            torrent client. Your internet provider sees the traffic too.
-                          </li>
-                          <li>
-                            Streamed pieces are cached on disk, capped at {settings.p2pCacheMb} MB, and
-                            deleted when the session stops.
-                          </li>
-                          <li>
-                            Switch P2P off at any time to hide torrent sources. A stream already
-                            running keeps going until you stop it below.
-                          </li>
-                        </ul>
-                        <label className="settings-check">
-                          <input
-                            type="checkbox"
-                            checked={p2pAck}
-                            onChange={(event) => setP2pAck(event.target.checked)}
-                          />
-                          <span>I understand my IP address will be visible to the torrent swarm.</span>
-                        </label>
-                        <Button
-                          variant="primary"
-                          disabled={!p2pAck}
-                          onClick={async () => {
-                            if (!(await update({ p2pConsent: true }))) return;
-                            setP2pAck(false);
-                            setP2pReview(false);
-                            notify("P2P playback enabled", "success");
-                          }}
-                        >
-                          Enable P2P playback
-                        </Button>
-                      </Callout>
-                    ) : null}
-                  </>
-                )}
-
-                <Row
-                  title="Disk cache"
-                  description="Bounds anything the system still holds open if a wipe cannot finish."
-                  control={<span className="settings-value">{settings.p2pCacheMb} MB</span>}
-                />
-
-                <div className="settings-embed">
-                  <TorrentView />
-                </div>
               </Card>
 
               <Card
