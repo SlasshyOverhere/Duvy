@@ -1797,6 +1797,32 @@
   object-fit: cover;
 }
 
+/* No art: a compact bar, copy and action on one line, so the type is not
+   floating in an empty panel. */
+.pv .pv-upnext--plain {
+  aspect-ratio: auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 2.75rem 1rem 1rem;
+  background: var(--pv-wash), var(--pv-panel);
+}
+
+.pv .pv-upnext--plain .pv-upnext-copy {
+  position: static;
+  flex: 1;
+  min-width: 0;
+}
+
+.pv .pv-upnext--plain .pv-upnext-scrim {
+  display: none;
+}
+
+.pv .pv-upnext--plain .pv-upnext-go {
+  position: static;
+  flex: 0 0 auto;
+}
+
 /* A left-to-right wash clears the type, a bottom lift grounds it, and the
    corner dim keeps the close button visible on a bright still. */
 .pv .pv-upnext-scrim {

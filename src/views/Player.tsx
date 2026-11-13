@@ -2817,7 +2817,10 @@ export function PlayerView() {
       ) : null}
 
       {showNext && nextEpisode ? (
-        <section className="pv-upnext" aria-label="Next episode">
+        <section
+          className={`pv-upnext${nextArt ? "" : " pv-upnext--plain"}`}
+          aria-label="Next episode"
+        >
           {nextArt ? (
             <img
               className="pv-upnext-art"
