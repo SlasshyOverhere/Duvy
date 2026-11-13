@@ -262,11 +262,7 @@ export function HomeView() {
   const catalogRows = useMemo(
     () =>
       feedRows.map((row) => (
-        <Row
-          key={row.id}
-          title={row.title}
-          detail={row.addon ? <span className="row-detail">{row.addon}</span> : undefined}
-        >
+        <Row key={row.id} title={row.title}>
           {row.items.map((item) => (
             <PosterCard
               key={`${row.id}-${item.id}-${item.type}`}
@@ -285,10 +281,7 @@ export function HomeView() {
   const continueRow = useMemo(
     () =>
       continuing.length === 0 ? null : (
-        <Row
-          title="Continue watching"
-          detail={<span className="row-detail">Pick up where you left off</span>}
-        >
+        <Row title="Continue watching">
           {continuing.map(({ entry, next }) => (
             <ContinueCard
               key={entry.key}
@@ -316,6 +309,14 @@ export function HomeView() {
 
   return (
     <div className="home">
+      {hero?.background ? (
+        <div
+          className="ambient"
+          aria-hidden="true"
+          style={{ backgroundImage: `url("${hero.background}")` }}
+        />
+      ) : null}
+
       {loading && !feed ? <HomeSkeleton /> : null}
 
       {hero ? (

@@ -12,7 +12,7 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
 import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
-import { ContextMenu, Icon, IconButton, Badge, ImdbMark, type ContextAction } from "./ui";
+import { ContextMenu, Icon, IconButton, type ContextAction } from "./ui";
 
 function initials(name: string) {
   return name
@@ -182,19 +182,6 @@ export const PosterCard = memo(function PosterCard({
               .join(" · ")}
           </span>
         </div>
-        {onPlay ? (
-          <button
-            type="button"
-            className="poster-play"
-            aria-label={`Play ${item.name}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onPlay();
-            }}
-          >
-            <Icon name="play" size={17} />
-          </button>
-        ) : null}
       </div>
       {caption ? (
         <div className="poster-caption">
@@ -230,6 +217,9 @@ export function Row({
   children: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+
+  const onScroll = () => setAtStart((scroller.current?.scrollLeft ?? 0) < 8);
 
   const scroll = (direction: number) => {
     const node = scroller.current;
@@ -297,16 +287,22 @@ export function Row({
     <section className="row">
       <header className="row-head">
         <h2>{title}</h2>
-        <div className="row-head-right">
-          {detail}
-          <div className="row-arrows">
-            <IconButton icon="back" label="Scroll left" size={16} onClick={() => scroll(-1)} />
-            <IconButton icon="forward" label="Scroll right" size={16} onClick={() => scroll(1)} />
-          </div>
-        </div>
+        {detail ? <div className="row-head-right">{detail}</div> : null}
       </header>
-      <div className="row-scroller" ref={scroller}>
-        {children}
+      <div className="row-track">
+        <div className="row-scroller" ref={scroller} onScroll={onScroll}>
+          {children}
+        </div>
+        <div className="row-arrows">
+          <IconButton
+            icon="back"
+            label="Scroll left"
+            size={18}
+            className={atStart ? "is-edge is-hidden" : "is-edge"}
+            onClick={() => scroll(-1)}
+          />
+          <IconButton icon="forward" label="Scroll right" size={18} className="is-edge" onClick={() => scroll(1)} />
+        </div>
       </div>
     </section>
   );
@@ -384,59 +380,68 @@ export function ContinueCard({
   if (gone) return null;
 
   return (
-    <button
-      type="button"
-      className="continue-card"
-      onClick={onOpen}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        setMenu({ x: event.clientX, y: event.clientY });
-      }}
-      onKeyDown={(event) => {
-        const at = menuFromKey(event);
-        if (at) setMenu(at);
-      }}
-      style={{ background: placeholderGradient(name) } as CSSProperties}
-    >
-      {(background || poster) && !failed ? (
-        <img
-          src={background ?? poster ?? ""}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-        />
-      ) : null}
-      <span className="continue-scrim" />
-      <span className="continue-body">
-        <span className="continue-name">{name}</span>
-        {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
-      </span>
-      {next ? (
-        <span className="continue-left">Next up</span>
-      ) : Number.isFinite(left) && left > 0 ? (
-        <span className="continue-left">{remainingLabel(left)}</span>
-      ) : null}
-      <span className="continue-play">
-        <Icon name="play" size={16} />
-      </span>
-      {next ? null : (
-        <span className="continue-progress">
-          <span style={{ width: `${Math.max(2, percent)}%` }} />
+    <div className="continue-item">
+      <button
+        type="button"
+        className="continue-card"
+        onClick={onOpen}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({ x: event.clientX, y: event.clientY });
+        }}
+        onKeyDown={(event) => {
+          const at = menuFromKey(event);
+          if (at) setMenu(at);
+        }}
+        style={{ background: placeholderGradient(name) } as CSSProperties}
+      >
+        {(background || poster) && !failed ? (
+          <img
+            src={background ?? poster ?? ""}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
+        ) : null}
+        <span className="continue-veil" />
+        <span className="continue-hover">
+          <span className="continue-hover-name">{name}</span>
+          {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
+          {next ? (
+            <span className="continue-hover-sub">Next up</span>
+          ) : Number.isFinite(left) && left > 0 ? (
+            <span className="continue-hover-sub">{remainingLabel(left)}</span>
+          ) : null}
         </span>
-      )}
-      {menu ? (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          title={name}
-          actions={actions}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
-    </button>
+        {next ? null : (
+          <span className="continue-progress">
+            <span style={{ width: `${Math.max(2, percent)}%` }} />
+          </span>
+        )}
+        {menu ? (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            title={name}
+            actions={actions}
+            onClose={() => setMenu(null)}
+          />
+        ) : null}
+      </button>
+      <div className="continue-caption">
+        <span className="continue-name">{name}</span>
+        <span className="continue-sub">
+          {subtitle ? <>{subtitle} · </> : null}
+          {next ? "Next up" : Number.isFinite(left) && left > 0 ? remainingLabel(left) : null}
+        </span>
+      </div>
+    </div>
   );
 }
+
+// How long a featured title holds the hero. The dot progress reads from this.
+const SLIDE_MS = 9000;
 
 export function Hero({
   item,
@@ -462,6 +467,8 @@ export function Hero({
   const [failed, setFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [paused, setPaused] = useState(false);
+  // Bumped whenever the rotation clock restarts, to replay the dot fill.
+  const [run, setRun] = useState(0);
   // The outgoing artwork stays under the incoming one so the crossfade never
   // dips through the black hero background. The first one does not fade in:
   // the hero is already the first frame on screen.
@@ -486,13 +493,17 @@ export function Hero({
   // Rotate the featured titles; hovering or focusing holds the current one.
   useEffect(() => {
     if (!onNext || paused) return;
-    const timer = setTimeout(onNext, 9000);
+    // Every restart of the clock restarts the dot fill, so the bar always
+    // measures the time that is actually left.
+    setRun((value) => value + 1);
+    const timer = setTimeout(onNext, SLIDE_MS);
     return () => clearTimeout(timer);
   }, [item.id, paused, onNext]);
 
   return (
     <section
       className="hero"
+      style={{ "--hero-slide": `${SLIDE_MS}ms` } as CSSProperties}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -535,65 +546,88 @@ export function Hero({
               item.name
             )}
           </h1>
-          <div className="hero-meta">
-            {[
-              item.imdbRating ? (
-                <Badge tone="accent" key="rating">
-                  <span className="rating-value">{item.imdbRating}</span>
-                  <ImdbMark />
-                </Badge>
-              ) : null,
-              item.releaseInfo ? <span key="year">{item.releaseInfo}</span> : null,
-              item.runtime ? <span key="runtime">{item.runtime}</span> : null,
-              ...(item.genres ?? [])
-                .slice(0, 3)
-                .map((genre) => (
-                  <span key={genre} className="hero-genre">
-                    {genre}
+          <div className="hero-copy">
+            <div className="hero-meta">
+              {[
+                item.imdbRating ? (
+                  <span key="rating" className="hero-meta-item">
+                    <Icon name="star" size={16} />
+                    {item.imdbRating}
                   </span>
-                )),
-            ]
-              .filter(Boolean)
-              .map((node, index) => (
-                <Fragment key={index}>
-                  {index > 0 ? (
-                    <span className="hero-sep" aria-hidden="true">
-                      •
+                ) : null,
+                item.releaseInfo ? (
+                  <span key="year" className="hero-meta-item">
+                    <Icon name="calendar" size={16} />
+                    {item.releaseInfo}
+                  </span>
+                ) : null,
+                item.runtime ? <span key="runtime">{item.runtime}</span> : null,
+                ...(item.genres ?? [])
+                  .slice(0, 3)
+                  .map((genre) => (
+                    <span key={genre} className="hero-meta-item">
+                      <Icon name="globe" size={16} />
+                      {genre}
                     </span>
-                  ) : null}
-                  {node}
-                </Fragment>
-              ))}
-          </div>
-          {item.description ? <p className="hero-overview">{item.description}</p> : null}
-          <div className="hero-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={onPlay}
-              title="Play"
-              aria-label="Play"
-            >
-              <Icon name="play" size={20} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-square"
-              onClick={onLibrary}
-              title={inLibrary ? "Remove from library" : "Add to library"}
-              aria-label={inLibrary ? "Remove from library" : "Add to library"}
-            >
-              <Icon name={inLibrary ? "check" : "plus"} size={20} />
-            </button>
-            <button type="button" className="hero-link" onClick={onOpen}>
-              More info
-            </button>
+                  )),
+              ]
+                .filter(Boolean)
+                .map((node, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? (
+                      <span className="hero-sep" aria-hidden="true">
+                        •
+                      </span>
+                    ) : null}
+                    {node}
+                  </Fragment>
+                ))}
+            </div>
+            {item.description ? <p className="hero-overview">{item.description}</p> : null}
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onPlay}
+                title="Play"
+                aria-label="Play"
+              >
+                <Icon name="play" size={20} />
+                <span>Play</span>
+              </button>
+              <div className="hero-pill-group">
+                <button
+                  type="button"
+                  className="hero-pill-btn"
+                  onClick={onLibrary}
+                  title={inLibrary ? "Remove from library" : "Add to library"}
+                  aria-label={inLibrary ? "Remove from library" : "Add to library"}
+                >
+                  <Icon name={inLibrary ? "check" : "plus"} size={24} />
+                </button>
+                <span className="hero-pill-divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="hero-pill-btn"
+                  onClick={onOpen}
+                  title="More info"
+                  aria-label="More info"
+                >
+                  <Icon name="info" size={24} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       {onSelect && typeof index === "number" && typeof count === "number" && count > 1 ? (
-        <div className="hero-dots" role="group" aria-label="Featured titles">
+        <div
+          key={run}
+          className={`hero-dots${paused ? " is-paused" : ""}`}
+          role="group"
+          aria-label="Featured titles"
+        >
           {Array.from({ length: count }, (_, dot) => (
             <button
               key={dot}

@@ -28,7 +28,7 @@ import type {
   SubtitleTrack,
   Video,
 } from "../lib/types";
-import { ContextMenu, Icon, Spinner } from "../components/ui";
+import { ContextMenu, Icon, LogoMark, Spinner } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -111,6 +111,49 @@ function Overlay({
         <div className="pv-overlay-scroll">{children}</div>
       </section>
     </div>
+  );
+}
+
+/** Bits per second, in the unit a person would say out loud. */
+function bitrateLabel(bits: number): string {
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbps`;
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbps`;
+  return `${Math.round(bits / 1e3)} kbps`;
+}
+
+/** The cinema name for a display aspect, when it has one. */
+function aspectLabel(aspect: number): string | null {
+  const near = (target: number) => Math.abs(aspect - target) < 0.06;
+  if (near(2.39) || near(2.4) || near(2.35)) return "Scope";
+  if (near(1.85) || near(1.86)) return "Flat";
+  if (near(16 / 9)) return "16:9";
+  if (near(4 / 3)) return "4:3";
+  if (near(2)) return "2:1";
+  return null;
+}
+
+/** One readout group: a quiet caption and its label/value lines. */
+function InfoGroup({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<[string, string | null | undefined]>;
+}) {
+  const shown = rows.filter(([, value]) => value);
+  if (shown.length === 0) return null;
+  return (
+    <section className="pv-info-group">
+      <h3>{title}</h3>
+      <dl>
+        {shown.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd title={value ?? undefined}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -687,7 +730,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
   currentVariants: SubVariant[];
   styleOn: boolean;
   activeSub: number | null;
-  loadedSub: { lang: string; url: string } | null;
+  loadedSub: { lang: string; url: string; addon?: string } | null;
   subStyle: SubtitleStyle;
   onLang: (lang: string | null) => void;
   onChoose: (variant: SubVariant) => void;
@@ -962,7 +1005,9 @@ export function PlayerView() {
   const [nextOff, setNextOff] = useState(false);
   const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
-  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string } | null>(null);
+  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string; addon?: string } | null>(
+    null,
+  );
   const [sources, setSources] = useState<StreamOption[] | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -973,7 +1018,6 @@ export function PlayerView() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [badArt, setBadArt] = useState<string[]>([]);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
-  const [markMsg, setMarkMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const dragging = useRef(false);
@@ -1157,9 +1201,16 @@ export function PlayerView() {
   const muted = pending.muted ?? local?.muted ?? false;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
-  const failed = local?.error ?? retryError;
   // A source that died well before the credits: retried, never called over.
   const dropped = Boolean(local?.cutShort);
+  // mpv could not open or continue the source at all.
+  const dead = Boolean(local?.error);
+  // While the source can still be re-resolved, a dead stream is recovered
+  // silently: the failure card appears only once that recovery has given up.
+  const recoverable = Boolean(playingSource && session);
+  const failed = retryError ?? (dead && recoverable ? null : local?.error);
+  // mpv drained its cache: the picture is frozen on the network, not on us.
+  const buffering = Boolean(local?.buffering) && !paused && !failed;
   // The first painted frame; older snapshots omit the field.
   const firstFrame = (local as (PlayerSnapshot & { started?: boolean }) | null)?.started === true;
   // A live stream never reports a duration, so only silence before the first
@@ -1447,6 +1498,18 @@ export function PlayerView() {
     [setVolume],
   );
 
+  // Dragging the slider is an unmute: a muted track must not swallow the level.
+  const dragVolume = useCallback(
+    (value: number) => {
+      if (muted) {
+        setPending((current) => ({ ...current, muted: false }));
+        send("mute", false);
+      }
+      setVolume(value);
+    },
+    [muted, send, setVolume],
+  );
+
   const toggleMute = useCallback(() => {
     // A zero level is already silent, so muting it again would do nothing.
     if (silent && Math.round(local?.volume ?? 0) === 0) {
@@ -1592,7 +1655,7 @@ export function PlayerView() {
         return;
       }
       if (!variant.url) return;
-      setLoadedSub({ lang: variant.lang, url: variant.url });
+      setLoadedSub({ lang: variant.lang, url: variant.url, addon: variant.source });
       rememberSubtitle(sessionRef.current?.key, {
         lang: variant.lang,
         url: variant.url,
@@ -1651,8 +1714,9 @@ export function PlayerView() {
     [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream],
   );
 
-  // A source that dies mid-film is reopened from the same spot, silently. A
-  // second drop within a minute is not a blip: that one surfaces the failure.
+  // A source that dies is re-resolved from its addon and reopened at the same
+  // spot, silently: the token may simply have expired. A second failure within
+  // a minute is not a blip, so that one surfaces.
   const lastRetry = useRef(0);
   const retrying = useRef(false);
   const resumeDropped = useCallback(async () => {
@@ -1674,7 +1738,7 @@ export function PlayerView() {
   }, [local?.title, playRequest, playingSource, resolveStream]);
 
   useEffect(() => {
-    if (!dropped || failed || retrying.current) return;
+    if ((!dropped && !dead) || retrying.current) return;
     const now = Date.now();
     if (now - lastRetry.current < 60_000) {
       setRetryError("The stream keeps dropping. Choose another source.");
@@ -1688,7 +1752,7 @@ export function PlayerView() {
         setRetryError("The stream ended early and could not be resumed. Choose another source.");
       }
     });
-  }, [dropped, failed, resumeDropped]);
+  }, [dead, dropped, resumeDropped]);
 
   // A new picture clears the retry failure, however it was opened.
   useEffect(() => {
@@ -1719,8 +1783,9 @@ export function PlayerView() {
   }, [locked]);
 
   // Keep the close controls on screen while a source is opening or has failed.
-  const holdChrome =
-    Boolean(loading || failed || paused || local?.ended || surface || showNext);
+  // Paused is not in here: a paused frame is still a frame, and the chrome has
+  // to be able to leave the picture alone until the pointer asks for it again.
+  const holdChrome = Boolean(loading || failed || local?.ended || surface || showNext);
 
   // The HUD only needs a countdown while it is on screen, and the poll only
   // runs then: a hidden HUD asking every 100ms is a wakeup for nothing.
@@ -1801,7 +1866,6 @@ export function PlayerView() {
   const imdbId = details?.imdbId ?? null;
   useEffect(() => {
     setMarkers(null);
-    setMarkMsg(null);
     const key = session?.key;
     if (!key || !isTauri()) return;
     let live = true;
@@ -1961,35 +2025,6 @@ export function PlayerView() {
   const nudgeDelay = useCallback((delta: number) => {
     setSubStyle((current) => ({ ...current, delay: tenths(current.delay + delta, current.delay) }));
   }, []);
-
-  const saveMarker = useCallback(
-    async (patch: SkipEntry, label: string) => {
-      const key = session?.key;
-      if (!key) return;
-      if (!isTauri()) {
-        setMarkMsg("Markers save in the desktop app");
-        return;
-      }
-      const at = posRef.current;
-      // skip_set replaces the entry whole, so the other marker is carried over.
-      // A save can land before skip_get: read the stored entry first then.
-      const known =
-        markers ??
-        (await invoke<SkipEntry | null>("skip_get", { metaId: key }).catch(() => null));
-      const merged: SkipEntry = { ...(known ?? {}), ...patch };
-      try {
-        const entry = await invoke<SkipEntry | null>("skip_set", {
-          metaId: key,
-          entry: merged,
-        });
-        setMarkers(entry);
-        setMarkMsg(`${label} at ${formatTime(at)} saved`);
-      } catch (e) {
-        setMarkMsg(e instanceof Error ? e.message : String(e));
-      }
-    },
-    [markers, session?.key],
-  );
 
   // Up next is an offer, never an action: the next episode starts only when
   // the viewer asks for it.
@@ -2205,62 +2240,85 @@ export function PlayerView() {
     [step],
   );
 
-  const playbackRows = useMemo<Array<[string, string]>>(
-    () => [
-      ["State", local?.ended ? "Ended" : local?.paused ? "Paused" : "Playing"],
-      ["Position", `${formatTime(position)} / ${formatTime(duration)}`],
-      ["Cached to", formatTime(local?.buffered ?? 0)],
-      ["Speed", `${local?.speed ?? 1}×`],
-      ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " (muted)" : ""}`],
-      ["Engine", "libmpv"],
-    ],
-    [
-      duration,
-      local?.buffered,
-      local?.ended,
-      local?.muted,
-      local?.paused,
-      local?.speed,
-      local?.volume,
-      position,
-    ],
-  );
+  // The stream, not the player: shape, rate, codec. Playback state belongs to
+  // the HUD, so this panel never repeats it.
+  const media = local?.media ?? null;
+  const shape = media?.aspect ? aspectLabel(media.aspect) : null;
+  const videoRows: Array<[string, string | null]> = media
+    ? [
+        ["Resolution", media.width > 0 ? `${media.width} × ${media.height}` : null],
+        [
+          "Aspect",
+          media.aspect ? `${media.aspect.toFixed(2)}:1${shape ? ` · ${shape}` : ""}` : null,
+        ],
+        ["Frame rate", media.fps ? `${Number(media.fps.toFixed(3))} fps` : null],
+        ["Bitrate", media.bitrate ? bitrateLabel(media.bitrate) : null],
+        ["Codec", media.videoCodec ?? null],
+        ["HDR", media.hdr ?? null],
+      ]
+    : [];
 
   const sourceRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Stream", playingSource?.title ?? playingSource?.name ?? null],
-      ["Quality", playingSource?.quality ?? null],
       ["Size", playingSource?.size ?? null],
+      [
+        "Cached",
+        playingSource
+          ? [
+              playingSource.cached ? "Yes" : "No",
+              playingSource.seeders ? `${playingSource.seeders} seeders` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : null,
+      ],
+      ["Languages", playingSource?.languages.length ? playingSource.languages.join(", ") : null],
     ],
-    [playingSource?.title, playingSource?.name, playingSource?.quality, playingSource?.size],
+    [playingSource],
   );
+
+  // A built-in track came from the container, so name the addon that served it.
+  const streamAddon = playingSource?.addon ?? "Built in";
 
   const audioRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Track", activeAudio?.label ?? "Default"],
-      ["Language", activeAudio?.lang ? langLabel(activeAudio.lang) : null],
-      ["Channels and codec", activeAudio?.details ?? null],
-      ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : "Built in") : null],
+      [
+        "Track",
+        activeAudio
+          ? [activeAudio.lang ? langLabel(activeAudio.lang) : activeAudio.label, activeAudio.details]
+              .filter(Boolean)
+              .join(" · ")
+          : "Default",
+      ],
+      ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : streamAddon) : null],
     ],
-    [
-      activeAudio?.label,
-      activeAudio?.lang,
-      activeAudio?.details,
-      activeAudio?.external,
-      Boolean(activeAudio),
-    ],
+    [activeAudio, streamAddon],
   );
 
   const subtitleRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Track", loadedSub ? `${loadedSub.lang} (addon)` : activeSub?.label ?? null],
-      ["Language", activeSub?.lang ? langLabel(activeSub.lang) : loadedSub?.lang ?? null],
+      [
+        "Track",
+        loadedSub
+          ? langLabel(loadedSub.lang)
+          : activeSub
+            ? [activeSub.lang ? langLabel(activeSub.lang) : activeSub.label, activeSub.details]
+                .filter(Boolean)
+                .join(" · ")
+            : "Off",
+      ],
       [
         "Source",
-        loadedSub ? "Addon" : activeSub ? (activeSub.external ? "Loaded file" : "Built in") : null,
+        loadedSub
+          ? (loadedSub.addon ?? "Addon")
+          : activeSub
+            ? activeSub.external
+              ? "Loaded file"
+              : streamAddon
+            : null,
       ],
     ],
-    [activeSub?.label, activeSub?.lang, activeSub?.external, Boolean(activeSub), loadedSub],
+    [activeSub, loadedSub, streamAddon],
   );
 
   if (!local) {
@@ -2322,7 +2380,7 @@ export function PlayerView() {
   // Styling is a player-wide preference: it must not wait for a track to be
   // matched to a variant, or the panel vanishes on the first tick after a load.
   const styleOn = Boolean(activeSub || loadedSub);
-  const volumeFill = Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
+  const volumeFill = silent ? 0 : Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
 
   const chapterIndex = chapters.reduce(
     (found, chapter, at) => (chapter.start <= shownPosition + 0.25 ? at : found),
@@ -2332,6 +2390,21 @@ export function PlayerView() {
   const sourceTitle = playingSource
     ? playingSource.name ?? playingSource.addon ?? "Source"
     : null;
+
+  // The paused card: the still on screen, named.
+  const poster = details?.poster ?? session?.poster ?? null;
+  const episodeLine =
+    session && session.season != null
+      ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
+      : null;
+  const nowMeta = [
+    playingSource?.addon,
+    playingSource?.quality,
+    duration > 0 ? formatTime(duration) : details?.runtime,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const overview = (index >= 0 ? queue[index]?.overview : null) ?? details?.description ?? null;
 
   const cycleLock = () => {
     setLocked((current) => !current);
@@ -2464,6 +2537,19 @@ export function PlayerView() {
         </div>
       ) : null}
 
+      {buffering && !loading ? (
+        <div className="pv-buffering" role="status" aria-live="polite">
+          {artLogo ? (
+            <img className="pv-pulse" src={artLogo} alt="" draggable={false} />
+          ) : (
+            <span className="pv-buffering-mark" aria-hidden="true">
+              <LogoMark size={64} />
+            </span>
+          )}
+          <span className="pv-buffering-label">Buffering</span>
+        </div>
+      ) : null}
+
       {locked && !failed ? (
         <div
           className="pv-locked-layer"
@@ -2554,66 +2640,21 @@ export function PlayerView() {
           {surface === "info" ? (
             <Overlay label="Stream info" onClose={closeSurface}>
               <div className="pv-info">
-                <section>
-                  <h3>Source</h3>
+                <header className="pv-info-head">
                   <p className="pv-info-lead">
                     {playingSource?.addon ?? "Source"}
                     {sourceTitle ? <span>{sourceTitle}</span> : null}
                   </p>
                   {playingSource?.description ? (
-                    <p className="pv-info-note">{playingSource.description.replace(/\n/g, " · ")}</p>
+                    <p className="pv-info-note">
+                      {playingSource.description.replace(/\n/g, " · ")}
+                    </p>
                   ) : null}
-                  <dl>
-                    {sourceRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Audio</h3>
-                  <dl>
-                    {audioRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Subtitles</h3>
-                  <dl>
-                    {subtitleRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Playback</h3>
-                  <dl>
-                    {playbackRows.map(([label, value]) => (
-                      <div key={label}>
-                        <dt>{label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
+                </header>
+                <InfoGroup title="Video" rows={videoRows} />
+                <InfoGroup title="Audio" rows={audioRows} />
+                <InfoGroup title="Subtitles" rows={subtitleRows} />
+                <InfoGroup title="Release" rows={sourceRows} />
               </div>
             </Overlay>
           ) : null}
@@ -2767,15 +2808,6 @@ export function PlayerView() {
                 <button
                   type="button"
                   className="pv-rail-row"
-                  onClick={() => setSurface("info")}
-                >
-                  <span className="pv-rail-row-text">
-                    <span className="pv-rail-row-title">Stream info</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="pv-rail-row"
                   onClick={() => setSurface("keys")}
                 >
                   <span className="pv-rail-row-text">
@@ -2791,26 +2823,6 @@ export function PlayerView() {
                     <span className="pv-rail-row-title">Load subtitle file</span>
                   </span>
                 </button>
-              </div>
-              <div className="pv-more-marks">
-                <p className="pv-section-label">Skip intro markers for this episode</p>
-                <div className="pv-row">
-                  <button
-                    type="button"
-                    className="pv-text-action"
-                    onClick={() => void saveMarker({ introStart: posRef.current }, "Intro start")}
-                  >
-                    Set start here
-                  </button>
-                  <button
-                    type="button"
-                    className="pv-text-action"
-                    onClick={() => void saveMarker({ introEnd: posRef.current }, "Intro end")}
-                  >
-                    Set end here
-                  </button>
-                </div>
-                {markMsg ? <p className="pv-hint">{markMsg}</p> : null}
               </div>
             </Overlay>
           ) : null}
@@ -2865,6 +2877,28 @@ export function PlayerView() {
           onClick={() => seekTo(skipSegment.at)}
         >
           Skip {skipSegment.kind}
+        </button>
+      ) : null}
+
+      {/* A paused frame is a still, so it says what the still is, and resumes
+          on the click that would have unpaused it anyway. It outlives the
+          chrome: when the controls leave, the frame still names itself. */}
+      {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
+        <button
+          type="button"
+          className={`pv-now${skipSegment ? " pv-now--above" : ""}`}
+          onClick={() => togglePause()}
+          aria-label={`Resume ${title}`}
+        >
+          {poster ? (
+            <img className="pv-now-art" src={poster} alt="" loading="lazy" decoding="async" />
+          ) : null}
+          <span className="pv-now-body">
+            {episodeLine ? <span className="pv-now-ep">{episodeLine}</span> : null}
+            <span className="pv-now-title">{title}</span>
+            {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
+            {overview ? <span className="pv-now-note">{overview}</span> : null}
+          </span>
         </button>
       ) : null}
 
@@ -2943,10 +2977,10 @@ export function PlayerView() {
                 className="pv-vslider"
                 min={0}
                 max={MAX_VOLUME}
-                value={volLevel}
+                value={silent ? 0 : volLevel}
                 aria-label="Volume"
                 style={{ "--fill": `${volumeFill}%` } as CSSProperties}
-                onChange={(event) => setVolume(Number(event.target.value))}
+                onChange={(event) => dragVolume(Number(event.target.value))}
               />
               {nextEpisode ? (
                 <button
@@ -2993,6 +3027,16 @@ export function PlayerView() {
                 onClick={cycleSpeed}
               >
                 <Icon name="speed" size={24} />
+              </button>
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "info" ? " is-on" : ""}`}
+                aria-label="Stream info"
+                title="Stream info"
+                aria-expanded={surface === "info" ? true : undefined}
+                onClick={() => toggleSurface("info")}
+              >
+                <Icon name="info" size={24} />
               </button>
               <button
                 type="button"

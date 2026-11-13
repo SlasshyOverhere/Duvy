@@ -50,6 +50,9 @@ export type IconName =
   | "episodes"
   | "lock"
   | "cloud"
+  | "star"
+  | "calendar"
+  | "globe"
   | "minus"
   | "arrowUpRight";
 
@@ -228,6 +231,25 @@ const STROKE: Record<IconName, ReactNode> = {
     </>
   ),
   chevron: <path d="m9 6 6 6-6 6" />,
+  star: (
+    <path
+      d="M12 3.6l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.6-5 2.6.9-5.6-4-3.9 5.6-.8Z"
+      fill="currentColor"
+      stroke="none"
+    />
+  ),
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15" rx="2" />
+      <path d="M8 3v4M16 3v4M3.5 10h17" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17M12 3.5c2.2 2.3 3.4 5.3 3.4 8.5S14.2 18.2 12 20.5c-2.2-2.3-3.4-5.3-3.4-8.5S9.8 5.8 12 3.5Z" />
+    </>
+  ),
   stop: <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />,
   monitor: (
     <>
@@ -361,6 +383,7 @@ export function IconButton({
   active,
   disabled,
   size = 18,
+  className,
 }: {
   icon: IconName;
   onClick?: () => void;
@@ -368,11 +391,12 @@ export function IconButton({
   active?: boolean;
   disabled?: boolean;
   size?: number;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      className={`icon-btn${active ? " is-active" : ""}`}
+      className={`icon-btn${active ? " is-active" : ""}${className ? ` ${className}` : ""}`}
       onClick={onClick}
       aria-label={label}
       aria-pressed={active === undefined ? undefined : active}
@@ -565,13 +589,26 @@ export function ImdbMark({ height = 12 }: { height?: number }) {
         y="11"
         textAnchor="middle"
         dominantBaseline="central"
-        fontFamily="'Arial Black', Arial, sans-serif"
+        fontFamily="Inter, sans-serif"
         fontSize="13"
         fontWeight="900"
         fill="#000"
       >
         IMDb
       </text>
+    </svg>
+  );
+}
+
+/** The Duvy mark on its own: the app icon, drawn as one filled path. */
+export function LogoMark({ size = 72 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
+      <path
+        fill="var(--accent)"
+        fillRule="evenodd"
+        d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
+      />
     </svg>
   );
 }

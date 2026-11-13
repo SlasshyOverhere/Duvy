@@ -143,14 +143,24 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   );
 
   // Explicit marks for this title, so an episode can be ticked off without
-  // playing it first.
-  const marks = useMemo(
-    () =>
-      new Map(
-        watched.filter((row) => row.metaId === id).map((row) => [row.key, row.watchedAt]),
-      ),
-    [watched, id],
-  );
+  // playing it first. The store's watched list keeps one row per title, so the
+  // per-episode marks come from their own read, refetched after every change.
+  const [marked, setMarked] = useState<Array<[string, number]>>([]);
+
+  useEffect(() => {
+    let alive = true;
+    api.watched
+      .marks(id)
+      .then((rows) => {
+        if (alive) setMarked(rows);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id, watched]);
+
+  const marks = useMemo(() => new Map(marked), [marked]);
 
   const toggleEpisodeWatched = useCallback(
     (key: string, next: boolean) => {
@@ -161,15 +171,19 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     [markWatched, id, notify],
   );
 
-  /** Every unmarked episode from the first one through `target`, in air order. */
+  /** Every episode from the first one through `target` still needing a mark. */
   const unmarkedUpTo = useCallback(
     (target: Video) => {
       if (!details) return [];
       return episodesUpTo(details.videos, target)
         .map((video) => buildSession(details, video).key)
-        .filter((key) => !marks.has(key));
+        .filter((key) => {
+          if (marks.has(key)) return false;
+          const entry = progressFor(key);
+          return !entry || progressPercent(entry.position, entry.duration) < 90;
+        });
     },
-    [details, buildSession, marks],
+    [details, buildSession, marks, progressFor],
   );
 
   const markUpTo = useCallback(
@@ -422,18 +436,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         ) : null}
         <div className="detail-scrim" aria-hidden="true" />
         <div className="detail-shell">
-          <div className="detail-body">
-            <div className="detail-poster">
-              {details.poster ? <img src={details.poster} alt="" /> : null}
-            </div>
-            <div className="detail-info">
-              <h1 className="detail-title">
-                {logo ? (
-                  <img className="detail-logo" src={logo} alt={details.name} draggable={false} />
-                ) : (
-                  details.name
-                )}
-              </h1>
+          <div className="detail-info">
+            <h1 className="detail-title">
+              {logo ? (
+                <img className="detail-logo" src={logo} alt={details.name} draggable={false} />
+              ) : (
+                details.name
+              )}
+            </h1>
               <div className="detail-meta">
                 <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
                 {details.year ? <span>{details.year}</span> : null}
@@ -496,7 +506,6 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   </Button>
                 ) : null}
               </div>
-            </div>
 
             <div className="detail-credits">
               <dl className="detail-facts">

@@ -668,6 +668,7 @@ pub fn run() {
             commands::progress_clear,
             commands::watched_set,
             commands::watched_list,
+            commands::watched_marks,
             commands::player_open,
             commands::player_state,
             commands::player_frame,

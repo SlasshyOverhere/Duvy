@@ -133,19 +133,24 @@ The UI turns a stream row into a playable URL in this order:
 2. Rust drops any existing player (destroying the old libmpv handle), then opens a new one with
    `no-config`, `idle=yes`, `keep-open=no`, hardware decoding from settings, `vo=gpu-next`,
    `tone-mapping=bt.2390`, `cache=yes`, `demuxer-max-bytes` / `demuxer-max-back-bytes` from the
-   buffer settings, `sub-auto=fuzzy`, subtitle/audio language preferences, and `wid=<app window>`
-   on Windows. Logs go to the app data directory (`mpv.log`, `mpv-stderr.log`).
+   buffer settings, `network-timeout=60`, `stream-lavf-o` HTTP reconnect, `cache-pause-wait=5`,
+   `sub-auto=fuzzy`, subtitle/audio language preferences, and `wid=<app window>` on Windows. Logs
+   go to the app data directory (`mpv.log`, `mpv-stderr.log`).
 3. The handle is opened with a short retry loop. `observe_property` covers `time-pos`,
-   `duration`, `demuxer-cache-time`, `pause`, `volume`, `mute`, `speed`, `track-list`,
-   `eof-reached`, `media-title` and related fields. The snapshot reports `started` only after the
-   first frame, so the UI never uncovers a black surface.
+   `duration`, `demuxer-cache-time`, `paused-for-cache`, `pause`, `volume`, `mute`, `speed`,
+   `track-list`, `eof-reached`, `media-title` and related fields. The snapshot reports `started`
+   only after the first frame, so the UI never uncovers a black surface, and `buffering` while
+   mpv waits for the network. On `file-loaded` and `video-reconfig` the snapshot also takes the
+   stream's own shape from `video-params`: resolution, aspect, frame rate, bitrate and codec.
 4. Property events update a shared snapshot. A ticker emits `player:tick` every 500ms and
    persists progress every 5s.
 5. At 92% the title is marked watched and the progress row is kept for the Watched list. Below
    that, the position is upserted into `progress`. Continue Watching excludes rows at or above
    90% and rows already marked watched.
-6. `end-file` emits `player:ended`; the UI offers or auto-plays the next episode. Closing mpv
-   emits `player:closed` and the UI returns to the title.
+6. `end-file` emits `player:ended`; the UI offers or auto-plays the next episode. A stream that
+   dies with an error is reloaded once from the same position; if that fails, the UI re-resolves
+   the source from its addon (debrid links expire) and reopens once more before surfacing the
+   failure. Closing mpv emits `player:closed` and the UI returns to the title.
 7. Recap/intro/outro markers are read per meta id. Manual markers win; when none are stored, the UI
    asks IntroDB for community timestamps (`skip_lookup`) and caches the result. While the playhead
    sits inside a marked segment the UI offers a skip button, and at the outro marker the up-next

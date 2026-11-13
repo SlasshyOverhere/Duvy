@@ -624,6 +624,18 @@ pub fn set_watched(
     Ok(())
 }
 
+/// Every explicit mark for one title, keyed per episode. `list_watched_items`
+/// collapses to one row per title for history; episode ticks need them all.
+pub fn list_watched_marks(
+    conn: &Connection,
+    meta_id: &str,
+) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt =
+        conn.prepare("SELECT key, updated_at FROM watched WHERE watched = 1 AND meta_id = ?1")?;
+    let rows = stmt.query_map(params![meta_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
 fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)

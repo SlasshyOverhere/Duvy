@@ -488,30 +488,37 @@
 
 /* ---- stream info -------------------------------------------------------- */
 
+/* A readout, not a form: one short column, every value on its own line so the
+   eye never travels across a wide panel to pair a label with its value. */
 .pv .pv-info {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 660px;
-  gap: 18px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: min(26rem, 100%);
+  max-width: 26rem;
 }
 
-.pv .pv-info section {
+.pv .pv-info-head {
+  min-width: 0;
+}
+
+.pv .pv-info-group {
   min-width: 0;
 }
 
 .pv .pv-info h3 {
-  margin: 0 0 8px;
-  font-size: 12.5px;
+  margin: 0 0 5px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--pv-muted);
+  color: rgba(255, 255, 255, 0.44);
 }
 
 .pv .pv-info-lead {
-  margin: 0 0 6px;
-  font-size: 13.5px;
+  margin: 0;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.4;
-  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .pv .pv-info-lead span {
@@ -519,41 +526,49 @@
   margin-top: 2px;
   font-size: 12.5px;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.66);
 }
 
+/* The addon's own blurb: two lines at most, never the wall it used to be. */
 .pv .pv-info-note {
-  margin: 0 0 8px;
-  font-size: 12px;
+  display: -webkit-box;
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: 11.5px;
   line-height: 1.45;
   color: var(--pv-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .pv .pv-info dl {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 2px;
   margin: 0;
 }
 
 .pv .pv-info dl > div {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 5.5rem minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
 }
 
 .pv .pv-info dt {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 255, 255, 0.5);
 }
 
+/* One line per value, ellipsised: the full string is in the tooltip. */
 .pv .pv-info dd {
   margin: 0;
+  overflow: hidden;
   font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.88);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ---- keyboard sheet ----------------------------------------------------- */
@@ -1072,30 +1087,6 @@
   background: var(--accent);
 }
 
-/* ---- options ------------------------------------------------------------ */
-
-.pv .pv-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-}
-
-.pv .pv-section-label {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--pv-muted);
-}
-
-.pv .pv-more-marks {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 18px;
-}
-
-
 /* ---- locked ------------------------------------------------------------- */
 
 .pv .pv-locked-layer {
@@ -1292,8 +1283,7 @@
     padding: 16px 16px 24px;
   }
 
-  .pv .pv-keys,
-  .pv .pv-info {
+  .pv .pv-keys {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1595,17 +1585,17 @@
   flex: 1;
 }
 
-/* Two pills: playback on the left, tracks and options on the right. */
+/* Two groups: playback on the left, tracks and options on the right. No panel
+   behind them: the buttons are the controls, not chips on a bar. */
 .pv .pv-pill {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
   flex: none;
-  padding: 4px;
-  border-radius: 999px;
-  background: var(--pv-wash), var(--pv-panel);
-  box-shadow: var(--pv-glass-shadow);
+  padding: 0;
+  background: none;
+  box-shadow: none;
 }
 
 /* Pill buttons follow the pill shape, so a hover fill meets the pill edge. */
@@ -1754,15 +1744,178 @@
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
-/* Opacity only: scaling the art blurred it and read as a heartbeat. */
+/* The mark breathes in and out while the picture is being fetched, so a wait
+   reads as motion rather than a still frame that looks hung. */
 @keyframes pv-pulse {
   0%,
   100% {
-    opacity: 0.6;
+    opacity: 0.55;
+    transform: scale(0.94);
   }
   50% {
     opacity: 1;
+    transform: scale(1);
   }
+}
+
+/* ---- buffering ---------------------------------------------------------- */
+
+/* mpv drained the cache: the frame is frozen on the network, so say so rather
+   than leaving a still picture that looks like a hang. The mark does the
+   talking: it breathes in and out, the way it does on the way into a title. */
+.pv .pv-buffering {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.pv .pv-buffering-mark {
+  display: block;
+  animation: pv-buffering-pop 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* The words are for a screen reader; the mark carries the wait on screen. */
+.pv .pv-buffering-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes pv-buffering-pop {
+  0%,
+  100% {
+    transform: scale(0.78);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv .pv-buffering-mark {
+    animation: none;
+    opacity: 0.9;
+  }
+}
+
+/* ---- paused card -------------------------------------------------------- */
+
+/* A paused frame is a still. Name it: art, the episode, one line of meta, and
+   the resume the click would have done anyway. No panel, only a scrim, so the
+   photograph still reads. */
+.pv .pv-now {
+  position: absolute;
+  left: 2rem;
+  bottom: 132px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  gap: 1.1rem;
+  max-width: min(30rem, calc(100vw - 4rem));
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Enough shade for the type on a white frame, and nothing you can trace. */
+.pv .pv-now::before {
+  content: "";
+  position: absolute;
+  inset: -3rem -5rem -2.5rem -2.5rem;
+  z-index: -1;
+  background: radial-gradient(
+    118% 118% at 6% 100%,
+    rgba(0, 0, 0, 0.66),
+    rgba(0, 0, 0, 0.3) 44%,
+    rgba(0, 0, 0, 0) 76%
+  );
+  pointer-events: none;
+}
+
+/* The skip offer owns this corner: step up rather than cover it. */
+.pv .pv-now--above {
+  bottom: 190px;
+}
+
+/* With the controls gone the card is the only thing left on the frame, so it
+   settles to the edge instead of hovering over empty space. */
+.pv:not(.pv--awake) .pv-now {
+  bottom: 2.25rem;
+  transition: bottom 0.24s ease;
+}
+
+.pv:not(.pv--awake) .pv-now--above {
+  bottom: 5.5rem;
+}
+
+.pv .pv-now-art {
+  width: 5.4rem;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--pv-control);
+  transition: filter 0.15s ease;
+}
+
+.pv .pv-now:hover .pv-now-art {
+  filter: brightness(1.14);
+}
+
+.pv .pv-now-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+  padding-bottom: 0.2rem;
+}
+
+.pv .pv-now-ep {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pv .pv-now-title {
+  overflow: hidden;
+  font-size: 1.42rem;
+  font-weight: 650;
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-now-meta {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.pv .pv-now-note {
+  display: -webkit-box;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.66);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* ---- next episode card -------------------------------------------------- */
@@ -2002,6 +2155,10 @@
   display: none;
 }
 
+.pv--panel .pv-now {
+  display: none;
+}
+
 /* ---- narrow window: fold the action row into a popup -------------------- */
 
 @media (max-width: 1000px) {
@@ -2027,6 +2184,29 @@
   .pv .pv-skip {
     left: 12px;
     bottom: 116px;
+  }
+
+  .pv .pv-now {
+    left: 12px;
+    bottom: 116px;
+    gap: 0.8rem;
+    max-width: calc(100vw - 24px);
+  }
+
+  .pv .pv-now--above {
+    bottom: 172px;
+  }
+
+  .pv .pv-now-art {
+    width: 4.2rem;
+  }
+
+  .pv .pv-now-title {
+    font-size: 1.1rem;
+  }
+
+  .pv .pv-now-note {
+    -webkit-line-clamp: 1;
   }
 }
 
