@@ -1918,16 +1918,6 @@
   -webkit-line-clamp: 2;
 }
 
-.pv .pv-now-go {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.94);
-}
-
 /* ---- next episode card -------------------------------------------------- */
 
 /* The still is the card: art to the edge, copy bottom-left, one action
