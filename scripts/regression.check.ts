@@ -304,6 +304,34 @@ run("a source the viewer left does not come back", () => {
   return out;
 });
 
+run("a pack that broke an episode is not reopened next", () => {
+  const out: string[] = [];
+  const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
+  // The season's pack memory is consulted after the exact episode memory.
+  const seasonAt = pick.indexOf("pack?.infoHash");
+  const memoryAt = pick.indexOf("if (remembered)");
+  if (seasonAt < 0) out.push("pickSource ignores the pack this season played from");
+  else if (memoryAt >= 0 && seasonAt < memoryAt) {
+    out.push("pickSource lets the season pack override the source this episode played");
+  }
+  if (!/export function rememberedPack\(/.test(store)) {
+    out.push("store.tsx keeps no pack memory for a season");
+  }
+  if (!/all\[pack\] = stream/.test(store)) {
+    out.push("rememberSource never records the pack a season played from");
+  }
+  for (const [name, src] of [
+    ["store.tsx", store],
+    ["Player.tsx", playerView],
+  ] as const) {
+    const calls = src.match(/pickSource\(\n[\s\S]*?\n\s*\);/g) ?? [];
+    if (calls.some((call) => !/rememberedPack\(/.test(call))) {
+      out.push(`${name} picks a source without the season pack memory`);
+    }
+  }
+  return out;
+});
+
 run("source list is ordered by file size", () => {
   const out: string[] = [];
   if (!/sort\(byFileSize\)/.test(drawer)) out.push("StreamDrawer.tsx does not sort sources by size");
