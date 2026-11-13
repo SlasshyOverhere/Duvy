@@ -1783,8 +1783,9 @@ export function PlayerView() {
   }, [locked]);
 
   // Keep the close controls on screen while a source is opening or has failed.
-  const holdChrome =
-    Boolean(loading || failed || paused || local?.ended || surface || showNext);
+  // Paused is not in here: a paused frame is still a frame, and the chrome has
+  // to be able to leave the picture alone until the pointer asks for it again.
+  const holdChrome = Boolean(loading || failed || local?.ended || surface || showNext);
 
   // The HUD only needs a countdown while it is on screen, and the poll only
   // runs then: a hidden HUD asking every 100ms is a wakeup for nothing.
@@ -2538,9 +2539,13 @@ export function PlayerView() {
 
       {buffering && !loading ? (
         <div className="pv-buffering" role="status" aria-live="polite">
-          <span className="pv-buffering-mark" aria-hidden="true">
-            <LogoMark size={64} />
-          </span>
+          {artLogo ? (
+            <img className="pv-pulse" src={artLogo} alt="" draggable={false} />
+          ) : (
+            <span className="pv-buffering-mark" aria-hidden="true">
+              <LogoMark size={64} />
+            </span>
+          )}
           <span className="pv-buffering-label">Buffering</span>
         </div>
       ) : null}
@@ -2876,8 +2881,9 @@ export function PlayerView() {
       ) : null}
 
       {/* A paused frame is a still, so it says what the still is, and resumes
-          on the click that would have unpaused it anyway. */}
-      {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
+          on the click that would have unpaused it anyway. It belongs to the
+          chrome: when the controls leave, the card goes with them. */}
+      {chrome && paused && !failed && !locked && !surface && !showNext && !local.ended ? (
         <button
           type="button"
           className={`pv-now${skipSegment ? " pv-now--above" : ""}`}

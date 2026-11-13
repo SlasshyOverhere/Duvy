@@ -1744,14 +1744,17 @@
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
-/* Opacity only: scaling the art blurred it and read as a heartbeat. */
+/* The mark breathes in and out while the picture is being fetched, so a wait
+   reads as motion rather than a still frame that looks hung. */
 @keyframes pv-pulse {
   0%,
   100% {
-    opacity: 0.6;
+    opacity: 0.55;
+    transform: scale(0.94);
   }
   50% {
     opacity: 1;
+    transform: scale(1);
   }
 }
 
