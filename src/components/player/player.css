@@ -1461,11 +1461,7 @@
 
 .pv .pv-seek-time--end {
   direction: ltr;
-  cursor: pointer;
-}
-
-.pv .pv-seek-time--end:hover {
-  color: #fff;
+  width: 10.5rem;
 }
 
 .pv .pv-seek .pv-track {
@@ -2016,6 +2012,10 @@
   .pv .pv-seek-time {
     width: 4.4rem;
     font-size: 0.95rem;
+  }
+
+  .pv .pv-seek-time--end {
+    width: 7.6rem;
   }
 
   .pv .pv-upnext {
