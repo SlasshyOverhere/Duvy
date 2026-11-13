@@ -513,6 +513,8 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     }
     case "watched_set":
       return null;
+    case "watched_marks":
+      return [];
     case "cast_photos":
       return {};
     case "similar":
