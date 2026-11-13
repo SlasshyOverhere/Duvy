@@ -433,13 +433,14 @@ select {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 72px;
+  height: 116px;
   z-index: -1;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(5, 5, 5, 0.45) 0%,
-    rgba(5, 5, 5, 0.18) 55%,
+    rgba(5, 5, 5, 0.92) 0%,
+    rgba(5, 5, 5, 0.86) 46%,
+    rgba(5, 5, 5, 0.42) 72%,
     transparent 100%
   );
 }
@@ -1241,7 +1242,6 @@ button.pill:hover {
   overflow: hidden;
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 12px 24px -12px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   isolation: isolate;
 }
@@ -1302,6 +1302,12 @@ button.pill:hover {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   letter-spacing: 0.02em;
+}
+
+.poster-frame:hover .poster-fallback,
+.poster-frame:focus-within .poster-fallback {
+  opacity: 0.18;
+  transition: opacity 0.3s ease-out;
 }
 
 /* Hover names the card in its own frame: the art dims under a light veil and
