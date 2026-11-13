@@ -304,6 +304,37 @@ run("buffer maths", async () => {
   return out;
 });
 
+run("catch-up marking spans seasons", async () => {
+  const out: string[] = [];
+  const mod = (await import(pathToFileURL(root + "src/lib/format.ts").href)) as Record<string, unknown>;
+  const upTo = mod.episodesUpTo;
+  if (typeof upTo !== "function") {
+    return ["src/lib/format.ts does not export episodesUpTo(videos, target)"];
+  }
+  const fn = upTo as (videos: Array<{ id: string }>, target: { id: string }) => Array<{ id: string }>;
+  // Six seasons of three, shuffled, plus Specials (season 0).
+  const show = [
+    { id: "s2e3", season: 2, episode: 3 },
+    { id: "s1e1", season: 1, episode: 1 },
+    { id: "s0e1", season: 0, episode: 1 },
+    { id: "s1e2", season: 1, episode: 2 },
+    { id: "s6e2", season: 6, episode: 2 },
+    { id: "s3e1", season: 3, episode: 1 },
+  ];
+  const cases: Array<[string, { season: number; episode: number }, string[]]> = [
+    ["end of season 1", { season: 1, episode: 2 }, ["s1e1", "s0e1", "s1e2"]],
+    ["start of season 2", { season: 2, episode: 3 }, ["s2e3", "s1e1", "s0e1", "s1e2"]],
+    ["late season 6", { season: 6, episode: 2 }, ["s2e3", "s1e1", "s0e1", "s1e2", "s6e2", "s3e1"]],
+  ];
+  for (const [label, target, want] of cases) {
+    const got = fn(show, target).map((video) => video.id).sort();
+    if (got.join() !== want.slice().sort().join()) {
+      out.push(`episodesUpTo ${label} = [${got}], want [${want}]`);
+    }
+  }
+  return out;
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];

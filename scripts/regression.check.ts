@@ -93,16 +93,12 @@ run("download progress is throttled", () => {
   return [];
 });
 
-run("stop closes the screen before torrent teardown", () => {
+run("stop emits player:closed and awaits no torrent teardown", () => {
   const out: string[] = [];
   const stop = rustFn(commands, "player_stop");
   if (!stop) return ["commands.rs: player_stop() not found"];
-  const closed = stop.indexOf('emit("player:closed"');
-  const torrent = stop.indexOf("torrent::shutdown");
-  if (closed < 0) out.push("player_stop does not emit player:closed");
-  else if (torrent >= 0 && closed > torrent) {
-    out.push("player_stop emits player:closed only after the torrent teardown await");
-  }
+  if (stop.indexOf('emit("player:closed"') < 0) out.push("player_stop does not emit player:closed");
+  if (stop.indexOf("torrent::") >= 0) out.push("player_stop still awaits the removed torrent engine");
   return out;
 });
 

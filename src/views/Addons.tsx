@@ -359,8 +359,7 @@ export function AddonsPanel() {
       <footer className="page-note">
         <Icon name="info" size={15} />
         <span>
-          Stream addons supply the sources. P2P torrents, Debrid keys and media servers are set up in
-          Settings.
+          Stream addons supply the sources. Debrid keys and media servers are set up in Settings.
         </span>
       </footer>
     </>

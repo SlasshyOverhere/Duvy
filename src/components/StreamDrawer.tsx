@@ -264,7 +264,7 @@ export function StreamDrawer({
       ? "No stream addon returned a source for this title. Refresh to ask them again."
       : hasDisabledStreams
         ? "Every stream addon is disabled. Enable one in Addons, then refresh the sources."
-        : "Install a stream addon in Addons. Torrent sources play after you allow P2P in Settings → Playback.";
+        : "Install a stream addon in Addons. Torrent sources need a debrid account in Settings → Integrations.";
   const ranked = (group: Group) =>
     group.streams.length ? 0 : group.state === "error" ? 2 : 1;
   const sortBySize = settings?.sourceSort !== "addon";

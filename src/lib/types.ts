@@ -176,8 +176,6 @@ export interface Settings {
   stremioAutoSync: boolean;
   nuvioBaseUrl: string;
   nuvioApiKey: string;
-  p2pConsent: boolean;
-  p2pCacheMb: number;
   bufferForwardValue: number;
   bufferForwardUnit: string;
   bufferBackwardValue: number;
@@ -232,16 +230,6 @@ export interface StremioSyncReport {
   watched: number;
   library: number;
   pushed: number;
-}
-
-export interface TorrentStats {
-  active: boolean;
-  name: string;
-  progress: number;
-  downloadBps: number;
-  uploadBps: number;
-  peers: number;
-  seeds: number;
 }
 
 export interface DebridProvider {

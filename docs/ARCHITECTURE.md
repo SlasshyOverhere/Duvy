@@ -60,7 +60,6 @@ src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback wat
 | `meta.rs` | Cinemeta-first metadata (episodes, cast, artwork) with a TMDB-schema fallback, cast photo cache. Tested. |
 | `tmdb.rs` | Optional discovery rows, search, details and IMDb to TMDB resolution when a key is set. |
 | `player.rs` | libmpv handle, player options and cache buffers, property observers, first-frame gate, subtitle styling, ticker, progress persistence. |
-| `torrent.rs` | One `librqbit` session per playback, metadata resolution, loopback HTTP range server, cache bound, stats and teardown. Tested parsers. |
 | `debrid.rs` | Real-Debrid, AllDebrid, Premiumize and TorBox key storage, cache checks, link unrestricting and pack-file selection. Tested parsers. |
 | `trakt.rs` | Device-code auth, scrobbling, watched/progress pull and push. Tested merge helpers. |
 | `*_sync.rs` | Cloud-account and addon-account sync: sign-in and pull/merge/push of profiles, progress, watched, library and addon collections, merged by normalised manifest URL. Tested helpers. |
@@ -121,10 +120,8 @@ The UI turns a stream row into a playable URL in this order:
 - **Direct HTTP(S):** played as-is, or routed through the connected debrid account first when one
   exists, since a host link may need unrestricting.
 - **Debrid:** a magnet, info hash or supported host link is unrestricted through the connected
-  account. Each provider has its own JSON parser and polling rules.
-- **P2P:** requires `p2pConsent`. The selected magnet is added to a local `librqbit` session;
-  the chosen file is served from a loopback HTTP endpoint that honours `Range`, so mpv can seek.
-  The engine is torn down on stop, and a single torrent is active at a time.
+  account. Each provider has its own JSON parser and polling rules. Torrent rows play through
+  debrid only; without a connected account they are reported as unplayable.
 - **Media servers:** Jellyfin and Emby items resolve to a direct `/Videos/{id}/stream` URL with
   the stored token.
 - **Local files:** a path is handed to the player directly.
@@ -195,9 +192,6 @@ not read SQLite per call.
   credentials so a reconnect does not need a re-paste. Signing out of an account session clears
   the stored tokens; the cloud sync keeps a non-secret account id so a later sign-in can tell
   accounts apart.
-- The torrent HTTP endpoint binds to `127.0.0.1` on a random port. The BitTorrent TCP listener
-  binds to a random port with UPnP disabled; peers still see the user's IP, which is why P2P is
-  opt-in.
 - Addon URLs are validated and response bodies are bounded before parsing. The WebView runs under
   a strict CSP (`default-src 'self'`, no frames or objects, images and media limited to the
   schemes the UI needs).
@@ -223,11 +217,11 @@ control wiring, `regression.check.ts` guards the updater and player lifecycle wi
 `telemetry.check.ts` guards crash-report scrubbing, deduplication and the playback watchdog.
 
 The Rust unit tests cover addon URL/id building, stream parsing and ranking, metadata helpers,
-SQLite round-trips, settings merge/reset, debrid and torrent parsers, Trakt and account-sync merge
+SQLite round-trips, settings merge/reset, debrid parsers, Trakt and account-sync merge
 helpers, server URL builders, IntroDB segment mapping and skip decisions.
 
 Not covered by automated tests, and not a support guarantee: playback against real streams,
-hardware decoding, HDR, P2P swarms, debrid accounts, Trakt and account sync, Jellyfin/Emby
+hardware decoding, HDR, debrid accounts, Trakt and account sync, Jellyfin/Emby
 servers and installer packaging. Those paths require accounts, servers or media that CI does not
 have.
 
