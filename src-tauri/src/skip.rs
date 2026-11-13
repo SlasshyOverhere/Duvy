@@ -18,6 +18,8 @@ const INTRODB: &str = "https://api.introdb.app/segments";
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SkipEntry {
+    pub recap_start: Option<f64>,
+    pub recap_end: Option<f64>,
     pub intro_start: Option<f64>,
     pub intro_end: Option<f64>,
     pub outro_start: Option<f64>,
@@ -25,7 +27,11 @@ pub struct SkipEntry {
 
 impl SkipEntry {
     fn is_empty(&self) -> bool {
-        self.intro_start.is_none() && self.intro_end.is_none() && self.outro_start.is_none()
+        self.recap_start.is_none()
+            && self.recap_end.is_none()
+            && self.intro_start.is_none()
+            && self.intro_end.is_none()
+            && self.outro_start.is_none()
     }
 }
 
@@ -120,6 +126,10 @@ fn from_segments(value: &serde_json::Value) -> SkipEntry {
         ))
     };
     let mut entry = SkipEntry::default();
+    if let Some((start, end)) = seg("recap") {
+        entry.recap_start = Some(start);
+        entry.recap_end = Some(end);
+    }
     if let Some((start, end)) = seg("intro") {
         entry.intro_start = Some(start);
         entry.intro_end = Some(end);
@@ -132,18 +142,29 @@ fn from_segments(value: &serde_json::Value) -> SkipEntry {
 }
 
 fn validate(entry: &SkipEntry) -> Result<(), String> {
-    for value in [entry.intro_start, entry.intro_end, entry.outro_start]
-        .into_iter()
-        .flatten()
+    for value in [
+        entry.recap_start,
+        entry.recap_end,
+        entry.intro_start,
+        entry.intro_end,
+        entry.outro_start,
+    ]
+    .into_iter()
+    .flatten()
     {
         if !value.is_finite() || value < 0.0 {
             return Err("skip markers must be finite and non-negative".into());
         }
     }
-    if let (Some(start), Some(end)) = (entry.intro_start, entry.intro_end)
-        && end <= start
-    {
-        return Err("the intro must end after it starts".into());
+    for (start, end) in [
+        (entry.recap_start, entry.recap_end),
+        (entry.intro_start, entry.intro_end),
+    ] {
+        if let (Some(start), Some(end)) = (start, end)
+            && end <= start
+        {
+            return Err("a segment must end after it starts".into());
+        }
     }
     Ok(())
 }
@@ -157,6 +178,7 @@ mod tests {
             intro_start: Some(intro.0),
             intro_end: Some(intro.1),
             outro_start: outro,
+            ..SkipEntry::default()
         }
     }
 
@@ -172,16 +194,41 @@ mod tests {
         );
         assert!(validate(&entry((f64::NAN, 70.0), None)).is_err());
         assert!(validate(&entry((70.0, 70.0), None)).is_err());
+        assert!(
+            validate(&SkipEntry {
+                recap_start: Some(80.0),
+                recap_end: Some(20.0),
+                ..SkipEntry::default()
+            })
+            .is_err()
+        );
     }
 
     #[test]
     fn segments_map_to_markers() {
         let value = serde_json::json!({
             "intro": { "start_sec": 2.5, "end_sec": 58 },
-            "recap": null,
+            "recap": { "start_sec": 0, "end_sec": 90 },
             "outro": { "start_sec": 2600, "end_sec": 2650 },
         });
-        assert_eq!(from_segments(&value), entry((2.5, 58.0), Some(2600.0)));
+        assert_eq!(
+            from_segments(&value),
+            SkipEntry {
+                recap_start: Some(0.0),
+                recap_end: Some(90.0),
+                ..entry((2.5, 58.0), Some(2600.0))
+            }
+        );
         assert!(from_segments(&serde_json::json!({ "intro": null })).is_empty());
+        assert_eq!(
+            from_segments(&serde_json::json!({
+                "recap": { "start_sec": 1, "end_sec": 122 }
+            })),
+            SkipEntry {
+                recap_start: Some(1.0),
+                recap_end: Some(122.0),
+                ..SkipEntry::default()
+            }
+        );
     }
 }

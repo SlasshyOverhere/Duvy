@@ -2865,7 +2865,7 @@ export function PlayerView() {
           className="pv-skip"
           onClick={() => seekTo(skipSegment.at)}
         >
-          {skipSegment.kind === "intro" ? "Skip intro" : "Skip outro"}
+          Skip {skipSegment.kind}
         </button>
       ) : null}
 

@@ -146,9 +146,10 @@ The UI turns a stream row into a playable URL in this order:
    90% and rows already marked watched.
 6. `end-file` emits `player:ended`; the UI offers or auto-plays the next episode. Closing mpv
    emits `player:closed` and the UI returns to the title.
-7. Intro/outro markers are read per meta id. Manual markers win; when none are stored, the UI asks
-   IntroDB for community timestamps (`skip_lookup`) and caches the result. When the playhead
-   enters a marked segment the UI seeks to its end; there is no visible skip button yet.
+7. Recap/intro/outro markers are read per meta id. Manual markers win; when none are stored, the UI
+   asks IntroDB for community timestamps (`skip_lookup`) and caches the result. While the playhead
+   sits inside a marked segment the UI offers a skip button, and at the outro marker the up-next
+   card takes over.
 8. Subtitles come from addon tracks (`sub-add`), a file picker, or the track remembered for that
    episode. Style controls map to mpv subtitle properties and are persisted globally; an ASS track
    keeps its own styling until a control is touched. The delay is ±60s in 0.1s steps. Automatic
@@ -234,8 +235,8 @@ have.
   dedicated Discover browser.
 - Crash reports need a release build with a Sentry DSN; a local build has no endpoint and sends
   nothing even when reports are switched on.
-- Intro/outro skipping is automatic. There is no visible skip button, and only intro and outro
-  segments are understood (no recap or credits taxonomy).
+- Intro/outro skipping is a button, never automatic, and only recap, intro and outro segments are
+  understood (no credits or post-credits taxonomy).
 - Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
 - The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
   configuration pages, addon permissions and addon collections are not implemented.

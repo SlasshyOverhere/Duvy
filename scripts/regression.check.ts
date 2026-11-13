@@ -170,8 +170,8 @@ run("a dropped stream is retried, not declared over", () => {
 run("skip markers only offer a button", () => {
   const out: string[] = [];
   const front = read("src/components/player/skip.ts");
-  if (!/kind:\s*"intro"\s*\|\s*"outro"/.test(front)) {
-    out.push("skip.ts does not offer both intro and outro segments");
+  if (!/export type SkipKind =[^\n]*"recap"[^\n]*"intro"[^\n]*"outro"/.test(front)) {
+    out.push("skip.ts does not offer recap, intro and outro segments");
   }
   if (/fired\.current\[segment\.kind\]/.test(playerView)) {
     out.push("Player.tsx still moves the playhead automatically");
