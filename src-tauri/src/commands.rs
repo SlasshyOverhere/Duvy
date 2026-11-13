@@ -1386,6 +1386,15 @@ pub async fn watched_list(state: State<'_, AppState>) -> Result<Vec<db::WatchedI
 }
 
 #[tauri::command]
+pub async fn watched_marks(
+    meta_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<(String, i64)>, String> {
+    let conn = state.db.conn();
+    db::list_watched_marks(&conn, &meta_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn progress_for(key: String, app: AppHandle) -> Result<Option<ProgressItem>, String> {
     crate::db_blocking(app, move |state| {
         let conn = state.db.conn();
