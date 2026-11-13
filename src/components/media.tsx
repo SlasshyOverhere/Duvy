@@ -12,7 +12,7 @@ import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
 import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
-import { ContextMenu, Icon, IconButton, Badge, ImdbMark, type ContextAction } from "./ui";
+import { ContextMenu, Icon, IconButton, type ContextAction } from "./ui";
 
 function initials(name: string) {
   return name
@@ -230,6 +230,9 @@ export function Row({
   children: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+
+  const onScroll = () => setAtStart((scroller.current?.scrollLeft ?? 0) < 8);
 
   const scroll = (direction: number) => {
     const node = scroller.current;
@@ -297,16 +300,22 @@ export function Row({
     <section className="row">
       <header className="row-head">
         <h2>{title}</h2>
-        <div className="row-head-right">
-          {detail}
-          <div className="row-arrows">
-            <IconButton icon="back" label="Scroll left" size={16} onClick={() => scroll(-1)} />
-            <IconButton icon="forward" label="Scroll right" size={16} onClick={() => scroll(1)} />
-          </div>
-        </div>
+        {detail ? <div className="row-head-right">{detail}</div> : null}
       </header>
-      <div className="row-scroller" ref={scroller}>
-        {children}
+      <div className="row-track">
+        <div className="row-scroller" ref={scroller} onScroll={onScroll}>
+          {children}
+        </div>
+        <div className="row-arrows">
+          <IconButton
+            icon="back"
+            label="Scroll left"
+            size={18}
+            className={atStart ? "is-edge is-hidden" : "is-edge"}
+            onClick={() => scroll(-1)}
+          />
+          <IconButton icon="forward" label="Scroll right" size={18} className="is-edge" onClick={() => scroll(1)} />
+        </div>
       </div>
     </section>
   );
@@ -535,59 +544,77 @@ export function Hero({
               item.name
             )}
           </h1>
-          <div className="hero-meta">
-            {[
-              item.imdbRating ? (
-                <Badge tone="accent" key="rating">
-                  <span className="rating-value">{item.imdbRating}</span>
-                  <ImdbMark />
-                </Badge>
-              ) : null,
-              item.releaseInfo ? <span key="year">{item.releaseInfo}</span> : null,
-              item.runtime ? <span key="runtime">{item.runtime}</span> : null,
-              ...(item.genres ?? [])
-                .slice(0, 3)
-                .map((genre) => (
-                  <span key={genre} className="hero-genre">
-                    {genre}
+          <div className="hero-copy">
+            <div className="hero-meta">
+              {[
+                item.imdbRating ? (
+                  <span key="rating" className="hero-meta-item">
+                    <Icon name="star" size={16} />
+                    {item.imdbRating}
                   </span>
-                )),
-            ]
-              .filter(Boolean)
-              .map((node, index) => (
-                <Fragment key={index}>
-                  {index > 0 ? (
-                    <span className="hero-sep" aria-hidden="true">
-                      •
+                ) : null,
+                item.releaseInfo ? (
+                  <span key="year" className="hero-meta-item">
+                    <Icon name="calendar" size={16} />
+                    {item.releaseInfo}
+                  </span>
+                ) : null,
+                item.runtime ? <span key="runtime">{item.runtime}</span> : null,
+                ...(item.genres ?? [])
+                  .slice(0, 3)
+                  .map((genre) => (
+                    <span key={genre} className="hero-meta-item">
+                      <Icon name="globe" size={16} />
+                      {genre}
                     </span>
-                  ) : null}
-                  {node}
-                </Fragment>
-              ))}
-          </div>
-          {item.description ? <p className="hero-overview">{item.description}</p> : null}
-          <div className="hero-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={onPlay}
-              title="Play"
-              aria-label="Play"
-            >
-              <Icon name="play" size={20} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-square"
-              onClick={onLibrary}
-              title={inLibrary ? "Remove from library" : "Add to library"}
-              aria-label={inLibrary ? "Remove from library" : "Add to library"}
-            >
-              <Icon name={inLibrary ? "check" : "plus"} size={20} />
-            </button>
-            <button type="button" className="hero-link" onClick={onOpen}>
-              More info
-            </button>
+                  )),
+              ]
+                .filter(Boolean)
+                .map((node, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? (
+                      <span className="hero-sep" aria-hidden="true">
+                        •
+                      </span>
+                    ) : null}
+                    {node}
+                  </Fragment>
+                ))}
+            </div>
+            {item.description ? <p className="hero-overview">{item.description}</p> : null}
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onPlay}
+                title="Play"
+                aria-label="Play"
+              >
+                <Icon name="play" size={20} />
+                <span>Play</span>
+              </button>
+              <div className="hero-pill-group">
+                <button
+                  type="button"
+                  className="hero-pill-btn"
+                  onClick={onLibrary}
+                  title={inLibrary ? "Remove from library" : "Add to library"}
+                  aria-label={inLibrary ? "Remove from library" : "Add to library"}
+                >
+                  <Icon name={inLibrary ? "check" : "plus"} size={24} />
+                </button>
+                <span className="hero-pill-divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="hero-pill-btn"
+                  onClick={onOpen}
+                  title="More info"
+                  aria-label="More info"
+                >
+                  <Icon name="info" size={24} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

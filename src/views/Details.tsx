@@ -422,18 +422,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         ) : null}
         <div className="detail-scrim" aria-hidden="true" />
         <div className="detail-shell">
-          <div className="detail-body">
-            <div className="detail-poster">
-              {details.poster ? <img src={details.poster} alt="" /> : null}
-            </div>
-            <div className="detail-info">
-              <h1 className="detail-title">
-                {logo ? (
-                  <img className="detail-logo" src={logo} alt={details.name} draggable={false} />
-                ) : (
-                  details.name
-                )}
-              </h1>
+          <div className="detail-info">
+            <h1 className="detail-title">
+              {logo ? (
+                <img className="detail-logo" src={logo} alt={details.name} draggable={false} />
+              ) : (
+                details.name
+              )}
+            </h1>
               <div className="detail-meta">
                 <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
                 {details.year ? <span>{details.year}</span> : null}
@@ -496,7 +492,6 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   </Button>
                 ) : null}
               </div>
-            </div>
 
             <div className="detail-credits">
               <dl className="detail-facts">

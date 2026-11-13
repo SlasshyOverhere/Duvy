@@ -1,39 +1,32 @@
-@font-face {
-  font-family: "Instrument Sans";
-  src: url("./assets/instrument-sans.woff2") format("woff2");
-  font-weight: 400 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 /* ---------------------------------------------------------------------------
    Base
    --------------------------------------------------------------------------- */
 
 :root {
-  --bg: #000000;
-  --bg-2: #080808;
-  --surface: #0e0e0e;
-  --surface-2: #161616;
-  --line: rgba(255, 255, 255, 0.09);
-  --line-strong: rgba(255, 255, 255, 0.18);
+  --bg: #050505;
+  --bg-2: #0a0a0a;
+  --surface: #101010;
+  --surface-2: #171717;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
   --text: #ffffff;
-  --muted: #c6c6c6;
-  --faint: #919191;
-  --accent: #f0a53a;
-  --accent-ink: #1b1206;
+  --muted: #b3b3b3;
+  --faint: #8a8a8a;
+  --accent: #f2f2f2;
+  --accent-ink: #050505;
   --good: #74c69d;
   --warn: #f0a53a;
   --danger: #e5484d;
-  --radius-lg: 20px;
+  --radius-lg: 16px;
   --radius: 12px;
   --radius-sm: 8px;
   --pill: 999px;
   --ease: cubic-bezier(0.22, 0.68, 0.32, 1);
-  --sans: "Instrument Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
   --display: var(--sans);
-  --pad: clamp(24px, 5vw, 88px);
-  --page-max: 1680px;
+  --pad: clamp(24px, 4vw, 64px);
+  --page-max: 1440px;
   --nav-h: 88px;
 
   /* One dark glass material: dark clear fill, thin edge, tight top lip. */
@@ -116,8 +109,8 @@ body {
   background-color: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 15.5px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.5;
   text-rendering: optimizeLegibility;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
@@ -145,25 +138,27 @@ h3,
 h4 {
   margin: 0;
   font-family: var(--display);
-  font-weight: 600;
-  letter-spacing: -0.022em;
-  line-height: 1.14;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  line-height: 1.1;
   text-wrap: balance;
   overflow-wrap: anywhere;
   min-width: 0;
 }
 
 h1 {
-  font-size: clamp(2.05rem, 3vw, 2.7rem);
-  line-height: 1.08;
+  font-size: 3rem;
+  line-height: 1.05;
 }
 
 h2 {
-  font-size: 1.4rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
 }
 
 h3 {
-  font-size: 0.98rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.006em;
 }
@@ -405,42 +400,34 @@ select {
   position: absolute;
   inset: 0 0 auto;
   z-index: 25;
-  height: var(--nav-h);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: clamp(14px, 2vw, 28px);
-  padding: 0 var(--pad);
-  /* The trailing window control hugs the edge instead of the content gutter. */
-  padding-right: 24px;
+  gap: 16px;
+  padding: 24px 16px 0 48px;
 }
 
-/* A whisper of shade under the header keeps the wordmark and the status pills
-   readable over bright artwork without killing the backdrop the glass dock
-   refracts. */
+/* Scrolled rows fade out under the header instead of colliding with it. */
 .topbar::before {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 104px;
+  height: 120px;
   z-index: -1;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.3) 0%,
-    rgba(0, 0, 0, 0.16) 62%,
-    rgba(0, 0, 0, 0) 100%
+    var(--bg) 0%,
+    var(--bg) 40%,
+    color-mix(in srgb, var(--bg) 70%, transparent) 72%,
+    transparent 100%
   );
 }
 
 /* The detail page is a wide but bounded composition; the chrome rides the
    same edge as the content inside it. */
 .topbar-detail {
-  padding-inline: max(
-    var(--pad),
-    calc((100% - var(--page-max)) / 2 + var(--pad))
-  );
-  padding-right: 24px;
+  padding-inline: 48px 16px;
 }
 
 .topbar .icon-btn {
@@ -448,18 +435,18 @@ select {
   height: 40px;
 }
 
-/* The primary navigation floats as a dock at the top of the page. */
+/* The primary navigation floats right as a single translucent capsule. */
 .dock {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 16px;
-  margin-inline: auto;
-  width: max-content;
   display: flex;
   align-items: center;
-  gap: 4px;
-  /* Bare bar: only the active item carries a surface. */
+  gap: 2px;
+  padding: 6px;
+  margin-right: 24px;
+  border-radius: var(--pill);
+  background: rgba(14, 14, 16, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }
 
 .dock-item {
@@ -468,45 +455,68 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 42px;
-  padding: 0 18px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 24px;
   border: 0;
   border-radius: var(--pill);
   background: none;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
   font-weight: 500;
-  letter-spacing: -0.01em;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.28);
   white-space: nowrap;
   cursor: pointer;
   transition: color 0.16s var(--ease);
 }
 
-.dock-item:hover,
-.dock-item.is-active {
+.dock-item:hover {
   color: #ffffff;
 }
 
 .dock-item.is-active {
-  font-weight: 600;
+  color: #000000;
+  font-weight: 500;
+}
+
+.dock-item.is-icon {
+  width: 40px;
+  padding: 0;
+}
+
+.dock-item svg {
+  flex: none;
+}
+
+/* Icon actions sit apart from the labels, as on the dock this follows. */
+.dock-item.is-divider {
+  margin-left: 10px;
+}
+
+.dock-item.is-divider::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 1px;
+  height: 18px;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+.dock-item.is-active svg {
+  color: #000000;
 }
 
 .dock-pill {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 6px;
+  bottom: 6px;
   left: 0;
   width: 0;
   z-index: 0;
   border-radius: var(--pill);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  background: #ffffff;
   pointer-events: none;
   will-change: left, width;
   transition:
@@ -533,10 +543,19 @@ select {
 }
 
 @media (max-width: 780px) {
+  .dock {
+    padding: 4px;
+  }
+
   .dock-item {
-    height: 38px;
+    height: 40px;
     padding: 0 14px;
-    font-size: 14.5px;
+    font-size: 14px;
+  }
+
+  .dock-item.is-icon {
+    width: 40px;
+    padding: 0;
   }
 
   .dock-label {
@@ -547,30 +566,34 @@ select {
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: clamp(16px, 2.4vw, 40px);
+  gap: 8px;
   min-width: 0;
-  flex: 1;
+  align-self: flex-start;
 }
 
 .wordmark {
   border: 0;
   background: none;
   padding: 0;
-  font-size: 1.22rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text);
   white-space: nowrap;
 }
 
 .wordmark:hover {
-  color: color-mix(in srgb, var(--accent) 80%, #fff);
-}.topbar-right {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
   flex: 0 0 auto;
-}.pill {
+}
+
+.pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -654,7 +677,6 @@ button.pill:hover {
      drag and touch all still scroll; only the bar is gone. */
   scrollbar-width: none;
   background-color: var(--bg);
-  background-image: var(--glass-substrate-grain);
 }
 
 .view::-webkit-scrollbar {
@@ -663,7 +685,7 @@ button.pill:hover {
 }
 
 .page {
-  padding: calc(var(--nav-h) + 34px) var(--pad) 96px;
+  padding: calc(var(--nav-h) + 40px) var(--pad) 96px;
 }
 
 /* Library and Watched are two tabs of one page. */
@@ -773,11 +795,11 @@ button.pill:hover {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  padding: 11px 22px;
-  border-radius: var(--radius);
+  padding: 12px 24px;
+  border-radius: var(--pill);
   border: 1px solid transparent;
   background: none;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -790,13 +812,13 @@ button.pill:hover {
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: #ffffff;
+  color: #0a0a0a;
   font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  background: rgba(255, 255, 255, 0.82);
 }
 
 /* A disabled primary is a surface, never a dimmed slab of accent. */
@@ -1070,21 +1092,22 @@ button.pill:hover {
    --------------------------------------------------------------------------- */
 
 .row {
-  margin-bottom: 46px;
+  margin-bottom: 48px;
 }
 
 .row-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .row-head h2 {
-  font-size: 2rem;
+  font-size: 1.25rem;
   font-weight: 600;
-  letter-spacing: -0.026em;
+  letter-spacing: -0.012em;
+  color: var(--text);
 }
 
 .row-head-right {
@@ -1094,24 +1117,64 @@ button.pill:hover {
 }
 
 .row-detail {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
+.row-track {
+  position: relative;
+}
+
+/* Round scroll controls ride the row's right edge and arrive on hover. */
 .row-arrows {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
   display: flex;
-  gap: 2px;
+  gap: 6px;
+  z-index: 3;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.18s var(--ease), visibility 0.18s;
+}
+
+.row:hover .row-arrows,
+.row:focus-within .row-arrows {
+  visibility: visible;
+  opacity: 1;
+}
+
+.row-arrows .icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(12, 12, 12, 0.72);
+  color: #ffffff;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: opacity 0.2s var(--ease), background-color 0.15s var(--ease);
+}
+
+.row-arrows .icon-btn:hover:not(:disabled) {
+  background: rgba(28, 28, 28, 0.9);
+  color: #ffffff;
+}
+
+.row-arrows .icon-btn.is-hidden {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .row-scroller {
   display: flex;
-  gap: clamp(18px, 2.2vw, 34px);
+  gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
   /* Inline padding keeps hover/focus outlines from being clipped at the row ends. */
-  padding: 6px 6px 14px;
-  margin-inline: -6px;
-  scroll-padding-inline: 6px;
+  padding: 4px 4px 16px;
+  margin-inline: -4px;
+  scroll-padding-inline: 4px;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
   cursor: grab;
@@ -1133,10 +1196,17 @@ button.pill:hover {
 
 .poster-card {
   position: relative;
-  width: 186px;
-  flex: 0 0 186px;
+  width: 200px;
+  flex: 0 0 200px;
   content-visibility: auto;
-  contain-intrinsic-size: 186px 279px;
+  contain-intrinsic-size: 200px 300px;
+  transition: transform 0.35s var(--ease);
+}
+
+.poster-card:hover,
+.poster-card:focus-within {
+  transform: scale(1.04);
+  z-index: 2;
 }
 
 .poster-card.is-wide {
@@ -1149,7 +1219,8 @@ button.pill:hover {
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border-radius: var(--radius);
-  background: var(--glass-wash), var(--surface-2);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 12px 24px -12px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   isolation: isolate;
 }
@@ -1162,9 +1233,6 @@ button.pill:hover {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow:
-    inset 0 1px 0 var(--glass-edge-soft),
-    inset 0 0 0 1px var(--glass-edge-soft);
 }
 
 .poster-card.is-wide .poster-frame {
@@ -1184,29 +1252,25 @@ button.pill:hover {
   aspect-ratio: 16 / 9;
 }
 
-/* Hover is tonal: the artwork brightens and the play mark arrives. The accent
-   ring belongs to keyboard focus only; it is drawn on the rim because an
-   outline outside the frame is clipped by the card's paint containment. */
+/* Hover is tonal: the artwork dims and the card lifts, as on the target. */
 .poster-frame:focus-within::after {
-  box-shadow:
-    inset 0 0 0 2px var(--accent),
-    inset 0 1px 0 var(--glass-edge-soft);
+  box-shadow: inset 0 0 0 2px var(--text);
 }
 
 .poster-frame img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: filter 0.2s var(--ease);
+  transition: filter 0.3s var(--ease);
 }
 
 .poster-frame:hover img,
 .poster-frame:focus-within img {
-  filter: brightness(1.06);
+  filter: brightness(0.5);
 }
 
 .poster-frame:active img {
-  filter: brightness(0.96);
+  filter: brightness(0.42);
 }
 
 .poster-fallback {
@@ -1257,16 +1321,16 @@ button.pill:hover {
 
 .poster-play {
   position: absolute;
-  right: 9px;
-  bottom: 9px;
-  width: 32px;
-  height: 32px;
+  right: 10px;
+  bottom: 10px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: #ffffff;
+  color: #0a0a0a;
   opacity: 0;
   transition: opacity 0.16s var(--ease);
 }
@@ -1286,7 +1350,7 @@ button.pill:hover {
 .poster-progress span {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: #ffffff;
 }
 
 .poster-caption {
@@ -1438,7 +1502,7 @@ button.pill:hover {
 .continue-progress span {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: #ffffff;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1446,16 +1510,34 @@ button.pill:hover {
    --------------------------------------------------------------------------- */
 
 .home {
+  position: relative;
   padding-bottom: 96px;
 }
 
+/* The featured artwork keeps lighting the page below the fold, blurred well
+   past recognition so text stays crisp over it. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  filter: blur(80px) saturate(1.1);
+  opacity: 0.35;
+  transform: scale(1.15);
+  transition: opacity 0.6s var(--ease);
+}
+
 .home-body {
-  padding: calc(var(--nav-h) + 22px) var(--pad) 0;
+  position: relative;
+  z-index: 1;
+  padding: calc(var(--nav-h) + 24px) var(--pad) 0;
 }
 
 /* With a hero above it the rows start right below the artwork. */
 .hero + .home-body {
-  padding-top: 28px;
+  padding-top: 32px;
 }
 
 /* The copy sits on the left, sharing the page gutter with the rows below,
@@ -1463,17 +1545,14 @@ button.pill:hover {
 .hero {
   position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-start;
-  min-height: clamp(500px, 72vh, 760px);
+  min-height: 85vh;
   margin: 0;
   border-radius: 0;
   overflow: hidden;
   isolation: isolate;
   background: var(--bg);
-  box-shadow:
-    inset 0 0 0 1px var(--glass-edge-soft),
-    inset 0 1px 0 var(--glass-edge-soft);
 }
 
 .hero-backdrop {
@@ -1482,67 +1561,41 @@ button.pill:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 28%;
-  filter: saturate(1.1) contrast(1.06) brightness(0.8);
-  mask-image: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.55) 0%,
-    #000 16%,
-    #000 78%,
-    transparent 100%
-  );
+  object-position: 50% 20%;
+  filter: brightness(0.92);
 }
 
 .hero-scrim {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(
-      to right,
-      rgba(0, 0, 0, 0.78) 0%,
-      rgba(0, 0, 0, 0.6) 24%,
-      rgba(0, 0, 0, 0.2) 50%,
-      rgba(0, 0, 0, 0) 68%
-    ),
-    linear-gradient(
-      to top,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.82) 22%,
-      rgba(0, 0, 0, 0.42) 44%,
-      rgba(0, 0, 0, 0.12) 62%,
-      rgba(0, 0, 0, 0) 76%
-    ),
-    linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0) 26%);
-}
-
-/* Film grain sits on the artwork only, never on the copy. */
-.hero::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  border-radius: inherit;
-  opacity: 0.07;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 50%),
+    linear-gradient(to right, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.18) 34%, rgba(0, 0, 0, 0) 62%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 24%);
 }
 
 .hero-body {
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: min(100%, 60rem);
+  max-width: 42rem;
   margin: 0;
-  padding: clamp(96px, 12vh, 140px) var(--pad) clamp(46px, 6vh, 72px);
+  padding: 96px var(--pad) 72px;
   text-align: left;
 }
 
+.hero-enter {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
 .hero-title {
-  font-size: clamp(2.9rem, 6vw, 5.6rem);
-  font-weight: 600;
+  font-size: clamp(2.25rem, 4vw, 3.75rem);
+  font-weight: 700;
   line-height: 1.02;
-  letter-spacing: -0.028em;
+  letter-spacing: -0.03em;
   max-width: 20ch;
   margin: 0;
   text-wrap: balance;
@@ -1553,10 +1606,18 @@ button.pill:hover {
   display: block;
   width: auto;
   height: auto;
-  max-width: min(520px, 82%);
-  max-height: clamp(72px, 9vw, 130px);
+  max-width: min(560px, 82%);
+  max-height: clamp(88px, 13vw, 192px);
   margin: 0;
   object-fit: contain;
+  filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.55));
+}
+
+/* The copy block under the title shares one rhythm with the actions. */
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .hero-meta {
@@ -1564,136 +1625,122 @@ button.pill:hover {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px 8px;
-  margin-top: 20px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.8);
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #ffffff;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
 }
 
-.hero-genre {
-  color: rgba(255, 255, 255, 0.9);
+.hero-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hero-sep {
-  color: rgba(255, 255, 255, 0.34);
-  font-size: 0.8em;
-}
-
-.hero-meta .badge {
-  font-size: 12px;
-  padding: 3px 9px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.7em;
 }
 
 .hero-overview {
-  margin: 18px 0 0;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: clamp(1rem, 1.15vw, 1.15rem);
+  margin: 0;
+  color: #ffffff;
+  font-size: 18px;
   font-weight: 500;
   line-height: 1.55;
-  max-width: 46rem;
+  max-width: 36rem;
   text-align: left;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
 }
 
 .hero-actions {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-top: 32px;
 }
 
-.hero-link {
-  padding: 0 22px;
-  font-size: 15px;
-  font-weight: 600;
-  transition: color 0.15s var(--ease);
-}
-
-/* Same glass shell as the detail actions: circles for icon-only commands,
-   a pill when a command carries a word. */
-.hero-actions .btn,
-.hero-link {
-  min-height: 44px;
+.hero-actions .btn.btn-primary {
+  min-width: 130px;
+  height: 52px;
+  gap: 8px;
+  padding: 0 24px;
   border: 0;
   border-radius: var(--pill);
-  color: rgba(255, 255, 255, 0.9);
-  background: var(--glass-wash), var(--glass-fill);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion),
-    var(--glass-shadow);
-}
-
-.hero-actions .btn:hover:not(:disabled),
-.hero-link:hover {
-  color: var(--text);
-  background-color: var(--glass-fill-hover);
-}
-
-/* The play CTA is clear glass: the same fill as the dock, a thin frost, a
-   quiet top lip. No band, no halo. */
-.hero-actions .btn.btn-primary {
-  width: 56px;
-  height: 56px;
-  padding: 0;
-  color: #fff;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.14) 0%,
-      rgba(255, 255, 255, 0.03) 34%,
-      rgba(255, 255, 255, 0) 52%
-    ),
-    rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  color: #000000;
+  background: #f2f2f2;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
-  color: #fff;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.18) 0%,
-      rgba(255, 255, 255, 0.05) 36%,
-      rgba(255, 255, 255, 0.02) 54%
-    ),
-    rgba(255, 255, 255, 0.1);
+  background: #ffffff;
+  color: #000000;
 }
 
-.hero-actions .btn-primary svg {
-  width: 22px;
-  height: 22px;
-  /* The frost can pass light through, so the glyph carries its own shadow. */
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+/* Plus and info share one frosted pill, split by a hairline. */
+.hero-pill-group {
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  border-radius: var(--pill);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
 }
 
-.hero-actions .btn-square {
-  width: 44px;
-  height: 44px;
-  padding: 0;
+.hero-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 20px;
+  border: 0;
+  background: none;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease);
 }
 
+.hero-pill-btn:first-child {
+  border-radius: var(--pill) 0 0 var(--pill);
+}
+
+.hero-pill-btn:last-child {
+  border-radius: 0 var(--pill) var(--pill) 0;
+}
+
+.hero-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hero-pill-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.hero-pill-divider {
+  width: 1px;
+  height: 24px;
+  flex: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Dots sit in the corner the target places them, as a quiet row. */
 .hero-dots {
   position: absolute;
-  right: clamp(18px, 2.4vw, 30px);
-  bottom: clamp(18px, 2.4vw, 30px);
+  right: clamp(20px, 3vw, 40px);
+  bottom: clamp(20px, 3vw, 32px);
   z-index: 2;
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
 .hero-dot {
@@ -1709,8 +1756,8 @@ button.pill:hover {
 
 .hero-dot::before {
   content: "";
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.38);
   transition: width 0.28s var(--ease), background-color 0.2s var(--ease);
@@ -1721,12 +1768,12 @@ button.pill:hover {
 }
 
 .hero-dot.is-active::before {
-  width: 18px;
-  background: #fff;
+  width: 28px;
+  background: #ffffff;
 }
 
 .hero-dot:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid #ffffff;
   outline-offset: -2px;
   border-radius: 999px;
 }
@@ -2019,7 +2066,6 @@ button.pill:hover {
 
 .detail-page {
   --detail-gap: clamp(20px, 2.2vw, 36px);
-  --detail-poster: clamp(148px, 13vw, 194px);
   padding: 0 0 clamp(64px, 9vh, 108px);
 }
 
@@ -2036,7 +2082,7 @@ button.pill:hover {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  min-height: clamp(600px, 78vh, 790px);
+  min-height: 88vh;
   padding-top: calc(var(--nav-h) + 24px);
   overflow: hidden;
   isolation: isolate;
@@ -2076,37 +2122,11 @@ button.pill:hover {
     );
 }
 
-/* Poster and facts share one bottom edge: the card lands on the action row
-   rather than hanging above it. */
-.detail-body {
+.detail-info {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: var(--detail-poster) minmax(0, 1fr);
-  align-items: end;
-  gap: 0 var(--detail-gap);
-  padding-block: clamp(14px, 1.6vw, 22px) clamp(20px, 2.6vw, 32px);
-}
-
-.detail-poster {
-  width: 100%;
-  aspect-ratio: 2 / 3;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--glass-wash), var(--surface-2);
-  outline: 1px solid var(--glass-edge-soft);
-  outline-offset: -1px;
-  box-shadow: var(--glass-shadow);
-}
-
-.detail-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.detail-info {
   min-width: 0;
+  padding-block: clamp(14px, 1.6vw, 22px) clamp(20px, 2.6vw, 32px);
 }
 
 /* The title art is the composition when the addon has it; the name carries it
@@ -2114,7 +2134,7 @@ button.pill:hover {
 .detail-title {
   margin: 0;
   max-width: 24ch;
-  font-size: clamp(1.9rem, 2.6vw, 2.4rem);
+  font-size: clamp(2.25rem, 4vw, 3.75rem);
   line-height: 1.04;
   letter-spacing: -0.028em;
   overflow-wrap: anywhere;
@@ -2207,19 +2227,15 @@ button.pill:hover {
   width: 44px;
   padding: 0;
   font-weight: 600;
-  color: var(--accent-ink);
-  background: var(--accent);
+  color: #0a0a0a;
+  background: #ffffff;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 0 0 1px var(--glass-edge-soft),
-    var(--glass-shadow);
 }
 
 .detail-actions .btn.btn-primary:hover:not(:disabled) {
-  color: var(--accent-ink);
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  color: #0a0a0a;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .detail-actions .btn.btn-primary svg {
@@ -4549,14 +4565,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* Row arrows are always mounted, so they can fade rather than pop in. */
-.row-arrows {
+.row-arrows .icon-btn.is-hidden {
   opacity: 0;
-  transition: opacity 0.2s var(--ease);
-}
-
-.row:hover .row-arrows,
-.row:focus-within .row-arrows {
-  opacity: 1;
 }
 
 .btn:active:not(:disabled),
@@ -4594,17 +4604,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sk-hero {
-  min-height: clamp(500px, 72vh, 760px);
+  min-height: 85vh;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 14px;
   margin: 0;
   border-radius: 0;
   background: #0f0f0f;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  padding: 0 var(--pad) clamp(46px, 6vh, 74px);
+  padding: 96px var(--pad) 72px;
 }
 
 .sk-line,
@@ -4659,36 +4668,36 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sk-button {
-  width: 152px;
-  height: 50px;
-  border-radius: 12px;
+  width: 130px;
+  height: 52px;
+  border-radius: var(--pill);
 }
 
 .sk-square {
   width: 52px;
   height: 52px;
-  border-radius: 12px;
+  border-radius: 50%;
 }
 
 .sk-row {
-  padding: 34px var(--pad) 0;
+  padding: 32px var(--pad) 0;
 }
 
 .sk-head {
   width: 190px;
-  height: 22px;
-  margin-bottom: 22px;
+  height: 24px;
+  margin-bottom: 18px;
 }
 
 .sk-posters {
   display: flex;
-  gap: clamp(18px, 2.2vw, 34px);
+  gap: 16px;
   overflow: hidden;
 }
 
 .sk-poster {
-  width: 186px;
-  flex: 0 0 186px;
+  width: 200px;
+  flex: 0 0 200px;
   aspect-ratio: 2 / 3;
 }
 
@@ -4936,37 +4945,37 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .search-title {
-  font-size: clamp(2.3rem, 3.2vw, 3rem);
-  letter-spacing: -0.03em;
+  font-size: 2.25rem;
   margin-bottom: 20px;
 }
 
 .search-discover {
   display: flex;
   flex-direction: column;
-  gap: 46px;
+  gap: 48px;
   margin-top: 42px;
 }
 
+/* One pill, frosted, exactly like the field the target opens on. */
 .search-page-form {
   display: flex;
   align-items: center;
   gap: 14px;
   width: 100%;
-  height: 60px;
+  height: 48px;
   padding: 0 20px;
-  border-radius: 12px;
-  background: var(--glass-wash), var(--glass-fill-soft);
-  box-shadow:
-    inset 0 1px 0 var(--glass-edge-soft),
-    inset 0 0 0 1px var(--glass-edge-soft);
+  border-radius: var(--pill);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
   color: var(--faint);
   transition: color 0.16s var(--ease), background-color 0.16s var(--ease);
 }
 
 .search-page-form:focus-within {
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .search-page-form input {
@@ -5804,8 +5813,7 @@ input[type="range"]::-webkit-slider-thumb {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .drawer,
   .toast,
-  .hero-actions .btn,
-  .hero-link,
+  .hero-actions .btn-square,
   .detail-actions .btn,
   .ob-preview {
     -webkit-backdrop-filter: none;
@@ -5815,6 +5823,36 @@ input[type="range"]::-webkit-slider-thumb {
 
   .hero-actions .btn.btn-primary,
   .detail-actions .btn.btn-primary {
-    background: var(--accent);
+    background: #ffffff;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Footer
+   --------------------------------------------------------------------------- */
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px var(--pad) 40px;
+  text-align: center;
+}
+
+.footer-mark {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.footer-note {
+  max-width: 60ch;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  line-height: 1.6;
 }

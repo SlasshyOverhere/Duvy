@@ -3,11 +3,11 @@ import { useApp, usePlayer, type Route } from "../lib/store";
 import { WindowControls } from "./TitleBar";
 import { Icon, IconButton, type IconName } from "./ui";
 
-const DOCK: { route: Route; label: string; icon: IconName }[] = [
-  { route: { name: "home" }, label: "Home", icon: "home" },
-  { route: { name: "search" }, label: "Search", icon: "search" },
-  { route: { name: "library" }, label: "Library", icon: "library" },
-  { route: { name: "settings" }, label: "Settings", icon: "settings" },
+const DOCK: { route: Route; label: string; icon: IconName; iconOnly?: boolean; showIcon?: boolean }[] = [
+  { route: { name: "home" }, label: "Home", icon: "home", showIcon: true },
+  { route: { name: "library" }, label: "My List", icon: "library" },
+  { route: { name: "search" }, label: "Search", icon: "search", iconOnly: true },
+  { route: { name: "settings" }, label: "Settings", icon: "settings", iconOnly: true },
 ];
 
 // A title page keeps Home lit, and watched history lives inside Library.
@@ -96,30 +96,37 @@ export function TopBar() {
         </button>
       </div>
 
-      <nav ref={dockRef} className="dock" aria-label="Primary">
-        <span
-          className={`dock-pill${pill ? "" : " is-hidden"}`}
-          aria-hidden="true"
-          style={pill ? { left: pill.left, width: pill.width } : { left: 0, width: 0 }}
-        />
-        {DOCK.map((item) => {
-          const active = isActive(route, item.route);
-          return (
-            <button
-              key={item.label}
-              type="button"
-              className={`dock-item${active ? " is-active" : ""}`}
-              onClick={() => navigate(item.route)}
-              aria-current={active ? "page" : undefined}
-              title={item.label}
-            >
-              <span className="dock-label">{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-
       <div className="topbar-right" data-tauri-drag-region>
+        <nav ref={dockRef} className="dock" aria-label="Primary">
+          <span
+            className={`dock-pill${pill ? "" : " is-hidden"}`}
+            aria-hidden="true"
+            style={pill ? { left: pill.left, width: pill.width } : { left: 0, width: 0 }}
+          />
+          {DOCK.map((item, index) => {
+            const active = isActive(route, item.route);
+            const divider = Boolean(item.iconOnly) && !DOCK[index - 1]?.iconOnly;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                className={`dock-item${active ? " is-active" : ""}${item.iconOnly ? " is-icon" : ""}${
+                  divider ? " is-divider" : ""
+                }`}
+                onClick={() => navigate(item.route)}
+                aria-current={active ? "page" : undefined}
+                aria-label={item.iconOnly ? item.label : undefined}
+                title={item.label}
+              >
+                {item.iconOnly || item.showIcon ? (
+                  <Icon name={item.icon} size={item.iconOnly ? 20 : 16} />
+                ) : null}
+                {item.iconOnly ? null : <span className="dock-label">{item.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
         {addons.length === 0 ? (
           <button
             type="button"

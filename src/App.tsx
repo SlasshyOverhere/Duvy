@@ -99,6 +99,18 @@ function Toasts() {
   );
 }
 
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <span className="footer-mark">Duvy</span>
+      <p className="footer-note">
+        Duvy does not host, store, or distribute any media files. All content is
+        sourced from third-party providers.
+      </p>
+    </footer>
+  );
+}
+
 function Screen() {
   const { route, booting, bootError, settings } = useApp();
   const [preview, setPreview] = useState(false);
@@ -191,6 +203,7 @@ function Screen() {
                 {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
               </Suspense>
             </ErrorBoundary>
+            <SiteFooter />
           </main>
         </div>
       </div>
