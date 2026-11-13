@@ -113,6 +113,31 @@ function Overlay({
   );
 }
 
+/** One readout group: a quiet caption and its label/value lines. */
+function InfoGroup({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<[string, string | null | undefined]>;
+}) {
+  const shown = rows.filter(([, value]) => value);
+  if (shown.length === 0) return null;
+  return (
+    <section className="pv-info-group">
+      <h3>{title}</h3>
+      <dl>
+        {shown.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd title={value ?? undefined}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 /** Side sheet from the right, the shape Nuvio uses for sources and episodes. */
 function SidePanel({
   label,
@@ -2178,9 +2203,9 @@ export function PlayerView() {
     () => [
       ["State", local?.ended ? "Ended" : local?.paused ? "Paused" : "Playing"],
       ["Position", `${formatTime(position)} / ${formatTime(duration)}`],
-      ["Cached to", formatTime(local?.buffered ?? 0)],
+      ["Buffer", `${formatTime(local?.buffered ?? 0)} ahead`],
       ["Speed", `${local?.speed ?? 1}×`],
-      ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " (muted)" : ""}`],
+      ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " · muted" : ""}`],
       ["Engine", "libmpv"],
     ],
     [
@@ -2200,36 +2225,55 @@ export function PlayerView() {
       ["Stream", playingSource?.title ?? playingSource?.name ?? null],
       ["Quality", playingSource?.quality ?? null],
       ["Size", playingSource?.size ?? null],
+      [
+        "Cached",
+        playingSource
+          ? [
+              playingSource.cached ? "Yes" : "No",
+              playingSource.seeders ? `${playingSource.seeders} seeders` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : null,
+      ],
+      ["Languages", playingSource?.languages.length ? playingSource.languages.join(", ") : null],
     ],
-    [playingSource?.title, playingSource?.name, playingSource?.quality, playingSource?.size],
+    [playingSource],
   );
 
   const audioRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Track", activeAudio?.label ?? "Default"],
-      ["Language", activeAudio?.lang ? langLabel(activeAudio.lang) : null],
-      ["Channels and codec", activeAudio?.details ?? null],
+      [
+        "Track",
+        activeAudio
+          ? [activeAudio.lang ? langLabel(activeAudio.lang) : activeAudio.label, activeAudio.details]
+              .filter(Boolean)
+              .join(" · ")
+          : "Default",
+      ],
       ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : "Built in") : null],
     ],
-    [
-      activeAudio?.label,
-      activeAudio?.lang,
-      activeAudio?.details,
-      activeAudio?.external,
-      Boolean(activeAudio),
-    ],
+    [activeAudio],
   );
 
   const subtitleRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Track", loadedSub ? `${loadedSub.lang} (addon)` : activeSub?.label ?? null],
-      ["Language", activeSub?.lang ? langLabel(activeSub.lang) : loadedSub?.lang ?? null],
+      [
+        "Track",
+        loadedSub
+          ? `${langLabel(loadedSub.lang)} (addon)`
+          : activeSub
+            ? [activeSub.lang ? langLabel(activeSub.lang) : activeSub.label, activeSub.details]
+                .filter(Boolean)
+                .join(" · ")
+            : "Off",
+      ],
       [
         "Source",
         loadedSub ? "Addon" : activeSub ? (activeSub.external ? "Loaded file" : "Built in") : null,
       ],
     ],
-    [activeSub?.label, activeSub?.lang, activeSub?.external, Boolean(activeSub), loadedSub],
+    [activeSub, loadedSub],
   );
 
   if (!local) {
@@ -2524,66 +2568,21 @@ export function PlayerView() {
           {surface === "info" ? (
             <Overlay label="Stream info" onClose={closeSurface}>
               <div className="pv-info">
-                <section>
-                  <h3>Source</h3>
+                <header className="pv-info-head">
                   <p className="pv-info-lead">
                     {playingSource?.addon ?? "Source"}
                     {sourceTitle ? <span>{sourceTitle}</span> : null}
                   </p>
                   {playingSource?.description ? (
-                    <p className="pv-info-note">{playingSource.description.replace(/\n/g, " · ")}</p>
+                    <p className="pv-info-note">
+                      {playingSource.description.replace(/\n/g, " · ")}
+                    </p>
                   ) : null}
-                  <dl>
-                    {sourceRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Audio</h3>
-                  <dl>
-                    {audioRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Subtitles</h3>
-                  <dl>
-                    {subtitleRows.map(([label, value]) =>
-                      value ? (
-                        <div key={label}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ) : null,
-                    )}
-                  </dl>
-                </section>
-
-                <section>
-                  <h3>Playback</h3>
-                  <dl>
-                    {playbackRows.map(([label, value]) => (
-                      <div key={label}>
-                        <dt>{label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
+                </header>
+                <InfoGroup title="Source" rows={sourceRows} />
+                <InfoGroup title="Audio" rows={audioRows} />
+                <InfoGroup title="Subtitles" rows={subtitleRows} />
+                <InfoGroup title="Playback" rows={playbackRows} />
               </div>
             </Overlay>
           ) : null}
