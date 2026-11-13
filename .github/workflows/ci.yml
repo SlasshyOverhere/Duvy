@@ -23,11 +23,16 @@ jobs:
 
       - run: bun run test
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned: rust-cache keys on the rustc commit, so a stable bump wipes
+      # every cache entry in the repo. Bump this deliberately.
+      - uses: dtolnay/rust-toolchain@1.100.0
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          # PRs restore main's cache; only main writes. Otherwise each PR saves
+          # its own ~1 GB entry that no other ref can read.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The libmpv import library and DLL are not committed.
       - name: Fetch libmpv
