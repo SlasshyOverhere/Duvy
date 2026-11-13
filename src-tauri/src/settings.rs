@@ -86,7 +86,9 @@ impl Default for Settings {
             buffer_backward_value: 75,
             buffer_backward_unit: "mb".into(),
             stream_threads: 8,
-            min_buffer_secs: 10,
+            // Seconds of media, not seconds of waiting: a pipe slower than
+            // realtime turns a large value into a long stall on every seek.
+            min_buffer_secs: 3,
             trakt_scrobble: true,
             auto_update_check: true,
             ignored_update_version: String::new(),

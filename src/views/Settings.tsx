@@ -837,12 +837,12 @@ export function SettingsView({ section }: { section?: string }) {
                 />
                 <Row
                   title="Minimum buffer"
-                  description="Playback waits for this much media before it starts, after it stalls, and after a seek."
+                  description="Playback waits for this much media before it resumes after a stall or a seek. Lower starts and seeks sooner; higher survives longer dips."
                   control={
                     <Range
                       label="Minimum buffer"
                       min={1}
-                      max={60}
+                      max={30}
                       step={1}
                       value={settings.minBufferSecs}
                       suffix="s"

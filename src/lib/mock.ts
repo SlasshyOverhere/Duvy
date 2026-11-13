@@ -119,7 +119,7 @@ let settings: Settings = {
   bufferBackwardValue: 75,
   bufferBackwardUnit: "mb",
   streamThreads: 8,
-  minBufferSecs: 10,
+  minBufferSecs: 3,
   traktScrobble: true,
   autoUpdateCheck: true,
   ignoredUpdateVersion: "",

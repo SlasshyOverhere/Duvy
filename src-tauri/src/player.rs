@@ -610,11 +610,11 @@ impl Player {
             }
             // mpv resumes after one second of cache, which on a slow source
             // stalls again the moment playback restarts. Wait for a real
-            // cushion instead, including before the first frame and after a
-            // seek.
+            // cushion instead. The first frame is not held back: mpv's default
+            // is to start as soon as it can decode, and a slow start is worse
+            // than a quick one that fills in behind the playhead.
             let _ = init.set_option("cache-pause", "yes");
             let _ = init.set_option("cache-pause-wait", min_buffer.to_string());
-            let _ = init.set_option("cache-pause-initial", "yes");
             let _ = init.set_option("network-timeout", "20");
             let _ = init.set_option("alang", language_arg(&settings.audio_language));
             let _ = init.set_option("slang", language_arg(&settings.subtitle_language));

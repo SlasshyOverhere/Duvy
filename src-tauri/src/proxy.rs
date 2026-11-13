@@ -26,6 +26,9 @@ const SLACK: usize = 4;
 const MAX_ATTEMPTS: u8 = 3;
 /// Poll interval while a chunk fills. A wakeup channel is not worth the races.
 const POLL: Duration = Duration::from_millis(4);
+/// Finished chunks kept behind the playhead, so a short seek back is instant and
+/// the tail read at open does not throw the head away.
+const KEEP: usize = 32 << 20;
 
 /// A running loopback server. Dropping it stops the fetching.
 pub struct StreamProxy {
@@ -120,6 +123,54 @@ struct Chunks {
     list: Vec<Chunk>,
     /// The chunk the reader last served, so data behind it can be dropped.
     cursor: usize,
+    /// Lowest chunk that still holds data.
+    low: usize,
+    retained: usize,
+}
+
+impl Chunks {
+    fn trim(&mut self) {
+        while self.retained > KEEP && self.low < self.cursor {
+            let low = self.low;
+            self.retained -= self.list[low].data.len();
+            // An in-flight worker writes into the fresh chunk and is left to
+            // finish; it is behind the reader, so the bytes go unused.
+            self.list[low] = Chunk::default();
+            self.low = low + 1;
+        }
+    }
+}
+
+/// The probe already carries the chunk mpv asked for, so its bytes are kept
+/// rather than fetched again, and the chunks after it start right away.
+fn prime(store: &Arc<Store>, index: usize, response: reqwest::Response) {
+    if let Ok(mut guard) = store.chunks.lock() {
+        guard.list[index].started = true;
+    }
+    pump(store, index);
+    let store = Arc::clone(store);
+    let want = (store.total - index as u64 * CHUNK).min(CHUNK) as usize;
+    tauri::async_runtime::spawn(async move {
+        let mut response = response;
+        loop {
+            match response.chunk().await {
+                Ok(Some(piece)) => {
+                    if append(&store, index, &piece, want as u64) != Some(false) {
+                        finish(&store, index);
+                        return;
+                    }
+                }
+                Ok(None) => {
+                    finish(&store, index);
+                    return;
+                }
+                Err(_) => {
+                    release(&store, index);
+                    return;
+                }
+            }
+        }
+    });
 }
 
 async fn accept_loop(listener: std::net::TcpListener, ctx: Arc<Ctx>, cancel: Arc<AtomicBool>) {
@@ -157,7 +208,7 @@ async fn handle_conn(ctx: Arc<Ctx>, mut stream: TcpStream) {
 }
 
 async fn serve_request(ctx: &Arc<Ctx>, stream: &mut TcpStream, request: &Request) -> bool {
-    let Ok(target) = target(ctx).await else {
+    let Ok(target) = target(ctx, request.from).await else {
         let _ = write_status(stream, 502).await;
         return false;
     };
@@ -167,17 +218,24 @@ async fn serve_request(ctx: &Arc<Ctx>, stream: &mut TcpStream, request: &Request
     }
 }
 
-/// One byte tells us the size, the type and where the resolver sent us.
-async fn target(ctx: &Arc<Ctx>) -> Result<Target, ()> {
+/// The probe asks for a whole chunk rather than one byte: its headers already
+/// say the size, and its body saves mpv's first read a whole round trip. It is
+/// the chunk mpv asked for, so a resume does not prefetch the wrong end.
+async fn target(ctx: &Arc<Ctx>, from: u64) -> Result<Target, ()> {
+    let first = from / CHUNK;
     ctx.target
         .get_or_try_init(|| async {
+            let start = first * CHUNK;
             let response = ctx
                 .client
                 .get(&ctx.url)
-                .header(RANGE, "bytes=0-0")
+                .header(RANGE, format!("bytes={start}-{}", start + CHUNK - 1))
                 .send()
                 .await
                 .map_err(|_| ())?;
+            // A 200 means the range was ignored and this body is the whole
+            // file, which cannot be chunked.
+            let ranged = response.status().as_u16() == 206;
             let total = response
                 .headers()
                 .get("content-range")
@@ -185,7 +243,7 @@ async fn target(ctx: &Arc<Ctx>) -> Result<Target, ()> {
                 .and_then(|value| value.rsplit('/').next())
                 .and_then(|value| value.trim().parse::<u64>().ok())
                 .filter(|total| *total > 0);
-            let Some(total) = total else {
+            let Some(total) = total.filter(|_| ranged) else {
                 return Ok::<Target, ()>(Target::Relay);
             };
             let content_type = response
@@ -196,7 +254,7 @@ async fn target(ctx: &Arc<Ctx>) -> Result<Target, ()> {
                 .to_string();
             let origin = response.url().to_string();
             let count = total.div_ceil(CHUNK) as usize;
-            Ok(Target::Ranged(Arc::new(Store {
+            let store = Arc::new(Store {
                 url: ctx.url.clone(),
                 total,
                 content_type,
@@ -204,12 +262,20 @@ async fn target(ctx: &Arc<Ctx>) -> Result<Target, ()> {
                 chunks: Mutex::new(Chunks {
                     list: (0..count).map(|_| Chunk::default()).collect(),
                     cursor: 0,
+                    low: 0,
+                    retained: 0,
                 }),
                 cancel: Arc::clone(&ctx.cancel),
                 single: AtomicBool::new(false),
                 client: ctx.client.clone(),
                 threads: ctx.threads,
-            })))
+            });
+            // A request past the end gets a 416 from `ranged`; priming would
+            // index outside the chunk list.
+            if start < total {
+                prime(&store, first as usize, response);
+            }
+            Ok(Target::Ranged(store))
         })
         .await
         .cloned()
@@ -363,25 +429,33 @@ fn take(store: &Store, index: usize, offset: usize) -> Ready {
     let Ok(mut guard) = store.chunks.lock() else {
         return Ready::Stop;
     };
-    let chunks = &mut *guard;
+    take_from(&mut guard, index, offset)
+}
+
+fn take_from(chunks: &mut Chunks, index: usize, offset: usize) -> Ready {
     if index > chunks.cursor {
-        for chunk in &mut chunks.list[..index] {
-            // A worker still writing keeps its buffer; it goes once it lands.
-            if chunk.started && !chunk.done {
-                continue;
-            }
-            chunk.data = Vec::new();
-            chunk.started = false;
-            chunk.done = false;
-        }
         chunks.cursor = index;
+        chunks.trim();
     }
     let chunk = &mut chunks.list[index];
     if chunk.data.len() > offset {
         let end = (offset + PIECE).min(chunk.data.len());
         return Ready::Bytes(chunk.data[offset..end].to_vec());
     }
-    if chunk.attempts >= MAX_ATTEMPTS || chunk.done {
+    if chunk.done {
+        // Finished without reaching this offset: the chunk was trimmed while it
+        // was in flight, or the origin truncated it. Fetch it again.
+        chunks.retained -= chunk.data.len();
+        let attempts = chunk.attempts + 1;
+        *chunk = Chunk {
+            attempts,
+            ..Chunk::default()
+        };
+        if attempts >= MAX_ATTEMPTS {
+            return Ready::Stop;
+        }
+    }
+    if chunk.attempts >= MAX_ATTEMPTS {
         return Ready::Stop;
     }
     Ready::Wait
@@ -451,15 +525,7 @@ async fn run_chunk(store: Arc<Store>, index: usize) {
         }
         match response.chunk().await {
             Ok(Some(piece)) => {
-                let full = match store.chunks.lock() {
-                    Ok(mut guard) => {
-                        let chunk = &mut guard.list[index];
-                        chunk.data.extend_from_slice(&piece);
-                        chunk.data.len() as u64 >= end - start + 1
-                    }
-                    Err(_) => return,
-                };
-                if full {
+                if append(&store, index, &piece, end - start + 1) != Some(false) {
                     finish(&store, index);
                     return;
                 }
@@ -477,6 +543,20 @@ async fn run_chunk(store: Arc<Store>, index: usize) {
     }
 }
 
+/// Adds bytes to a chunk. `None` when the chunk was trimmed while in flight, so
+/// the worker stops rather than filling memory nobody reads.
+fn append(store: &Store, index: usize, piece: &[u8], expected: u64) -> Option<bool> {
+    let mut guard = store.chunks.lock().ok()?;
+    if index < guard.low {
+        return Some(true);
+    }
+    let chunk = &mut guard.list[index];
+    chunk.data.extend_from_slice(piece);
+    let held = chunk.data.len() as u64;
+    guard.retained += piece.len();
+    Some(held >= expected)
+}
+
 fn finish(store: &Store, index: usize) {
     if let Ok(mut guard) = store.chunks.lock() {
         guard.list[index].done = true;
@@ -486,6 +566,8 @@ fn finish(store: &Store, index: usize) {
 /// Hand a failed chunk back to the reader, which retries it after a pause.
 fn release(store: &Store, index: usize) {
     if let Ok(mut guard) = store.chunks.lock() {
+        let held = guard.list[index].data.len();
+        guard.retained = guard.retained.saturating_sub(held);
         let chunk = &mut guard.list[index];
         chunk.data.clear();
         chunk.started = false;
@@ -661,36 +743,58 @@ mod tests {
     struct Origin {
         port: u16,
         peak: Arc<AtomicUsize>,
+        /// Where every range request started, in arrival order.
+        starts: Arc<Mutex<Vec<u64>>>,
     }
 
     impl Origin {
-        /// `throttle` refuses anything but the one-byte probe and a whole-file
-        /// range, the way a CDN answers too many parallel connections.
-        fn start(file: Arc<Vec<u8>>, throttle: bool) -> Self {
+        /// `throttle` lets the first chunk through and refuses the rest, the way
+        /// a CDN answers too many parallel connections.
+        fn start(file: Arc<Vec<u8>>, throttle: bool, rate: Option<u64>) -> Self {
             let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind");
             let port = listener.local_addr().expect("addr").port();
             let peak = Arc::new(AtomicUsize::new(0));
             let live = Arc::new(AtomicUsize::new(0));
+            let starts = Arc::new(Mutex::new(Vec::new()));
+            let served = Arc::new(AtomicUsize::new(0));
             let seen = Arc::clone(&peak);
+            let log = Arc::clone(&starts);
             thread::spawn(move || {
                 for stream in listener.incoming() {
                     let Ok(mut stream) = stream else { return };
                     let file = Arc::clone(&file);
                     let live = Arc::clone(&live);
                     let seen = Arc::clone(&seen);
+                    let log = Arc::clone(&log);
+                    let served = Arc::clone(&served);
                     thread::spawn(move || {
                         let now = live.fetch_add(1, Ordering::SeqCst) + 1;
                         seen.fetch_max(now, Ordering::SeqCst);
-                        answer(&mut stream, &file, throttle);
+                        answer(&mut stream, &file, throttle.then_some(&served), &log, rate);
                         live.fetch_sub(1, Ordering::SeqCst);
                     });
                 }
             });
-            Self { port, peak }
+            Self { port, peak, starts }
+        }
+
+        fn starts_at(&self, from: u64) -> usize {
+            self.starts
+                .lock()
+                .expect("starts")
+                .iter()
+                .filter(|start| **start == from)
+                .count()
         }
     }
 
-    fn answer(stream: &mut std::net::TcpStream, file: &[u8], throttle: bool) {
+    fn answer(
+        stream: &mut std::net::TcpStream,
+        file: &[u8],
+        throttle: Option<&AtomicUsize>,
+        log: &Mutex<Vec<u64>>,
+        rate: Option<u64>,
+    ) {
         let mut head = Vec::new();
         let mut piece = [0u8; 512];
         while !head.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -709,29 +813,48 @@ mod tests {
             return;
         }
         let request = Request::parse(&head).expect("parsed");
-        let from = request.from.min(file.len() as u64) as usize;
-        let to = file.len() - 1;
+        let last = file.len() as u64 - 1;
+        let from = request.from.min(last);
+        let to = request.end.map_or(last, |end| end.min(last));
+        log.lock().expect("starts").push(from);
         // A chunk-sized range is exactly what a rate limit refuses.
-        if throttle && to - from + 1 == CHUNK as usize {
-            let _ =
-                stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\ncontent-length: 0\r\n\r\n");
-            return;
+        if let Some(served) = throttle {
+            if to - from + 1 == CHUNK && served.fetch_add(1, Ordering::SeqCst) > 0 {
+                let _ = stream
+                    .write_all(b"HTTP/1.1 429 Too Many Requests\r\ncontent-length: 0\r\n\r\n");
+                return;
+            }
         }
         let _ = write!(
             stream,
             "HTTP/1.1 206 Partial Content\r\ncontent-range: bytes {from}-{to}/{}\r\n\
              content-length: {}\r\naccept-ranges: bytes\r\n\r\n",
             file.len(),
-            file.len() - from
+            to - from + 1
         );
-        let _ = stream.write_all(&file[from..]);
+        let body = &file[from as usize..=to as usize];
+        match rate {
+            // Hold each connection to its own share of the link, which is the
+            // shape of a source that is fast in aggregate but slow per stream.
+            Some(rate) => {
+                for piece in body.chunks(64 << 10) {
+                    if stream.write_all(piece).is_err() {
+                        return;
+                    }
+                    thread::sleep(Duration::from_secs_f64(piece.len() as f64 / rate as f64));
+                }
+            }
+            None => {
+                let _ = stream.write_all(body);
+            }
+        }
     }
 
     #[test]
     fn the_proxy_serves_a_range_from_several_connections() {
         // Five chunks, so four workers have something to do at once.
         let file: Arc<Vec<u8>> = Arc::new((0..5 * CHUNK).map(|i| (i * 31 % 251) as u8).collect());
-        let origin = Origin::start(Arc::clone(&file), false);
+        let origin = Origin::start(Arc::clone(&file), false, None);
         let source = format!("http://127.0.0.1:{}/resolve", origin.port);
         let proxy = StreamProxy::start(&source, 4).expect("proxy");
         let url = proxy.url().to_string();
@@ -748,17 +871,6 @@ mod tests {
             let body = response.bytes().await.expect("body");
             assert_eq!(body.len() as u64, expected.len() as u64 - CHUNK);
             assert_eq!(&body[..], &expected[CHUNK as usize..]);
-            // Seeking back over chunks that were dropped has to serve them again.
-            let back = client
-                .get(&url)
-                .header(RANGE, "bytes=0-")
-                .send()
-                .await
-                .expect("request")
-                .bytes()
-                .await
-                .expect("body");
-            assert_eq!(&back[..], &expected[..]);
             // A bounded range answers with exactly what was asked for.
             let bounded = client
                 .get(&url)
@@ -778,9 +890,56 @@ mod tests {
     }
 
     #[test]
+    fn the_head_is_fetched_once_and_survives_a_jump_to_the_tail() {
+        // Small enough to stay inside the keep budget.
+        let file: Arc<Vec<u8>> = Arc::new((0..4 * CHUNK).map(|i| (i * 13 % 249) as u8).collect());
+        let origin = Origin::start(Arc::clone(&file), false, None);
+        let source = format!("http://127.0.0.1:{}/file", origin.port);
+        let proxy = StreamProxy::start(&source, 4).expect("proxy");
+        let url = proxy.url().to_string();
+        let expected = Arc::clone(&file);
+        tauri::async_runtime::block_on(async move {
+            let client = reqwest::Client::new();
+            let head = client
+                .get(&url)
+                .header(RANGE, "bytes=0-1023")
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            assert_eq!(&head[..], &expected[..1024]);
+            // The mkv tail read, then back to the start: neither may refetch.
+            let tail = client
+                .get(&url)
+                .header(RANGE, format!("bytes={}-", 3 * CHUNK))
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            assert_eq!(&tail[..], &expected[3 * CHUNK as usize..]);
+            let again = client
+                .get(&url)
+                .header(RANGE, "bytes=0-1023")
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            assert_eq!(&again[..], &expected[..1024]);
+        });
+        // The probe carries chunk 0, and the head was kept across the jump.
+        assert_eq!(origin.starts_at(0), 1, "the head was fetched twice");
+    }
+
+    #[test]
     fn a_rate_limited_source_still_plays_on_one_connection() {
         let file: Arc<Vec<u8>> = Arc::new((0..4 * CHUNK).map(|i| (i * 17 % 253) as u8).collect());
-        let origin = Origin::start(Arc::clone(&file), true);
+        let origin = Origin::start(Arc::clone(&file), true, None);
         let source = format!("http://127.0.0.1:{}/file", origin.port);
         let proxy = StreamProxy::start(&source, 4).expect("proxy");
         let url = proxy.url().to_string();
@@ -796,6 +955,172 @@ mod tests {
                 .await
                 .expect("body");
             assert_eq!(&body[..], &expected[..]);
+        });
+    }
+
+    /// The whole point: a source that is slow per connection, fast in aggregate.
+    /// Four chunks over four connections take one chunk's time, not four.
+    #[test]
+    fn parallel_reads_beat_a_source_that_is_slow_per_connection() {
+        const RATE: u64 = 8 << 20;
+        const COUNT: u64 = 4;
+        let file: Arc<Vec<u8>> =
+            Arc::new((0..COUNT * CHUNK).map(|i| (i * 7 % 241) as u8).collect());
+        let origin = Origin::start(Arc::clone(&file), false, Some(RATE));
+        let source = format!("http://127.0.0.1:{}/file", origin.port);
+        let proxy = StreamProxy::start(&source, COUNT as usize).expect("proxy");
+        let url = proxy.url().to_string();
+        let expected = Arc::clone(&file);
+        let span = format!("bytes=0-{}", COUNT * CHUNK - 1);
+
+        let (direct, parallel) = tauri::async_runtime::block_on(async move {
+            let client = reqwest::Client::new();
+            let started = std::time::Instant::now();
+            let one = client
+                .get(&source)
+                .header(RANGE, &span)
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            let direct = started.elapsed();
+            assert_eq!(&one[..], &expected[..]);
+
+            let started = std::time::Instant::now();
+            let many = client
+                .get(&url)
+                .header(RANGE, &span)
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            let parallel = started.elapsed();
+            assert_eq!(&many[..], &expected[..]);
+            (direct, parallel)
+        });
+
+        println!("one connection {direct:?}, four {parallel:?}");
+        assert!(
+            parallel * 2 < direct,
+            "four connections took {parallel:?} against {direct:?} on one"
+        );
+    }
+
+    fn chunks(count: usize) -> Chunks {
+        Chunks {
+            list: (0..count).map(|_| Chunk::default()).collect(),
+            cursor: 0,
+            low: 0,
+            retained: 0,
+        }
+    }
+
+    #[test]
+    fn a_chunk_that_finished_without_its_bytes_is_fetched_again() {
+        // A chunk trimmed while its fetch was in flight lands here as done with
+        // no data. Serving it as the end of the stream would truncate playback.
+        let mut held = chunks(2);
+        held.list[0].done = true;
+        assert!(matches!(take_from(&mut held, 0, 0), Ready::Wait));
+        assert_eq!(held.list[0].attempts, 1);
+        assert!(!held.list[0].done);
+
+        // One that keeps coming back empty is reported, not retried forever.
+        let mut takes = 1;
+        loop {
+            held.list[0].done = true;
+            takes += 1;
+            match take_from(&mut held, 0, 0) {
+                Ready::Wait => continue,
+                Ready::Stop => break,
+                Ready::Bytes(_) => panic!("served a chunk that has no bytes"),
+            }
+        }
+        assert_eq!(
+            takes, MAX_ATTEMPTS as usize,
+            "gave up after the wrong number of tries"
+        );
+    }
+
+    #[test]
+    fn finished_chunks_are_kept_behind_the_playhead_until_the_budget_runs_out() {
+        // Ten chunks is more than the keep budget holds.
+        let mut held = chunks(10);
+        for index in 0..10 {
+            held.list[index].data = vec![0u8; CHUNK as usize];
+            held.list[index].done = true;
+            held.retained += CHUNK as usize;
+        }
+        held.cursor = 9;
+        held.trim();
+        assert!(held.retained <= KEEP, "{} bytes kept", held.retained);
+        assert!(held.list[0].data.is_empty(), "the oldest chunk was kept");
+        assert_eq!(
+            held.list[9].data.len(),
+            CHUNK as usize,
+            "the chunk being read was trimmed"
+        );
+
+        // A short seek back inside the budget is served without a refetch.
+        let mut held = chunks(2);
+        held.list[0].data = vec![7u8; 1024];
+        held.list[0].done = true;
+        held.retained = 1024;
+        held.cursor = 1;
+        held.trim();
+        assert!(
+            matches!(take_from(&mut held, 0, 0), Ready::Bytes(bytes) if bytes == vec![7u8; 1024])
+        );
+    }
+
+    #[test]
+    fn a_resume_does_not_prefetch_the_start_of_the_file() {
+        let file: Arc<Vec<u8>> = Arc::new((0..4 * CHUNK).map(|i| (i * 29 % 251) as u8).collect());
+        let origin = Origin::start(Arc::clone(&file), false, None);
+        let source = format!("http://127.0.0.1:{}/file", origin.port);
+        let proxy = StreamProxy::start(&source, 4).expect("proxy");
+        let url = proxy.url().to_string();
+        let expected = Arc::clone(&file);
+        let at = 2 * CHUNK + 100;
+        tauri::async_runtime::block_on(async move {
+            let body = reqwest::Client::new()
+                .get(&url)
+                .header(RANGE, format!("bytes={at}-"))
+                .send()
+                .await
+                .expect("request")
+                .bytes()
+                .await
+                .expect("body");
+            assert_eq!(&body[..], &expected[at as usize..]);
+        });
+        assert_eq!(origin.starts_at(0), 0, "the head was fetched for a resume");
+        assert_eq!(
+            origin.starts_at(2 * CHUNK),
+            1,
+            "the resumed chunk was not primed"
+        );
+    }
+
+    #[test]
+    fn a_request_past_the_end_is_refused() {
+        let file: Arc<Vec<u8>> = Arc::new(vec![0u8; 1024]);
+        let origin = Origin::start(Arc::clone(&file), false, None);
+        let source = format!("http://127.0.0.1:{}/file", origin.port);
+        let proxy = StreamProxy::start(&source, 4).expect("proxy");
+        let url = proxy.url().to_string();
+        tauri::async_runtime::block_on(async move {
+            let response = reqwest::Client::new()
+                .get(&url)
+                .header(RANGE, "bytes=5000-")
+                .send()
+                .await
+                .expect("request");
+            assert_eq!(response.status().as_u16(), 416);
         });
     }
 }
