@@ -42,7 +42,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels, hidden by an idle watchdog |
 | Start screen | **Done** | Backdrop and title logo while the source resolves, then the first frame |
 | Seek-bar previews | **Done** | Frame previews from a scratch in-process libmpv |
-| Skip intro/outro | **Partial** | Community markers plus manual per-show overrides; automatic only, no visible skip button, recap or credits segments |
+| Skip recap/intro/outro | **Partial** | Community markers (recap, intro, outro) plus manual per-show overrides; visible button, no credits or post-credits segments |
 | Watch party | **Planned** | Needs a sync backend |
 
 ## Sources

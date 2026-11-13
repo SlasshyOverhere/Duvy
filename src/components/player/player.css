@@ -1451,11 +1451,7 @@
 
 .pv .pv-seek-time--end {
   direction: ltr;
-  cursor: pointer;
-}
-
-.pv .pv-seek-time--end:hover {
-  color: #fff;
+  width: 10.5rem;
 }
 
 .pv .pv-seek .pv-track {
@@ -1901,111 +1897,205 @@
 
 /* ---- next episode card -------------------------------------------------- */
 
+/* The still is the card: art to the edge, copy bottom-left, one action
+   bottom-right. With no art it falls back to the plain panel fill. */
 .pv .pv-upnext {
   position: absolute;
   right: 2rem;
   bottom: 132px;
   left: auto;
   z-index: 4;
-  width: min(34rem, calc(100vw - 4rem));
-  min-height: 10rem;
+  width: min(26rem, calc(100% - 4rem));
+  aspect-ratio: 8 / 3;
   padding: 0;
   border-radius: 10px;
-  background: var(--pv-wash), var(--pv-panel);
+  background: var(--pv-panel-2);
   box-shadow: var(--pv-glass-shadow);
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0;
   overflow: hidden;
   animation: pv-sheet 0.4s var(--ease);
 }
 
-.pv .pv-upnext-poster {
-  flex: 1 1 26%;
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-  background: var(--pv-control);
-}
-
-.pv .pv-upnext-thumb {
+.pv .pv-upnext-art {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  border-radius: 0;
   object-fit: cover;
 }
 
-.pv .pv-upnext-blank {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: rgba(255, 255, 255, 0.4);
+/* No art: a compact bar, copy and action on one line, so the type is not
+   floating in an empty panel. */
+.pv .pv-upnext--plain {
+  aspect-ratio: auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 2.75rem 1rem 1rem;
+  background: var(--pv-wash), var(--pv-panel);
 }
 
-.pv .pv-upnext-info {
-  flex: 1 1 74%;
+.pv .pv-upnext--plain .pv-upnext-copy {
+  position: static;
+  flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+}
+
+.pv .pv-upnext--plain .pv-upnext-scrim {
+  display: none;
+}
+
+.pv .pv-upnext--plain .pv-upnext-go {
+  position: static;
+  flex: 0 0 auto;
+}
+
+/* A left-to-right wash clears the type, a bottom lift grounds it, and the
+   corner dim keeps the close button visible on a bright still. */
+.pv .pv-upnext-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(7rem 4.5rem at 100% 0%, rgba(8, 9, 11, 0.55), rgba(8, 9, 11, 0)),
+    linear-gradient(
+      to right,
+      rgba(8, 9, 11, 0.9) 0%,
+      rgba(8, 9, 11, 0.62) 44%,
+      rgba(8, 9, 11, 0.04) 82%
+    ),
+    linear-gradient(to top, rgba(8, 9, 11, 0.44), rgba(8, 9, 11, 0) 58%);
+}
+
+.pv .pv-upnext-close {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  transition: background-color 0.15s ease;
+}
+
+.pv .pv-upnext-close:hover {
+  background: var(--pv-control-hover);
 }
 
 .pv .pv-upnext-copy {
-  padding: 1.1rem 1.4rem 0.6rem;
+  position: absolute;
+  left: 1rem;
+  right: 9.5rem;
+  bottom: 0.9rem;
+  min-width: 0;
 }
 
 .pv .pv-upnext-label {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--accent);
 }
 
 .pv .pv-upnext-name {
-  margin: 4px 0 0;
-  font-size: 0.95rem;
-  font-weight: 500;
-  line-height: 1.35;
+  margin: 0.2rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.22;
   color: #fff;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  white-space: normal;
 }
 
 .pv .pv-upnext-meta {
-  margin: 4px 0 0;
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.6);
+  margin: 0.3rem 0 0;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pv .pv-upnext-go {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+
+.pv .pv-upnext-go:hover {
+  background: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+.pv .pv-upnext-go:disabled {
+  opacity: 0.65;
+}
+
+.pv .pv-upnext-close:focus-visible,
+.pv .pv-upnext-go:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- nothing queued: the same frame as a plain panel -------------------- */
+
+.pv .pv-upnext--end {
+  width: min(22rem, calc(100% - 4rem));
+  aspect-ratio: auto;
+  background: var(--pv-wash), var(--pv-panel);
+}
+
+.pv .pv-upnext--end .pv-upnext-info {
+  padding: 1.1rem 1.4rem 1.1rem;
+}
+
+.pv .pv-upnext--end .pv-upnext-copy {
+  position: static;
+  padding: 0;
+}
+
+.pv .pv-upnext--end .pv-upnext-name {
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .pv .pv-upnext-actions {
   display: flex;
   flex-direction: row;
   gap: 0.9rem;
-  padding: 0 1rem 1rem;
+  margin-top: 0.9rem;
 }
 
 .pv .pv-upnext-btn {
-  flex: 0 1 50%;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   min-width: 0;
-  height: 2.6rem;
-  padding: 0 0.8rem;
+  height: 2.2rem;
+  padding: 0 1rem;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 7px;
+  background: var(--pv-control);
   color: rgba(255, 255, 255, 0.92);
   font-size: 0.85rem;
   font-weight: 600;
-  /* A short label must stay one line inside a fixed-height button. */
   white-space: nowrap;
   overflow: hidden;
   transition: background-color 0.15s ease;
@@ -2013,23 +2103,6 @@
 
 .pv .pv-upnext-btn:hover {
   background: var(--pv-control-hover);
-}
-
-.pv .pv-upnext-btn--play {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
-.pv .pv-upnext-btn--play:hover {
-  background: color-mix(in srgb, var(--accent) 82%, #fff);
-}
-
-.pv .pv-upnext--end {
-  width: min(26rem, calc(100vw - 4rem));
-}
-
-.pv .pv-upnext--end .pv-upnext-info {
-  flex: 1 1 auto;
 }
 
 /* ---- skip intro / outro -------------------------------------------------- */
@@ -2075,10 +2148,14 @@
     font-size: 0.95rem;
   }
 
+  .pv .pv-seek-time--end {
+    width: 7.6rem;
+  }
+
   .pv .pv-upnext {
     right: 12px;
     bottom: 116px;
-    width: calc(100vw - 24px);
+    width: min(26rem, calc(100% - 24px));
   }
 
   .pv .pv-skip {

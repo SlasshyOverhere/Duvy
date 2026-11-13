@@ -170,8 +170,8 @@ run("a dropped stream is retried, not declared over", () => {
 run("skip markers only offer a button", () => {
   const out: string[] = [];
   const front = read("src/components/player/skip.ts");
-  if (!/kind:\s*"intro"\s*\|\s*"outro"/.test(front)) {
-    out.push("skip.ts does not offer both intro and outro segments");
+  if (!/export type SkipKind =[^\n]*"recap"[^\n]*"intro"[^\n]*"outro"/.test(front)) {
+    out.push("skip.ts does not offer recap, intro and outro segments");
   }
   if (/fired\.current\[segment\.kind\]/.test(playerView)) {
     out.push("Player.tsx still moves the playhead automatically");
@@ -300,6 +300,34 @@ run("a source the viewer left does not come back", () => {
   }
   if (!/liveMemory\(rememberedSource/.test(store)) {
     out.push("store.tsx resolves a remembered source from an addon that is gone");
+  }
+  return out;
+});
+
+run("a pack that broke an episode is not reopened next", () => {
+  const out: string[] = [];
+  const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
+  // The season's pack memory is consulted after the exact episode memory.
+  const seasonAt = pick.indexOf("pack?.infoHash");
+  const memoryAt = pick.indexOf("if (remembered)");
+  if (seasonAt < 0) out.push("pickSource ignores the pack this season played from");
+  else if (memoryAt >= 0 && seasonAt < memoryAt) {
+    out.push("pickSource lets the season pack override the source this episode played");
+  }
+  if (!/export function rememberedPack\(/.test(store)) {
+    out.push("store.tsx keeps no pack memory for a season");
+  }
+  if (!/all\[pack\] = stream/.test(store)) {
+    out.push("rememberSource never records the pack a season played from");
+  }
+  for (const [name, src] of [
+    ["store.tsx", store],
+    ["Player.tsx", playerView],
+  ] as const) {
+    const calls = src.match(/pickSource\(\n[\s\S]*?\n\s*\);/g) ?? [];
+    if (calls.some((call) => !/rememberedPack\(/.test(call))) {
+      out.push(`${name} picks a source without the season pack memory`);
+    }
   }
   return out;
 });

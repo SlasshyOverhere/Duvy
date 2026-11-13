@@ -13,6 +13,7 @@ import {
   pickSource,
   rememberSource,
   rememberSubtitle,
+  rememberedPack,
   rememberedSource,
   rememberedSubtitle,
   useApp,
@@ -1002,7 +1003,6 @@ export function PlayerView() {
   const [volLevel, setVolLevel] = useState(() => readVolume());
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
-  const [showRemaining, setShowRemaining] = useState(false);
   const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
   const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string; addon?: string } | null>(
@@ -1016,7 +1016,7 @@ export function PlayerView() {
   const frameCache = useRef(new Map<number, string>());
   const frameBucket = useRef(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [thumbBroken, setThumbBroken] = useState(false);
+  const [badArt, setBadArt] = useState<string[]>([]);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -1267,6 +1267,13 @@ export function PlayerView() {
   );
   // Offered while the playhead sits inside a marker; never applied on its own.
   const skipSegment = findSkip(markers, position, duration);
+  // At the credits the up-next card (or the end of the file) is the action, so
+  // the skip button would only duplicate it. It stays for a movie, and for a
+  // last episode until the file ends.
+  const outroCovered =
+    skipSegment?.kind === "outro" &&
+    (Boolean(local?.ended) ||
+      (nextEpisode != null && !nextOff && nextAt != null && position >= nextAt - 0.5));
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -1294,6 +1301,7 @@ export function PlayerView() {
             settings?.preferredQuality ?? "auto",
             playingSource,
             memory,
+            rememberedPack(nextSession.key),
           );
         let sources: StreamOption[] = home
           ? await api.streams({ ...request, addon: home }).catch(() => [])
@@ -1838,7 +1846,7 @@ export function PlayerView() {
     setSourceFilter(null);
     setSelectedLang(null);
     setNextOff(false);
-    setThumbBroken(false);
+    setBadArt([]);
     setSurface(null);
     setLoadedSub(null);
     frameCache.current.clear();
@@ -2356,7 +2364,13 @@ export function PlayerView() {
   const artLogo = details?.logo ?? rememberedLogo(session?.metaId) ?? null;
   const artBackground =
     details?.background ?? session?.background ?? session?.poster ?? null;
-  const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
+  // The next-card art wants a wide frame: the episode still first, then the
+  // show's backdrop. A portrait poster would be cropped to a band, so the card
+  // falls back to its plain panel instead.
+  const nextArt =
+    [nextEpisode?.thumbnail, details?.background, session?.background].find(
+      (url): url is string => Boolean(url) && !badArt.includes(url as string),
+    ) ?? null;
   const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
@@ -2809,61 +2823,53 @@ export function PlayerView() {
       ) : null}
 
       {showNext && nextEpisode ? (
-        <section className="pv-upnext" aria-label="Next episode">
-          <div className="pv-upnext-poster">
-            {nextThumb ? (
-              <img
-                className="pv-upnext-thumb"
-                src={nextThumb}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                onError={() => setThumbBroken(true)}
-              />
-            ) : (
-              <span className="pv-upnext-blank" aria-hidden="true">
-                <Icon name="episodes" size={36} />
-              </span>
-            )}
+        <section
+          className={`pv-upnext${nextArt ? "" : " pv-upnext--plain"}`}
+          aria-label="Next episode"
+        >
+          {nextArt ? (
+            <img
+              className="pv-upnext-art"
+              src={nextArt}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setBadArt((bad) => [...bad, nextArt])}
+            />
+          ) : null}
+          <span className="pv-upnext-scrim" aria-hidden="true" />
+          <button
+            type="button"
+            className="pv-upnext-close"
+            aria-label="Dismiss"
+            onClick={dismissNext}
+          >
+            <Icon name="x" size={15} />
+          </button>
+          <div className="pv-upnext-copy">
+            <p className="pv-upnext-label">Up next</p>
+            <p className="pv-upnext-name">{nextEpisode.title || "Next episode"}</p>
+            <p className="pv-upnext-meta">{episodeCode(nextEpisode)}</p>
           </div>
-          <div className="pv-upnext-info">
-            <div className="pv-upnext-copy">
-              <p className="pv-upnext-label">Up next</p>
-              <p className="pv-upnext-name">
-                {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
-              </p>
-              <p className="pv-upnext-meta">Ready when you are</p>
-            </div>
-            <div className="pv-upnext-actions">
-              <button
-                type="button"
-                className="pv-upnext-btn"
-                onClick={dismissNext}
-              >
-                <Icon name="x" size={20} />
-                Dismiss
-              </button>
-              <button
-                type="button"
-                className="pv-upnext-btn pv-upnext-btn--play"
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
-              >
-                <Icon name="play" size={20} />
-                {busy ? "Loading" : "Watch now"}
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="pv-upnext-go"
+            disabled={busy}
+            onClick={() => void playVideo(nextEpisode)}
+          >
+            {busy ? "Loading" : "Watch now"}
+            <Icon name="arrowUpRight" size={14} />
+          </button>
         </section>
       ) : null}
 
-      {skipSegment && !failed && !locked ? (
+      {skipSegment && !failed && !locked && !outroCovered ? (
         <button
           type="button"
           className="pv-skip"
           onClick={() => seekTo(skipSegment.at)}
         >
-          {skipSegment.kind === "intro" ? "Skip intro" : "Skip outro"}
+          Skip {skipSegment.kind}
         </button>
       ) : null}
 
@@ -2937,15 +2943,9 @@ export function PlayerView() {
               onBump={bump}
             />
 
-            <button
-              type="button"
-              className="pv-seek-time pv-seek-time--end"
-              onClick={() => setShowRemaining((current) => !current)}
-              aria-label={showRemaining ? "Show total length" : "Show time remaining"}
-              title={showRemaining ? "Total length" : "Time remaining"}
-            >
-              {showRemaining ? `−${formatTime(remaining)}` : formatTime(duration)}
-            </button>
+            <span className="pv-seek-time pv-seek-time--end">
+              −{formatTime(remaining)} / {formatTime(duration)}
+            </span>
           </div>
 
           <div className="pv-controls">
