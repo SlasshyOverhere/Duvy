@@ -1216,6 +1216,13 @@ export function PlayerView() {
   );
   // Offered while the playhead sits inside a marker; never applied on its own.
   const skipSegment = findSkip(markers, position, duration);
+  // At the credits the up-next card (or the end of the file) is the action, so
+  // the skip button would only duplicate it. It stays for a movie, and for a
+  // last episode until the file ends.
+  const outroCovered =
+    skipSegment?.kind === "outro" &&
+    (Boolean(local?.ended) ||
+      (nextEpisode != null && !nextOff && nextAt != null && position >= nextAt - 0.5));
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -2852,7 +2859,7 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {skipSegment && !failed && !locked ? (
+      {skipSegment && !failed && !locked && !outroCovered ? (
         <button
           type="button"
           className="pv-skip"
