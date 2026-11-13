@@ -971,7 +971,7 @@ export function PlayerView() {
   const frameCache = useRef(new Map<number, string>());
   const frameBucket = useRef(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [thumbBroken, setThumbBroken] = useState(false);
+  const [badArt, setBadArt] = useState<string[]>([]);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
   const [markMsg, setMarkMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1781,7 +1781,7 @@ export function PlayerView() {
     setSourceFilter(null);
     setSelectedLang(null);
     setNextOff(false);
-    setThumbBroken(false);
+    setBadArt([]);
     setSurface(null);
     setLoadedSub(null);
     frameCache.current.clear();
@@ -2306,7 +2306,13 @@ export function PlayerView() {
   const artLogo = details?.logo ?? rememberedLogo(session?.metaId) ?? null;
   const artBackground =
     details?.background ?? session?.background ?? session?.poster ?? null;
-  const nextThumb = thumbBroken ? null : nextEpisode?.thumbnail ?? null;
+  // The next-card art wants a wide frame: the episode still first, then the
+  // show's backdrop. A portrait poster would be cropped to a band, so the card
+  // falls back to its plain panel instead.
+  const nextArt =
+    [nextEpisode?.thumbnail, details?.background, session?.background].find(
+      (url): url is string => Boolean(url) && !badArt.includes(url as string),
+    ) ?? null;
   const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
@@ -2812,50 +2818,39 @@ export function PlayerView() {
 
       {showNext && nextEpisode ? (
         <section className="pv-upnext" aria-label="Next episode">
-          <div className="pv-upnext-poster">
-            {nextThumb ? (
-              <img
-                className="pv-upnext-thumb"
-                src={nextThumb}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                onError={() => setThumbBroken(true)}
-              />
-            ) : (
-              <span className="pv-upnext-blank" aria-hidden="true">
-                <Icon name="episodes" size={36} />
-              </span>
-            )}
+          {nextArt ? (
+            <img
+              className="pv-upnext-art"
+              src={nextArt}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setBadArt((bad) => [...bad, nextArt])}
+            />
+          ) : null}
+          <span className="pv-upnext-scrim" aria-hidden="true" />
+          <button
+            type="button"
+            className="pv-upnext-close"
+            aria-label="Dismiss"
+            onClick={dismissNext}
+          >
+            <Icon name="x" size={15} />
+          </button>
+          <div className="pv-upnext-copy">
+            <p className="pv-upnext-label">Up next</p>
+            <p className="pv-upnext-name">{nextEpisode.title || "Next episode"}</p>
+            <p className="pv-upnext-meta">{episodeCode(nextEpisode)}</p>
           </div>
-          <div className="pv-upnext-info">
-            <div className="pv-upnext-copy">
-              <p className="pv-upnext-label">Up next</p>
-              <p className="pv-upnext-name">
-                {episodeCode(nextEpisode)} · {nextEpisode.title || "Next episode"}
-              </p>
-              <p className="pv-upnext-meta">Ready when you are</p>
-            </div>
-            <div className="pv-upnext-actions">
-              <button
-                type="button"
-                className="pv-upnext-btn"
-                onClick={dismissNext}
-              >
-                <Icon name="x" size={20} />
-                Dismiss
-              </button>
-              <button
-                type="button"
-                className="pv-upnext-btn pv-upnext-btn--play"
-                disabled={busy}
-                onClick={() => void playVideo(nextEpisode)}
-              >
-                <Icon name="play" size={20} />
-                {busy ? "Loading" : "Watch now"}
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="pv-upnext-go"
+            disabled={busy}
+            onClick={() => void playVideo(nextEpisode)}
+          >
+            {busy ? "Loading" : "Watch now"}
+            <Icon name="arrowUpRight" size={14} />
+          </button>
         </section>
       ) : null}
 
