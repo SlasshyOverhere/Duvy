@@ -505,6 +505,8 @@ select {
 }
 
 .dock-item svg {
+  position: relative;
+  z-index: 1;
   flex: none;
 }
 
@@ -529,34 +531,20 @@ select {
   color: #000000;
 }
 
+/* The indicator is a single element shared between items, so motion slides it
+   across the dock instead of cross-fading two of them. */
 .dock-pill {
   position: absolute;
-  top: 6px;
-  bottom: 6px;
-  left: 0;
-  width: 0;
+  inset: 0;
   z-index: 0;
   border-radius: var(--pill);
   background: #ffffff;
   pointer-events: none;
-  will-change: left, width;
-  transition:
-    left 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.2s var(--ease);
-}
-
-.dock-pill.is-hidden {
-  opacity: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dock-pill {
-    transition: none;
-  }
 }
 
 .dock-label {
+  position: relative;
+  z-index: 1;
   display: inline-block;
   margin-left: 0;
   white-space: nowrap;

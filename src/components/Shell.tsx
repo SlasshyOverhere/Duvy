@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect } from "react";
+import { motion } from "motion/react";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import { WindowControls } from "./TitleBar";
 import { Icon, IconButton, type IconName } from "./ui";
@@ -32,30 +33,6 @@ function NowPlaying() {
 
 export function TopBar() {
   const { navigate, back, route, addons } = useApp();
-  const dockRef = useRef<HTMLElement | null>(null);
-  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
-  const activeIndex = DOCK.findIndex((item) => isActive(route, item.route));
-
-  useLayoutEffect(() => {
-    const measure = () => {
-      const nav = dockRef.current;
-      if (!nav) return;
-      if (activeIndex < 0) {
-        setPill(null);
-        return;
-      }
-      const items = nav.querySelectorAll<HTMLButtonElement>(".dock-item");
-      const btn = items[activeIndex];
-      if (!btn) return;
-      const navRect = nav.getBoundingClientRect();
-      const btnRect = btn.getBoundingClientRect();
-      setPill({ left: btnRect.left - navRect.left, width: btnRect.width });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    void document.fonts?.ready.then(measure).catch(() => {});
-    return () => window.removeEventListener("resize", measure);
-  }, [route, activeIndex]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -97,12 +74,7 @@ export function TopBar() {
       </div>
 
       <div className="topbar-right" data-tauri-drag-region>
-        <nav ref={dockRef} className="dock" aria-label="Primary">
-          <span
-            className={`dock-pill${pill ? "" : " is-hidden"}`}
-            aria-hidden="true"
-            style={pill ? { left: pill.left, width: pill.width } : { left: 0, width: 0 }}
-          />
+        <nav className="dock" aria-label="Primary">
           {DOCK.map((item, index) => {
             const active = isActive(route, item.route);
             const divider = Boolean(item.iconOnly) && !DOCK[index - 1]?.iconOnly;
@@ -122,6 +94,13 @@ export function TopBar() {
                   <Icon name={item.icon} size={item.iconOnly ? 20 : 16} />
                 ) : null}
                 {item.iconOnly ? null : <span className="dock-label">{item.label}</span>}
+                {active ? (
+                  <motion.span
+                    layoutId="dock-pill"
+                    className="dock-pill"
+                    transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.7 }}
+                  />
+                ) : null}
               </button>
             );
           })}
