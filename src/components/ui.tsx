@@ -50,7 +50,8 @@ export type IconName =
   | "episodes"
   | "lock"
   | "cloud"
-  | "minus";
+  | "minus"
+  | "arrowUpRight";
 
 const STROKE: Record<IconName, ReactNode> = {
   replay10: (
@@ -192,6 +193,7 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" />
     </>
   ),
+  arrowUpRight: <path d="M7 17 17 7M9 7h8v8" />,
   trash: (
     <>
       <path d="M4.5 7h15M9 7V4.5h6V7" />
