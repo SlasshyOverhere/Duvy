@@ -973,7 +973,6 @@ export function PlayerView() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [thumbBroken, setThumbBroken] = useState(false);
   const [markers, setMarkers] = useState<SkipEntry | null>(null);
-  const [markMsg, setMarkMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const dragging = useRef(false);
@@ -1801,7 +1800,6 @@ export function PlayerView() {
   const imdbId = details?.imdbId ?? null;
   useEffect(() => {
     setMarkers(null);
-    setMarkMsg(null);
     const key = session?.key;
     if (!key || !isTauri()) return;
     let live = true;
@@ -1961,35 +1959,6 @@ export function PlayerView() {
   const nudgeDelay = useCallback((delta: number) => {
     setSubStyle((current) => ({ ...current, delay: tenths(current.delay + delta, current.delay) }));
   }, []);
-
-  const saveMarker = useCallback(
-    async (patch: SkipEntry, label: string) => {
-      const key = session?.key;
-      if (!key) return;
-      if (!isTauri()) {
-        setMarkMsg("Markers save in the desktop app");
-        return;
-      }
-      const at = posRef.current;
-      // skip_set replaces the entry whole, so the other marker is carried over.
-      // A save can land before skip_get: read the stored entry first then.
-      const known =
-        markers ??
-        (await invoke<SkipEntry | null>("skip_get", { metaId: key }).catch(() => null));
-      const merged: SkipEntry = { ...(known ?? {}), ...patch };
-      try {
-        const entry = await invoke<SkipEntry | null>("skip_set", {
-          metaId: key,
-          entry: merged,
-        });
-        setMarkers(entry);
-        setMarkMsg(`${label} at ${formatTime(at)} saved`);
-      } catch (e) {
-        setMarkMsg(e instanceof Error ? e.message : String(e));
-      }
-    },
-    [markers, session?.key],
-  );
 
   // Up next is an offer, never an action: the next episode starts only when
   // the viewer asks for it.
@@ -2768,15 +2737,6 @@ export function PlayerView() {
                 <button
                   type="button"
                   className="pv-rail-row"
-                  onClick={() => setSurface("info")}
-                >
-                  <span className="pv-rail-row-text">
-                    <span className="pv-rail-row-title">Stream info</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="pv-rail-row"
                   onClick={() => setSurface("keys")}
                 >
                   <span className="pv-rail-row-text">
@@ -2792,26 +2752,6 @@ export function PlayerView() {
                     <span className="pv-rail-row-title">Load subtitle file</span>
                   </span>
                 </button>
-              </div>
-              <div className="pv-more-marks">
-                <p className="pv-section-label">Skip intro markers for this episode</p>
-                <div className="pv-row">
-                  <button
-                    type="button"
-                    className="pv-text-action"
-                    onClick={() => void saveMarker({ introStart: posRef.current }, "Intro start")}
-                  >
-                    Set start here
-                  </button>
-                  <button
-                    type="button"
-                    className="pv-text-action"
-                    onClick={() => void saveMarker({ introEnd: posRef.current }, "Intro end")}
-                  >
-                    Set end here
-                  </button>
-                </div>
-                {markMsg ? <p className="pv-hint">{markMsg}</p> : null}
               </div>
             </Overlay>
           ) : null}
@@ -3008,6 +2948,16 @@ export function PlayerView() {
                 onClick={cycleSpeed}
               >
                 <Icon name="speed" size={24} />
+              </button>
+              <button
+                type="button"
+                className={`pv-cbtn${surface === "info" ? " is-on" : ""}`}
+                aria-label="Stream info"
+                title="Stream info"
+                aria-expanded={surface === "info" ? true : undefined}
+                onClick={() => toggleSurface("info")}
+              >
+                <Icon name="info" size={24} />
               </button>
               <button
                 type="button"

@@ -1072,30 +1072,6 @@
   background: var(--accent);
 }
 
-/* ---- options ------------------------------------------------------------ */
-
-.pv .pv-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-}
-
-.pv .pv-section-label {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--pv-muted);
-}
-
-.pv .pv-more-marks {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 18px;
-}
-
-
 /* ---- locked ------------------------------------------------------------- */
 
 .pv .pv-locked-layer {
