@@ -433,14 +433,13 @@ select {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 120px;
+  height: 72px;
   z-index: -1;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    var(--bg) 0%,
-    var(--bg) 40%,
-    color-mix(in srgb, var(--bg) 70%, transparent) 72%,
+    rgba(5, 5, 5, 0.45) 0%,
+    rgba(5, 5, 5, 0.18) 55%,
     transparent 100%
   );
 }
@@ -1221,12 +1220,13 @@ button.pill:hover {
   flex: 0 0 200px;
   content-visibility: auto;
   contain-intrinsic-size: 200px 300px;
-  transition: transform 0.35s var(--ease);
+  transform-origin: center;
+  transition: transform 0.5s ease-out;
 }
 
 .poster-card:hover,
 .poster-card:focus-within {
-  transform: scale(1.04);
+  transform: scale(1.05);
   z-index: 2;
 }
 
@@ -1247,8 +1247,7 @@ button.pill:hover {
 }
 
 /* The rim has to sit above the artwork, so it is drawn, not a border. */
-.poster-frame::after,
-.continue-card::after {
+.poster-frame::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1305,61 +1304,58 @@ button.pill:hover {
   letter-spacing: 0.02em;
 }
 
+/* Hover names the card in its own frame: the art dims under a light veil and
+   the title rises into the middle, so the still itself becomes the label. */
 .poster-hover {
   position: absolute;
-  inset: auto 0 0;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 34px 12px 12px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.94), rgba(0, 0, 0, 0));
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px;
+  text-align: center;
+  background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.1), transparent);
   opacity: 0;
-  transition: opacity 0.16s var(--ease);
+  transform: translateY(16px);
+  transition:
+    opacity 0.3s var(--ease),
+    transform 0.3s var(--ease);
   pointer-events: none;
 }
 
 .poster-frame:hover .poster-hover,
 .poster-frame:focus-within .poster-hover {
   opacity: 1;
+  transform: none;
 }
 
 .poster-hover-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.3;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.25;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  max-width: 100%;
 }
 
 .poster-hover-meta {
-  font-size: 10.5px;
-  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.poster-play {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #0a0a0a;
-  opacity: 0;
-  transition: opacity 0.16s var(--ease);
-}
-
-.poster-frame:hover .poster-play,
-.poster-frame:focus-within .poster-play {
-  opacity: 1;
-}
 
 .poster-progress {
   position: absolute;
@@ -1399,125 +1395,150 @@ button.pill:hover {
   white-space: nowrap;
 }
 
+/* One card: the still, then its caption. Hover lifts the still off the row,
+   dims it under a light veil and names it in the middle, as the rows do. */
+.continue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 0 0 290px;
+  width: 290px;
+}
+
 .continue-card {
   position: relative;
-  width: 290px;
-  flex: 0 0 290px;
+  width: 100%;
   aspect-ratio: 16 / 9;
   border: 0;
+  padding: 0;
   border-radius: var(--radius);
   overflow: hidden;
   text-align: left;
-  background: var(--glass-wash), var(--surface-2);
+  background: var(--surface-2);
   isolation: isolate;
   outline: 2px solid transparent;
   outline-offset: 4px;
-  transition: outline-color 0.16s var(--ease);
+  transform-origin: center;
+  transition:
+    outline-color 0.16s var(--ease),
+    transform 0.5s ease-out;
+}
+
+.continue-card:hover,
+.continue-card:focus-visible {
+  transform: scale(1.05);
+  z-index: 2;
 }
 
 .continue-card:focus-visible {
   outline-color: var(--accent);
 }
 
-.continue-card img {
+.continue-card > img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   filter: brightness(1);
-  transition: filter 0.2s var(--ease);
+  transition: filter 0.3s ease-out;
 }
 
-.continue-card:hover img {
-  filter: brightness(1.06);
+.continue-card:hover > img,
+.continue-card:focus-visible > img {
+  filter: brightness(0.5);
 }
 
-.continue-card:active img {
-  filter: brightness(0.96);
-}
-
-.continue-scrim {
+/* The veil is a light wash, not a shadow: it reads as the frame glassing over. */
+.continue-veil {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.94) 6%, rgba(0, 0, 0, 0.08) 72%);
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.1), transparent);
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
 }
 
-.continue-body {
+.continue-card:hover .continue-veil,
+.continue-card:focus-visible .continue-veil {
+  opacity: 1;
+}
+
+.continue-hover {
   position: absolute;
-  inset: auto 14px 14px;
+  inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
+  padding: 0 16px;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.3s var(--ease),
+    transform 0.3s var(--ease);
 }
 
-.continue-name {
-  font-size: 0.98rem;
-  font-weight: 600;
-  color: var(--text);
+.continue-card:hover .continue-hover,
+.continue-card:focus-visible .continue-hover {
+  opacity: 1;
+  transform: none;
+}
+
+.continue-hover-name {
+  font-size: 0.875rem;
+  font-weight: 700;
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  color: #ffffff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.continue-sub {
-  font-size: 11px;
-  color: var(--muted);
+.continue-hover-sub {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+}
+
+.continue-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.continue-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.continue-left {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: var(--glass-wash), var(--glass-fill-strong);
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+.continue-sub {
+  font-size: 0.75rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.continue-play {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--glass-wash), var(--glass-fill-strong);
-  box-shadow:
-    inset 0 1px 0 var(--glass-spec),
-    inset 0 -1px 0 var(--glass-dispersion);
-  color: var(--text);
-  opacity: 0;
-  transition: opacity 0.16s var(--ease);
-}
-
-.continue-card:hover .continue-play,
-.continue-card:focus-visible .continue-play,
-.continue-card:focus-within .continue-play {
-  opacity: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .continue-progress {
   position: absolute;
   inset: auto 0 0;
+  z-index: 2;
   height: 3px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .continue-progress span {
@@ -1545,8 +1566,8 @@ button.pill:hover {
   background-size: cover;
   background-position: center;
   filter: blur(80px) saturate(1.1);
-  opacity: 0.35;
-  transform: scale(1.15);
+  opacity: 0.5;
+  transform: scale(1.2);
   transition: opacity 0.6s var(--ease);
 }
 
@@ -1564,6 +1585,7 @@ button.pill:hover {
 /* The copy sits on the left, sharing the page gutter with the rows below,
    and the artwork reads around it through a vignette rather than a hard scrim. */
 .hero {
+  --hero-bleed: 180px;
   position: relative;
   display: flex;
   align-items: center;
@@ -1571,9 +1593,7 @@ button.pill:hover {
   min-height: 85vh;
   margin: 0;
   border-radius: 0;
-  overflow: hidden;
   isolation: isolate;
-  background: var(--bg);
 }
 
 .hero-backdrop {
@@ -4552,9 +4572,31 @@ input[type="range"]::-webkit-slider-thumb {
     opacity: 0.95;
   }
 }/* Animated backdrop layer: both frames stack so the crossfade has no gap. */
+/* The artwork runs past the fold so the rows sit on it, then dissolves back
+   into the page instead of ending on a hard line. Purely decorative: it must
+   never swallow a click meant for the rows below. */
 .hero-cross {
   position: absolute;
-  inset: 0;
+  inset: 0 0 calc(-1 * var(--hero-bleed));
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 74%,
+    rgba(0, 0, 0, 0.72) 82%,
+    rgba(0, 0, 0, 0.36) 90%,
+    rgba(0, 0, 0, 0.12) 96%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 74%,
+    rgba(0, 0, 0, 0.72) 82%,
+    rgba(0, 0, 0, 0.36) 90%,
+    rgba(0, 0, 0, 0.12) 96%,
+    transparent 100%
+  );
 }
 
 /* The incoming artwork fades over the outgoing one, which stays opaque. */
@@ -5077,7 +5119,7 @@ input[type="range"]::-webkit-slider-thumb {
     flex-basis: 286px;
   }
 
-  .continue-card {
+  .continue-item {
     width: 262px;
     flex-basis: 262px;
   }
@@ -5205,7 +5247,7 @@ input[type="range"]::-webkit-slider-thumb {
     flex-basis: 132px;
   }
 
-  .continue-card {
+  .continue-item {
     width: 236px;
     flex-basis: 236px;
   }
@@ -5363,9 +5405,7 @@ input[type="range"]::-webkit-slider-thumb {
 .icon-btn::after,
 .search-clear::after,
 .toast button::after,
-.library-remove::after,
-.poster-play::after,
-.continue-play::after {
+.library-remove::after {
   content: "";
   position: absolute;
   inset: -7px;

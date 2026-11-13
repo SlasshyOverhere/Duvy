@@ -182,19 +182,6 @@ export const PosterCard = memo(function PosterCard({
               .join(" · ")}
           </span>
         </div>
-        {onPlay ? (
-          <button
-            type="button"
-            className="poster-play"
-            aria-label={`Play ${item.name}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onPlay();
-            }}
-          >
-            <Icon name="play" size={17} />
-          </button>
-        ) : null}
       </div>
       {caption ? (
         <div className="poster-caption">
@@ -393,57 +380,63 @@ export function ContinueCard({
   if (gone) return null;
 
   return (
-    <button
-      type="button"
-      className="continue-card"
-      onClick={onOpen}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        setMenu({ x: event.clientX, y: event.clientY });
-      }}
-      onKeyDown={(event) => {
-        const at = menuFromKey(event);
-        if (at) setMenu(at);
-      }}
-      style={{ background: placeholderGradient(name) } as CSSProperties}
-    >
-      {(background || poster) && !failed ? (
-        <img
-          src={background ?? poster ?? ""}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-        />
-      ) : null}
-      <span className="continue-scrim" />
-      <span className="continue-body">
-        <span className="continue-name">{name}</span>
-        {subtitle ? <span className="continue-sub">{subtitle}</span> : null}
-      </span>
-      {next ? (
-        <span className="continue-left">Next up</span>
-      ) : Number.isFinite(left) && left > 0 ? (
-        <span className="continue-left">{remainingLabel(left)}</span>
-      ) : null}
-      <span className="continue-play">
-        <Icon name="play" size={16} />
-      </span>
-      {next ? null : (
-        <span className="continue-progress">
-          <span style={{ width: `${Math.max(2, percent)}%` }} />
+    <div className="continue-item">
+      <button
+        type="button"
+        className="continue-card"
+        onClick={onOpen}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({ x: event.clientX, y: event.clientY });
+        }}
+        onKeyDown={(event) => {
+          const at = menuFromKey(event);
+          if (at) setMenu(at);
+        }}
+        style={{ background: placeholderGradient(name) } as CSSProperties}
+      >
+        {(background || poster) && !failed ? (
+          <img
+            src={background ?? poster ?? ""}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
+        ) : null}
+        <span className="continue-veil" />
+        <span className="continue-hover">
+          <span className="continue-hover-name">{name}</span>
+          {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
+          {next ? (
+            <span className="continue-hover-sub">Next up</span>
+          ) : Number.isFinite(left) && left > 0 ? (
+            <span className="continue-hover-sub">{remainingLabel(left)}</span>
+          ) : null}
         </span>
-      )}
-      {menu ? (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          title={name}
-          actions={actions}
-          onClose={() => setMenu(null)}
-        />
-      ) : null}
-    </button>
+        {next ? null : (
+          <span className="continue-progress">
+            <span style={{ width: `${Math.max(2, percent)}%` }} />
+          </span>
+        )}
+        {menu ? (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            title={name}
+            actions={actions}
+            onClose={() => setMenu(null)}
+          />
+        ) : null}
+      </button>
+      <div className="continue-caption">
+        <span className="continue-name">{name}</span>
+        <span className="continue-sub">
+          {subtitle ? <>{subtitle} · </> : null}
+          {next ? "Next up" : Number.isFinite(left) && left > 0 ? remainingLabel(left) : null}
+        </span>
+      </div>
+    </div>
   );
 }
 
