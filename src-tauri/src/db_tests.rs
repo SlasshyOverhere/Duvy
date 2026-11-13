@@ -549,6 +549,42 @@ fn watched_items_keep_metadata_after_completion() {
 }
 
 #[test]
+fn watched_marks_keep_every_episode_of_a_show() {
+    let (conn, path) = temp_database();
+    db::set_watched(&conn, "tt88:1:1", "tt88", true).expect("first");
+    db::set_watched(&conn, "tt88:1:2", "tt88", true).expect("second");
+    db::set_watched(&conn, "tt88:2:1", "tt88", true).expect("third");
+    db::set_watched(&conn, "tt89:1:1", "tt89", true).expect("other show");
+
+    // History still collapses to one row per title...
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 2);
+    // ...but the episode list needs every mark, not just the newest one.
+    let mut keys: Vec<String> = db::list_watched_marks(&conn, "tt88")
+        .expect("marks")
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["tt88:1:1", "tt88:1:2", "tt88:2:1"]);
+
+    cleanup(conn, path);
+}
+
+#[test]
+fn watched_marks_drop_an_episode_marked_unwatched() {
+    let (conn, path) = temp_database();
+    db::set_watched(&conn, "tt90:1:1", "tt90", true).expect("mark");
+    db::set_watched(&conn, "tt90:1:2", "tt90", true).expect("mark");
+    db::set_watched(&conn, "tt90:1:1", "tt90", false).expect("unmark");
+
+    let keys = db::list_watched_marks(&conn, "tt90").expect("marks");
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].0, "tt90:1:2");
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn watched_list_keeps_the_episode_that_was_watched() {
     let (conn, path) = temp_database();
     let episode = |season: i64, number: i64, position: f64| db::ProgressItem {
