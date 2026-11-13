@@ -729,7 +729,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
   currentVariants: SubVariant[];
   styleOn: boolean;
   activeSub: number | null;
-  loadedSub: { lang: string; url: string } | null;
+  loadedSub: { lang: string; url: string; addon?: string } | null;
   subStyle: SubtitleStyle;
   onLang: (lang: string | null) => void;
   onChoose: (variant: SubVariant) => void;
@@ -1005,7 +1005,9 @@ export function PlayerView() {
   const [showRemaining, setShowRemaining] = useState(false);
   const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
-  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string } | null>(null);
+  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string; addon?: string } | null>(
+    null,
+  );
   const [sources, setSources] = useState<StreamOption[] | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -1633,7 +1635,7 @@ export function PlayerView() {
         return;
       }
       if (!variant.url) return;
-      setLoadedSub({ lang: variant.lang, url: variant.url });
+      setLoadedSub({ lang: variant.lang, url: variant.url, addon: variant.source });
       rememberSubtitle(sessionRef.current?.key, {
         lang: variant.lang,
         url: variant.url,
@@ -2254,6 +2256,9 @@ export function PlayerView() {
     [playingSource],
   );
 
+  // A built-in track came from the container, so name the addon that served it.
+  const streamAddon = playingSource?.addon ?? "Built in";
+
   const audioRows = useMemo<Array<[string, string | null]>>(
     () => [
       [
@@ -2264,9 +2269,9 @@ export function PlayerView() {
               .join(" · ")
           : "Default",
       ],
-      ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : "Built in") : null],
+      ["Source", activeAudio ? (activeAudio.external ? "Loaded file" : streamAddon) : null],
     ],
-    [activeAudio],
+    [activeAudio, streamAddon],
   );
 
   const subtitleRows = useMemo<Array<[string, string | null]>>(
@@ -2274,7 +2279,7 @@ export function PlayerView() {
       [
         "Track",
         loadedSub
-          ? `${langLabel(loadedSub.lang)} (addon)`
+          ? langLabel(loadedSub.lang)
           : activeSub
             ? [activeSub.lang ? langLabel(activeSub.lang) : activeSub.label, activeSub.details]
                 .filter(Boolean)
@@ -2283,10 +2288,16 @@ export function PlayerView() {
       ],
       [
         "Source",
-        loadedSub ? "Addon" : activeSub ? (activeSub.external ? "Loaded file" : "Built in") : null,
+        loadedSub
+          ? (loadedSub.addon ?? "Addon")
+          : activeSub
+            ? activeSub.external
+              ? "Loaded file"
+              : streamAddon
+            : null,
       ],
     ],
-    [activeSub, loadedSub],
+    [activeSub, loadedSub, streamAddon],
   );
 
   if (!local) {
