@@ -600,6 +600,19 @@ export function ImdbMark({ height = 12 }: { height?: number }) {
   );
 }
 
+/** The Duvy mark on its own: the app icon, drawn as one filled path. */
+export function LogoMark({ size = 72 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
+      <path
+        fill="var(--accent)"
+        fillRule="evenodd"
+        d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
+      />
+    </svg>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <span className="spinner-wrap" role="status" aria-live="polite">

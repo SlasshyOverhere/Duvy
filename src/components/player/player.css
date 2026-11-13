@@ -1758,7 +1758,8 @@
 /* ---- buffering ---------------------------------------------------------- */
 
 /* mpv drained the cache: the frame is frozen on the network, so say so rather
-   than leaving a still picture that looks like a hang. */
+   than leaving a still picture that looks like a hang. The mark does the
+   talking: it breathes in and out, the way it does on the way into a title. */
 .pv .pv-buffering {
   position: absolute;
   inset: 0;
@@ -1771,22 +1772,40 @@
   pointer-events: none;
 }
 
-.pv .pv-buffering-ring {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.22);
-  border-top-color: rgba(255, 255, 255, 0.94);
-  animation: spin 0.9s linear infinite;
+.pv .pv-buffering-mark {
+  display: block;
+  animation: pv-buffering-pop 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* The words are for a screen reader; the mark carries the wait on screen. */
 .pv .pv-buffering-label {
-  margin: 0;
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.88);
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes pv-buffering-pop {
+  0%,
+  100% {
+    transform: scale(0.78);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv .pv-buffering-mark {
+    animation: none;
+    opacity: 0.9;
+  }
 }
 
 /* ---- paused card -------------------------------------------------------- */

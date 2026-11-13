@@ -28,7 +28,7 @@ import type {
   SubtitleTrack,
   Video,
 } from "../lib/types";
-import { ContextMenu, Icon, Spinner } from "../components/ui";
+import { ContextMenu, Icon, LogoMark, Spinner } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -2538,7 +2538,9 @@ export function PlayerView() {
 
       {buffering && !loading ? (
         <div className="pv-buffering" role="status" aria-live="polite">
-          <span className="pv-buffering-ring" aria-hidden="true" />
+          <span className="pv-buffering-mark" aria-hidden="true">
+            <LogoMark size={64} />
+          </span>
           <span className="pv-buffering-label">Buffering</span>
         </div>
       ) : null}

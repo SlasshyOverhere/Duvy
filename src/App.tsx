@@ -6,7 +6,7 @@ import { report } from "./lib/telemetry";
 import { CrashReporting } from "./components/Consent";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { AppMenu } from "./components/AppMenu";
-import { Icon } from "./components/ui";
+import { Icon, LogoMark } from "./components/ui";
 import { HomeView } from "./views/Home";
 
 // Home ships in the entry chunk because it is the first screen. Everything
@@ -141,13 +141,7 @@ function Screen() {
     return (
       <div className="boot">
         <div className="boot-mark">
-          <svg viewBox="0 0 100 100" width="72" height="72" aria-hidden="true">
-            <path
-              fill="var(--accent)"
-              fillRule="evenodd"
-              d="M23.65 14H44.35A36 36 0 0 1 44.35 86H23.65Z M39.5 28L67 50L39.5 72Z"
-            />
-          </svg>
+          <LogoMark />
         </div>
         <p className="boot-title">Duvy</p>
       </div>
