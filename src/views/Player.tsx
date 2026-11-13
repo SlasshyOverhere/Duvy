@@ -959,7 +959,6 @@ export function PlayerView() {
   const [volLevel, setVolLevel] = useState(() => readVolume());
   const [subStyle, setSubStyle] = useState<SubtitleStyle>(readSubtitleStyle);
   const [nextOff, setNextOff] = useState(false);
-  const [showRemaining, setShowRemaining] = useState(false);
   const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
   const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string } | null>(null);
@@ -2912,15 +2911,9 @@ export function PlayerView() {
               onBump={bump}
             />
 
-            <button
-              type="button"
-              className="pv-seek-time pv-seek-time--end"
-              onClick={() => setShowRemaining((current) => !current)}
-              aria-label={showRemaining ? "Show total length" : "Show time remaining"}
-              title={showRemaining ? "Total length" : "Time remaining"}
-            >
-              {showRemaining ? `−${formatTime(remaining)}` : formatTime(duration)}
-            </button>
+            <span className="pv-seek-time pv-seek-time--end">
+              −{formatTime(remaining)} / {formatTime(duration)}
+            </span>
           </div>
 
           <div className="pv-controls">
