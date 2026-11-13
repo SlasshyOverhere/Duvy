@@ -440,6 +440,9 @@ export function ContinueCard({
   );
 }
 
+// How long a featured title holds the hero. The dot progress reads from this.
+const SLIDE_MS = 9000;
+
 export function Hero({
   item,
   onOpen,
@@ -464,6 +467,8 @@ export function Hero({
   const [failed, setFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [paused, setPaused] = useState(false);
+  // Bumped whenever the rotation clock restarts, to replay the dot fill.
+  const [run, setRun] = useState(0);
   // The outgoing artwork stays under the incoming one so the crossfade never
   // dips through the black hero background. The first one does not fade in:
   // the hero is already the first frame on screen.
@@ -488,13 +493,17 @@ export function Hero({
   // Rotate the featured titles; hovering or focusing holds the current one.
   useEffect(() => {
     if (!onNext || paused) return;
-    const timer = setTimeout(onNext, 9000);
+    // Every restart of the clock restarts the dot fill, so the bar always
+    // measures the time that is actually left.
+    setRun((value) => value + 1);
+    const timer = setTimeout(onNext, SLIDE_MS);
     return () => clearTimeout(timer);
   }, [item.id, paused, onNext]);
 
   return (
     <section
       className="hero"
+      style={{ "--hero-slide": `${SLIDE_MS}ms` } as CSSProperties}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
@@ -613,7 +622,12 @@ export function Hero({
       </div>
 
       {onSelect && typeof index === "number" && typeof count === "number" && count > 1 ? (
-        <div className="hero-dots" role="group" aria-label="Featured titles">
+        <div
+          key={run}
+          className={`hero-dots${paused ? " is-paused" : ""}`}
+          role="group"
+          aria-label="Featured titles"
+        >
           {Array.from({ length: count }, (_, dot) => (
             <button
               key={dot}

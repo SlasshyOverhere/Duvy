@@ -1764,6 +1764,7 @@ button.pill:hover {
 }
 
 .hero-dot {
+  position: relative;
   width: 20px;
   height: 20px;
   padding: 0;
@@ -1787,9 +1788,40 @@ button.pill:hover {
   background: rgba(255, 255, 255, 0.72);
 }
 
+/* The active dot is the track the slide's clock runs in. */
 .hero-dot.is-active::before {
   width: 28px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.hero-dot.is-active::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 14px);
+  top: 50%;
+  width: 0;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 999px;
   background: #ffffff;
+  animation: hero-dot-fill var(--hero-slide, 9000ms) linear forwards;
+}
+
+.hero-dots.is-paused .hero-dot.is-active::after {
+  animation-play-state: paused;
+}
+
+@keyframes hero-dot-fill {
+  to {
+    width: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-dot.is-active::after {
+    width: 28px;
+    animation: none;
+  }
 }
 
 .hero-dot:focus-visible {
