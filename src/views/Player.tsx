@@ -1490,6 +1490,18 @@ export function PlayerView() {
     [setVolume],
   );
 
+  // Dragging the slider is an unmute: a muted track must not swallow the level.
+  const dragVolume = useCallback(
+    (value: number) => {
+      if (muted) {
+        setPending((current) => ({ ...current, muted: false }));
+        send("mute", false);
+      }
+      setVolume(value);
+    },
+    [muted, send, setVolume],
+  );
+
   const toggleMute = useCallback(() => {
     // A zero level is already silent, so muting it again would do nothing.
     if (silent && Math.round(local?.volume ?? 0) === 0) {
@@ -2353,7 +2365,7 @@ export function PlayerView() {
   // Styling is a player-wide preference: it must not wait for a track to be
   // matched to a variant, or the panel vanishes on the first tick after a load.
   const styleOn = Boolean(activeSub || loadedSub);
-  const volumeFill = Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
+  const volumeFill = silent ? 0 : Math.min(100, Math.max(0, (volLevel / MAX_VOLUME) * 100));
 
   const chapterIndex = chapters.reduce(
     (found, chapter, at) => (chapter.start <= shownPosition + 0.25 ? at : found),
@@ -2961,10 +2973,10 @@ export function PlayerView() {
                 className="pv-vslider"
                 min={0}
                 max={MAX_VOLUME}
-                value={volLevel}
+                value={silent ? 0 : volLevel}
                 aria-label="Volume"
                 style={{ "--fill": `${volumeFill}%` } as CSSProperties}
-                onChange={(event) => setVolume(Number(event.target.value))}
+                onChange={(event) => dragVolume(Number(event.target.value))}
               />
               {nextEpisode ? (
                 <button
