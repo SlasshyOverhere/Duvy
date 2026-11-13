@@ -1793,6 +1793,112 @@
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
 }
 
+/* ---- paused card -------------------------------------------------------- */
+
+/* A paused frame is a still. Name it: art, the episode, one line of meta, and
+   the resume the click would have done anyway. No panel, only a scrim, so the
+   photograph still reads. */
+.pv .pv-now {
+  position: absolute;
+  left: 2rem;
+  bottom: 132px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  gap: 1.1rem;
+  max-width: min(30rem, calc(100vw - 4rem));
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Enough shade for the type on a white frame, and nothing you can trace. */
+.pv .pv-now::before {
+  content: "";
+  position: absolute;
+  inset: -3rem -5rem -2.5rem -2.5rem;
+  z-index: -1;
+  background: radial-gradient(
+    118% 118% at 6% 100%,
+    rgba(0, 0, 0, 0.66),
+    rgba(0, 0, 0, 0.3) 44%,
+    rgba(0, 0, 0, 0) 76%
+  );
+  pointer-events: none;
+}
+
+/* The skip offer owns this corner: step up rather than cover it. */
+.pv .pv-now--above {
+  bottom: 190px;
+}
+
+.pv .pv-now-art {
+  width: 5.4rem;
+  aspect-ratio: 2 / 3;
+  flex: none;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--pv-control);
+  transition: filter 0.15s ease;
+}
+
+.pv .pv-now:hover .pv-now-art {
+  filter: brightness(1.14);
+}
+
+.pv .pv-now-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+  padding-bottom: 0.2rem;
+}
+
+.pv .pv-now-ep {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pv .pv-now-title {
+  overflow: hidden;
+  font-size: 1.42rem;
+  font-weight: 650;
+  line-height: 1.14;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv .pv-now-meta {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.pv .pv-now-note {
+  display: -webkit-box;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.66);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pv .pv-now-go {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.94);
+}
+
 /* ---- next episode card -------------------------------------------------- */
 
 .pv .pv-upnext {
@@ -1953,6 +2059,10 @@
   display: none;
 }
 
+.pv--panel .pv-now {
+  display: none;
+}
+
 /* ---- narrow window: fold the action row into a popup -------------------- */
 
 @media (max-width: 1000px) {
@@ -1974,6 +2084,29 @@
   .pv .pv-skip {
     left: 12px;
     bottom: 116px;
+  }
+
+  .pv .pv-now {
+    left: 12px;
+    bottom: 116px;
+    gap: 0.8rem;
+    max-width: calc(100vw - 24px);
+  }
+
+  .pv .pv-now--above {
+    bottom: 172px;
+  }
+
+  .pv .pv-now-art {
+    width: 4.2rem;
+  }
+
+  .pv .pv-now-title {
+    font-size: 1.1rem;
+  }
+
+  .pv .pv-now-note {
+    -webkit-line-clamp: 1;
   }
 }
 

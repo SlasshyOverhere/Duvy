@@ -2364,6 +2364,21 @@ export function PlayerView() {
     ? playingSource.name ?? playingSource.addon ?? "Source"
     : null;
 
+  // The paused card: the still on screen, named.
+  const poster = details?.poster ?? session?.poster ?? null;
+  const episodeLine =
+    session && session.season != null
+      ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
+      : null;
+  const nowMeta = [
+    playingSource?.addon,
+    playingSource?.quality,
+    duration > 0 ? formatTime(duration) : details?.runtime,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const overview = (index >= 0 ? queue[index]?.overview : null) ?? details?.description ?? null;
+
   const cycleLock = () => {
     setLocked((current) => !current);
     setChrome(true);
@@ -2837,6 +2852,31 @@ export function PlayerView() {
           onClick={() => seekTo(skipSegment.at)}
         >
           {skipSegment.kind === "intro" ? "Skip intro" : "Skip outro"}
+        </button>
+      ) : null}
+
+      {/* A paused frame is a still, so it says what the still is, and resumes
+          on the click that would have unpaused it anyway. */}
+      {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
+        <button
+          type="button"
+          className={`pv-now${skipSegment ? " pv-now--above" : ""}`}
+          onClick={() => togglePause()}
+          aria-label={`Resume ${title}`}
+        >
+          {poster ? (
+            <img className="pv-now-art" src={poster} alt="" loading="lazy" decoding="async" />
+          ) : null}
+          <span className="pv-now-body">
+            {episodeLine ? <span className="pv-now-ep">{episodeLine}</span> : null}
+            <span className="pv-now-title">{title}</span>
+            {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
+            {overview ? <span className="pv-now-note">{overview}</span> : null}
+            <span className="pv-now-go">
+              <Icon name="play" size={13} />
+              Resume from {formatTime(shownPosition)}
+            </span>
+          </span>
         </button>
       ) : null}
 
