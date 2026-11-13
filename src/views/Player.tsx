@@ -13,6 +13,7 @@ import {
   pickSource,
   rememberSource,
   rememberSubtitle,
+  rememberedPack,
   rememberedSource,
   rememberedSubtitle,
   useApp,
@@ -1249,6 +1250,7 @@ export function PlayerView() {
             settings?.preferredQuality ?? "auto",
             playingSource,
             memory,
+            rememberedPack(nextSession.key),
           );
         let sources: StreamOption[] = home
           ? await api.streams({ ...request, addon: home }).catch(() => [])

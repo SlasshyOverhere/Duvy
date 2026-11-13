@@ -217,11 +217,13 @@ export function pickSource(
   quality: string,
   playing?: StreamOption | null,
   remembered?: SourceMemory | null,
+  pack?: SourceMemory | null,
 ): StreamOption | undefined {
   const playable = options.filter((stream) => stream.playable);
-  if (playing?.infoHash) {
-    const pack = playing.infoHash.toLowerCase();
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === pack);
+  // The pack playing now holds the next episode: a binge stays in one torrent.
+  const packHash = playing?.infoHash?.toLowerCase() ?? null;
+  if (packHash) {
+    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === packHash);
     if (samePack) return samePack;
   }
   // The addon playing now beats a memory from another session: a source the
@@ -247,6 +249,13 @@ export function pickSource(
             (stream.fileIdx ?? null) === remembered.fileIdx,
     );
     if (same) return same;
+  }
+  // Then the pack this season played from last time, so a pack that broke one
+  // episode is not reopened on the next one after a restart.
+  if (pack?.infoHash) {
+    const seasonPack = pack.infoHash.toLowerCase();
+    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === seasonPack);
+    if (samePack) return samePack;
   }
   if (wanted !== null) {
     const match = playable.find(fits);
@@ -279,12 +288,26 @@ function readSourceMemory(): Record<string, SourceMemory> {
   return sourceMemory;
 }
 
+/** A pack covers a whole season, so its memory drops the episode number. */
+function packKey(key: string): string {
+  const parts = key.split(":");
+  const numbered = (part?: string) => part != null && /^\d+$/.test(part);
+  return numbered(parts[parts.length - 1]) && numbered(parts[parts.length - 2])
+    ? parts.slice(0, -1).join(":")
+    : key;
+}
+
 export function rememberedSource(key: string | null | undefined): SourceMemory | null {
   if (!key) return null;
   const found = readSourceMemory()[key];
   return found && typeof found.addon === "string" && typeof found.quality === "string"
     ? found
     : null;
+}
+
+/** The pack this season played from last time, whatever episode that was. */
+export function rememberedPack(key: string | null | undefined): SourceMemory | null {
+  return rememberedSource(key ? packKey(key) : key);
 }
 
 /** A remembered stream only helps while its addon is still installed and on. */
@@ -302,6 +325,9 @@ export function rememberSource(key: string | null | undefined, stream: StreamOpt
   try {
     const all = readSourceMemory();
     all[key] = stream;
+    // So the rest of the season follows this pack instead of the first offered.
+    const pack = packKey(key);
+    if (pack !== key) all[pack] = stream;
     const keys = Object.keys(all);
     for (const stale of keys.slice(0, Math.max(0, keys.length - SOURCE_MEMORY_LIMIT))) {
       delete all[stale];
@@ -1236,6 +1262,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             settings?.preferredQuality ?? "auto",
             playingSource,
             memory,
+            rememberedPack(session.key),
           );
           if (!found) throw noSourceError(options);
           url = await resolveStream(found);
@@ -1346,6 +1373,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             settings?.preferredQuality ?? "auto",
             playingSource,
             memory,
+            rememberedPack(session.key),
           );
           if (!found) throw noSourceError(sources);
           url = await resolveStream(found);
