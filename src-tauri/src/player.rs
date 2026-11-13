@@ -50,6 +50,9 @@ pub struct Snapshot {
     pub duration: f64,
     /// Seconds of media buffered ahead of the playhead.
     pub buffered: f64,
+    /// mpv ran the cache dry and is waiting for the network again.
+    #[serde(default)]
+    pub buffering: bool,
     pub title: String,
     pub volume: f64,
     pub muted: bool,
@@ -81,6 +84,7 @@ impl Default for Snapshot {
             position: 0.0,
             duration: 0.0,
             buffered: 0.0,
+            buffering: false,
             title: String::new(),
             volume: 100.0,
             muted: false,
@@ -588,7 +592,16 @@ impl Player {
             if let Some(secs) = forward_secs {
                 let _ = init.set_option("cache-secs", secs.to_string());
             }
-            let _ = init.set_option("network-timeout", "20");
+            let _ = init.set_option("network-timeout", "60");
+            // A dropped socket is not the end of the film: let ffmpeg reconnect
+            // for up to 5s between attempts, streamed responses included.
+            let _ = init.set_option(
+                "stream-lavf-o",
+                "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5",
+            );
+            // Refill the cache before resuming, so an underrun does not become
+            // a play-pause loop at the edge of the buffer.
+            let _ = init.set_option("cache-pause-wait", "5");
             let _ = init.set_option("alang", language_arg(&settings.audio_language));
             let _ = init.set_option("slang", language_arg(&settings.subtitle_language));
             let _ = init.set_option(
@@ -664,6 +677,8 @@ impl Player {
             // A track switch keeps the count, so it needs its own signal.
             (12, "aid", Format::String),
             (13, "sid", Format::String),
+            // Set while mpv waits for the network after draining the cache.
+            (14, "paused-for-cache", Format::Flag),
         ] {
             if let Err(error) = events.observe_property(name, format, id) {
                 crate::playback_log::mark(format!("playback failed: {error}"));
@@ -697,6 +712,7 @@ impl Player {
             Arc::clone(&snapshot),
             Arc::clone(&stop),
             Arc::clone(&mpv),
+            request.url.clone(),
         );
         spawn_ticker(
             app.clone(),
@@ -918,9 +934,12 @@ fn spawn_events(
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
     mpv: Arc<Mpv>,
+    url: String,
 ) {
     thread::spawn(move || {
         let mut ended = false;
+        // One silent reopen per playback: the same URL from the same spot.
+        let mut reopened = false;
         while !stop.load(Ordering::Relaxed) {
             let event = match events.wait_event(0.2) {
                 None => continue,
@@ -934,6 +953,10 @@ fn spawn_events(
                             if *code == libmpv2::mpv_error::LoadingFailed
                     );
                     if dead {
+                        if !reopened && reopen_stream(&mpv, &snapshot, &url) {
+                            reopened = true;
+                            continue;
+                        }
                         end_stream(&app, &snapshot, &stop, &mpv, "error");
                         ended = true;
                         break;
@@ -966,6 +989,7 @@ fn spawn_events(
                                 snap.buffered = (time - snap.position).max(0.0);
                             }
                         }
+                        "paused-for-cache" => snap.buffering = as_flag(&change),
                         "pause" => snap.paused = as_flag(&change),
                         "volume" => {
                             if let Some(volume) = as_double(&change) {
@@ -1010,11 +1034,17 @@ fn spawn_events(
                         snap.ended = false;
                         snap.cut_short = false;
                         snap.error = None;
+                        snap.buffering = false;
                     }
                     crate::playback_log::mark("demuxer opened the stream");
                 }
                 Event::EndFile(reason) => {
-                    end_stream(&app, &snapshot, &stop, &mpv, end_reason(reason));
+                    let reason = end_reason(reason);
+                    if reason == "error" && !reopened && reopen_stream(&mpv, &snapshot, &url) {
+                        reopened = true;
+                        continue;
+                    }
+                    end_stream(&app, &snapshot, &stop, &mpv, reason);
                     ended = true;
                     break;
                 }
@@ -1052,6 +1082,40 @@ fn ended_early(snap: &Snapshot) -> bool {
     snap.duration > 60.0 && snap.position / snap.duration < 0.85
 }
 
+/// Where a dropped source should be picked up again: anywhere but the opening
+/// seconds and the credits, where reopening would only fail or loop.
+fn reopen_position(snap: &Snapshot) -> Option<f64> {
+    let past_the_start = snap.position > 5.0;
+    let before_the_end = snap.duration <= 0.0 || snap.position / snap.duration < 0.98;
+    (past_the_start && before_the_end).then_some(snap.position)
+}
+
+/// Reload the same URL from the position the stream died at, once. Returns false
+/// when this drop is not worth retrying (never started, already at the credits).
+fn reopen_stream(mpv: &Mpv, snapshot: &Arc<Mutex<Snapshot>>, url: &str) -> bool {
+    let Some(at) = snapshot.lock().ok().and_then(|snap| reopen_position(&snap)) else {
+        return false;
+    };
+    crate::playback_log::mark(format!("stream dropped, reopening at {at:.1}s"));
+    // `start` is applied by the next load, so the reopen costs one request, not
+    // a read from the opening seconds followed by a seek.
+    if let Err(error) = mpv.set_property("start", at) {
+        crate::playback_log::mark(format!("reopen seek failed: {error}"));
+        return false;
+    }
+    if let Ok(mut snap) = snapshot.lock() {
+        // The picture is frozen until the new connection paints a frame.
+        snap.buffering = true;
+    }
+    match mpv.command("loadfile", &[url, "replace"]) {
+        Ok(()) => true,
+        Err(error) => {
+            crate::playback_log::mark(format!("reopen failed: {error}"));
+            false
+        }
+    }
+}
+
 /// One end for every way a stream dies: record why, tell the UI, and let go of
 /// the core only when the stream itself is not what ended.
 fn end_stream(
@@ -1069,6 +1133,7 @@ fn end_stream(
     let failed = reason == "error";
     if let Ok(mut snap) = snapshot.lock() {
         snap.playing = false;
+        snap.buffering = false;
         // An eof well short of the duration is a dropped stream, not the
         // credits: the UI retries it instead of showing the end card.
         let cut_short = reason == "eof" && ended_early(&snap);
@@ -1203,6 +1268,7 @@ struct Tick {
     speed: i64,
     ended: bool,
     buffered: i64,
+    buffering: bool,
     active_audio: Option<i64>,
     active_sub: Option<i64>,
     tracks: usize,
@@ -1221,6 +1287,7 @@ impl Tick {
             speed: quarter(snap.speed),
             ended: snap.ended,
             buffered: quarter(snap.buffered),
+            buffering: snap.buffering,
             active_audio: snap.active_audio,
             active_sub: snap.active_sub,
             tracks: snap.audio_tracks.len() + snap.sub_tracks.len(),
@@ -1351,7 +1418,7 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 mod tests {
     use super::{
         Snapshot, back_cache, bool_value, color_value, ended_early, forward_cache, number_value,
-        parse_chapters, parse_tracks, validate_media_url,
+        parse_chapters, parse_tracks, reopen_position, validate_media_url,
     };
     use serde_json::json;
 
@@ -1367,6 +1434,21 @@ mod tests {
         assert!(!ended_early(&at(7300.0, 7383.0)));
         // A live stream has no duration to compare against.
         assert!(!ended_early(&at(10.0, 0.0)));
+    }
+
+    #[test]
+    fn a_stream_is_reopened_only_where_it_is_worth_it() {
+        let at = |position: f64, duration: f64| Snapshot {
+            position,
+            duration,
+            ..Default::default()
+        };
+        assert_eq!(reopen_position(&at(600.0, 3000.0)), Some(600.0));
+        // A live stream has no duration: the playhead is all there is.
+        assert_eq!(reopen_position(&at(600.0, 0.0)), Some(600.0));
+        // Never started, or already in the credits: reopening would loop.
+        assert_eq!(reopen_position(&at(2.0, 3000.0)), None);
+        assert_eq!(reopen_position(&at(2990.0, 3000.0)), None);
     }
 
     #[test]

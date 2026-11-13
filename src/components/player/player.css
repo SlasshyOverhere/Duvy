@@ -1769,6 +1769,40 @@
   }
 }
 
+/* ---- buffering ---------------------------------------------------------- */
+
+/* mpv drained the cache: the frame is frozen on the network, so say so rather
+   than leaving a still picture that looks like a hang. */
+.pv .pv-buffering {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.pv .pv-buffering-ring {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(255, 255, 255, 0.94);
+  animation: spin 0.9s linear infinite;
+}
+
+.pv .pv-buffering-label {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+}
+
 /* ---- next episode card -------------------------------------------------- */
 
 .pv .pv-upnext {

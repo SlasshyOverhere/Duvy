@@ -296,6 +296,8 @@ export interface PlayerSnapshot {
   duration: number;
   /** Seconds fetched ahead of the playhead. */
   buffered?: number;
+  /** mpv drained the cache and is waiting on the network. */
+  buffering?: boolean;
   title: string;
   volume: number;
   muted: boolean;

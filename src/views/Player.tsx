@@ -1157,9 +1157,16 @@ export function PlayerView() {
   const muted = pending.muted ?? local?.muted ?? false;
   const shownPosition = scrub ?? position;
   const remaining = Math.max(0, duration - shownPosition);
-  const failed = local?.error ?? retryError;
   // A source that died well before the credits: retried, never called over.
   const dropped = Boolean(local?.cutShort);
+  // mpv could not open or continue the source at all.
+  const dead = Boolean(local?.error);
+  // While the source can still be re-resolved, a dead stream is recovered
+  // silently: the failure card appears only once that recovery has given up.
+  const recoverable = Boolean(playingSource && session);
+  const failed = retryError ?? (dead && recoverable ? null : local?.error);
+  // mpv drained its cache: the picture is frozen on the network, not on us.
+  const buffering = Boolean(local?.buffering) && !paused && !failed;
   // The first painted frame; older snapshots omit the field.
   const firstFrame = (local as (PlayerSnapshot & { started?: boolean }) | null)?.started === true;
   // A live stream never reports a duration, so only silence before the first
@@ -1643,8 +1650,9 @@ export function PlayerView() {
     [local?.title, notify, playRequest, pushPlaybackPrefs, resolveStream],
   );
 
-  // A source that dies mid-film is reopened from the same spot, silently. A
-  // second drop within a minute is not a blip: that one surfaces the failure.
+  // A source that dies is re-resolved from its addon and reopened at the same
+  // spot, silently: the token may simply have expired. A second failure within
+  // a minute is not a blip, so that one surfaces.
   const lastRetry = useRef(0);
   const retrying = useRef(false);
   const resumeDropped = useCallback(async () => {
@@ -1666,7 +1674,7 @@ export function PlayerView() {
   }, [local?.title, playRequest, playingSource, resolveStream]);
 
   useEffect(() => {
-    if (!dropped || failed || retrying.current) return;
+    if ((!dropped && !dead) || retrying.current) return;
     const now = Date.now();
     if (now - lastRetry.current < 60_000) {
       setRetryError("The stream keeps dropping. Choose another source.");
@@ -1680,7 +1688,7 @@ export function PlayerView() {
         setRetryError("The stream ended early and could not be resumed. Choose another source.");
       }
     });
-  }, [dropped, failed, resumeDropped]);
+  }, [dead, dropped, resumeDropped]);
 
   // A new picture clears the retry failure, however it was opened.
   useEffect(() => {
@@ -2447,6 +2455,13 @@ export function PlayerView() {
           ) : (
             <h1 className="pv-wait-title">{title}</h1>
           )}
+        </div>
+      ) : null}
+
+      {buffering && !loading ? (
+        <div className="pv-buffering" role="status" aria-live="polite">
+          <span className="pv-buffering-ring" aria-hidden="true" />
+          <span className="pv-buffering-label">Buffering</span>
         </div>
       ) : null}
 
