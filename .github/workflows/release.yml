@@ -33,6 +33,16 @@ jobs:
       # Must match ci.yml: the cache key carries the rustc commit.
       - uses: dtolnay/rust-toolchain@1.100.0
 
+      # rust-cache hashes `rustup toolchain list`, so a toolchain left behind by
+      # the runner image rotates the cache key. Keep exactly one.
+      - name: Drop extra toolchains
+        shell: pwsh
+        run: |
+          rustup toolchain list --quiet | ForEach-Object {
+            $name = ($_ -split ' ')[0]
+            if ($name -and $name -notlike '1.100.0*') { rustup toolchain uninstall $name }
+          }
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
