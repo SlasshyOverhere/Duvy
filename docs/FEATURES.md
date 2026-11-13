@@ -51,10 +51,10 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | --- | --- | --- |
 | Direct HTTP streams | **Done** | Plays anything mpv can fetch |
 | Local files | **Done** | Settings -> Playback -> Open a video file |
-| P2P / torrent streaming | **Done** | Opt-in consent, local librqbit engine, loopback range server, peer and speed stats; one torrent at a time and no seeder count |
+| P2P / torrent streaming | **Removed** | No local engine. Torrent rows play through a debrid account only |
 | Debrid | **Done** | Real-Debrid, AllDebrid, Premiumize and TorBox keys; link unrestricting plus a provider cache-check command; torrent packs play the requested file; no cloud browser or rule engine |
 | Media servers (Jellyfin, Emby) | **Done** | Sign-in, library browse, artwork and direct playback; progress stays local |
-| Downloads / offline | **Planned** | The torrent cache is transient and cleared, not a download library |
+| Downloads / offline | **Planned** | Nothing is stored on disk for offline playback yet |
 
 ## Integrations
 
@@ -93,8 +93,8 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
   remuxes and video never travels through the WebView.
 - **No scrapers.** Only the open addon protocol and user-configured servers; the user supplies
   every source.
-- **P2P is opt-in.** Torrent sources stay disabled until consent is given, because peers see the
-  user's IP address.
+- **No local torrent engine.** Torrent rows are resolved by a debrid account; the app never joins
+  a swarm, so it never exposes the user's IP address.
 - **The player ships with the app.** libmpv is bundled, so installs stay self-contained and there
   is no first-run download to wait on.
 - **Sync is best effort and optional.** Both account integrations use their providers' backends

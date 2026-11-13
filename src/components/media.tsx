@@ -36,7 +36,7 @@ const OPEN_LAYER: CSSProperties = {
 };
 
 /** Keyboard path for the right-click menu: ContextMenu key or Shift+F10. */
-function menuFromKey(event: KeyEvent<HTMLElement>) {
+export function menuFromKey(event: KeyEvent<HTMLElement>) {
   if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return null;
   event.preventDefault();
   const box = event.currentTarget.getBoundingClientRect();

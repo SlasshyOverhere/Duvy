@@ -22,7 +22,6 @@ import type {
   StremioStatus,
   StremioSyncReport,
   SubtitleTrack,
-  TorrentStats,
   TraktStatus,
   UpdateInfo,
   WatchedItem,
@@ -190,13 +189,6 @@ export const api = {
   /** One pass across Stremio and Nuvio, in the order that converges both. */
   sync: {
     all: () => call<null>("sync_all"),
-  },
-
-  torrent: {
-    start: (source: string, fileHint?: string) =>
-      call<string>("start", { source, fileHint }),
-    stats: () => call<TorrentStats>("stats"),
-    stop: () => call<null>("stop"),
   },
 
   debrid: {

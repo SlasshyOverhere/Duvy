@@ -298,8 +298,7 @@ pub fn normalize(addon: &str, stream: Stream) -> StreamOption {
     }
 
     let url = stream.url;
-    // A magnet/hash row is playable too: the torrent engine turns it into a
-    // local HTTP stream at playback time.
+    // A magnet/hash row stays playable: debrid turns it into a direct link.
     let magnet = url.as_deref().is_some_and(|u| {
         u.get(..7)
             .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))

@@ -1547,8 +1547,7 @@ pub async fn player_control(
 
 #[tauri::command]
 pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Quit the player first so a slow P2P teardown can never leave it playing
-    // behind the menu. libmpv's teardown is asynchronous, so this does not wait.
+    // libmpv's teardown is asynchronous, so this does not wait for it.
     let player = {
         let mut guard = crate::player_slot(&state);
         guard.take()
@@ -1558,15 +1557,14 @@ pub async fn player_stop(app: AppHandle, state: State<'_, AppState>) -> Result<(
     if let Some(mut player) = player {
         player.kill();
     }
-    // Hand the window and the screen back now. Waiting for the torrent engine
-    // used to emit this seconds late, wiping a playback started meanwhile.
+    // Hand the window and the screen back now, so a playback started meanwhile
+    // is not wiped by a late close.
     if stopped && !crate::player_is_live(&app) {
         release_window(&app);
         // A player we killed on purpose does not close on its own, so this is
         // the only chance the UI gets to drop the snapshot and re-read progress.
         let _ = app.emit("player:closed", generation);
     }
-    let _ = crate::torrent::shutdown().await;
     Ok(())
 }
 

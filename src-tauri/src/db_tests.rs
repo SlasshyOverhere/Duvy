@@ -836,8 +836,10 @@ fn settings_load_clamps_numbers_and_tolerates_unknown_fields() {
 
     // The same clamp applies to a patch that arrives from the frontend.
     let mut patched = Settings::default();
-    patched.apply_patch(json!({ "p2pCacheMb": -1 })).unwrap();
-    assert_eq!(patched.p2p_cache_mb, 64);
+    patched
+        .apply_patch(json!({ "bufferForwardValue": 0 }))
+        .unwrap();
+    assert_eq!(patched.buffer_forward_value, 1);
 
     cleanup(conn, path);
 }

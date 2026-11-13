@@ -114,8 +114,6 @@ let settings: Settings = {
   stremioAutoSync: true,
   nuvioBaseUrl: "",
   nuvioApiKey: "",
-  p2pConsent: false,
-  p2pCacheMb: 2048,
   bufferForwardValue: 256,
   bufferForwardUnit: "mb",
   bufferBackwardValue: 75,

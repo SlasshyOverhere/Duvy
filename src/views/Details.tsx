@@ -4,10 +4,11 @@ import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
-import { PosterCard, Row } from "../components/media";
-import { Button, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
+import { PosterCard, Row, menuFromKey } from "../components/media";
+import { Button, ContextMenu, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
 import {
   episodeCode,
+  episodesUpTo,
   placeholderGradient,
   progressPercent,
   scoreLabel,
@@ -46,6 +47,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     progress,
     progressFor,
     resumeEntry,
+    markWatched,
+    markWatchedMany,
+    watched,
     notify,
     buildSession,
     resolveStream,
@@ -60,6 +64,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<{ key: string; season: number } | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; video: Video } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
@@ -135,6 +140,47 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const seasons = useMemo(
     () => [...new Set((details?.videos ?? []).map((video) => video.season ?? 1))].sort((a, b) => a - b),
     [details],
+  );
+
+  // Explicit marks for this title, so an episode can be ticked off without
+  // playing it first.
+  const marks = useMemo(
+    () =>
+      new Map(
+        watched.filter((row) => row.metaId === id).map((row) => [row.key, row.watchedAt]),
+      ),
+    [watched, id],
+  );
+
+  const toggleEpisodeWatched = useCallback(
+    (key: string, next: boolean) => {
+      markWatched(key, id, next)
+        .then(() => notify(next ? "Marked as watched" : "Marked as unwatched"))
+        .catch(() => notify("Could not update that", "error"));
+    },
+    [markWatched, id, notify],
+  );
+
+  /** Every unmarked episode from the first one through `target`, in air order. */
+  const unmarkedUpTo = useCallback(
+    (target: Video) => {
+      if (!details) return [];
+      return episodesUpTo(details.videos, target)
+        .map((video) => buildSession(details, video).key)
+        .filter((key) => !marks.has(key));
+    },
+    [details, buildSession, marks],
+  );
+
+  const markUpTo = useCallback(
+    (target: Video) => {
+      const keys = unmarkedUpTo(target);
+      if (!keys.length) return;
+      markWatchedMany(keys, id)
+        .then(() => notify(`${keys.length} episodes marked as watched`))
+        .catch(() => notify("Could not update those", "error"));
+    },
+    [unmarkedUpTo, markWatchedMany, id, notify],
   );
 
   const defaultSeason = useMemo(() => (details ? firstSeason(details) : null), [details]);
@@ -233,40 +279,76 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       const key = buildSession(details, video).key;
       const entry = progressFor(key);
       const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
+      const markedAt = marks.get(key);
+      const done = markedAt != null || percent >= 90;
+      const code = episodeCode(video);
       return (
-        <button
+        <div
           key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
-          type="button"
           className="episode"
-          onClick={() => openSources(video)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY, video });
+          }}
         >
-          <span className="episode-thumb">
-            {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
-            <span className="episode-play">
-              <Icon name="play" size={16} />
+          <button
+            type="button"
+            className="episode-open"
+            onClick={() => openSources(video)}
+            onKeyDown={(event) => {
+              const at = menuFromKey(event);
+              if (at) setMenu({ ...at, video });
+            }}
+            aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
+          >
+            <span className="episode-thumb">
+              {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
+              <span className="episode-play">
+                <Icon name="play" size={16} />
+              </span>
             </span>
-          </span>
-          <span className="episode-body">
-            <span className="episode-top">
-              <span className="episode-num">{episodeCode(video)}</span>
-              <span className="episode-title">{video.title ?? "Untitled episode"}</span>
-              {entry ? (
-                <span className="episode-seen">
-                  {percent >= 90 ? `Watched ${timeAgo(entry.updatedAt)}` : "In progress"}
+            <span className="episode-body">
+              <span className="episode-top">
+                <span className="episode-num">{code}</span>
+                <span className="episode-title">{video.title ?? "Untitled episode"}</span>
+                {done ? (
+                  <span className="episode-seen">
+                    Watched {timeAgo(markedAt ?? entry?.updatedAt ?? 0)}
+                  </span>
+                ) : entry ? (
+                  <span className="episode-seen">In progress</span>
+                ) : null}
+              </span>
+              <span className="episode-overview">{video.overview ?? ""}</span>
+              {percent > 0 && percent < 90 ? (
+                <span className="episode-progress">
+                  <span style={{ width: `${percent}%` }} />
                 </span>
               ) : null}
             </span>
-            <span className="episode-overview">{video.overview ?? ""}</span>
-            {percent > 0 ? (
-              <span className="episode-progress">
-                <span style={{ width: `${percent}%` }} />
-              </span>
-            ) : null}
-          </span>
-        </button>
+          </button>
+          <button
+            type="button"
+            className="episode-watch"
+            aria-pressed={done}
+            aria-label={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
+            title={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
+            onClick={() => toggleEpisodeWatched(key, !done)}
+          >
+            <Icon name="check" size={15} />
+          </button>
+        </div>
       );
     });
-  }, [details, episodes, openSources, progressFor, buildSession]);
+  }, [
+    details,
+    episodes,
+    openSources,
+    progressFor,
+    buildSession,
+    marks,
+    toggleEpisodeWatched,
+  ]);
 
   const startStream = async (stream: StreamOption) => {
     if (!details || !drawer) return;
@@ -511,6 +593,43 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           </Row>
         </section>
       ) : null}
+
+      {menu
+        ? (() => {
+            const key = buildSession(details, menu.video).key;
+            const entry = progressFor(key);
+            const done =
+              marks.has(key) ||
+              (entry ? progressPercent(entry.position, entry.duration) >= 90 : false);
+            const earlier = unmarkedUpTo(menu.video);
+            return (
+              <ContextMenu
+                x={menu.x}
+                y={menu.y}
+                title={`${episodeCode(menu.video)}${
+                  menu.video.title ? ` · ${menu.video.title}` : ""
+                }`}
+                onClose={() => setMenu(null)}
+                actions={[
+                  {
+                    label: done ? "Mark as unwatched" : "Mark as watched",
+                    icon: "check",
+                    onSelect: () => toggleEpisodeWatched(key, !done),
+                  },
+                  {
+                    label:
+                      earlier.length > 0
+                        ? `Mark all ${earlier.length} up to here watched`
+                        : "Nothing earlier to mark",
+                    icon: "check",
+                    disabled: earlier.length === 0,
+                    onSelect: () => markUpTo(menu.video),
+                  },
+                ]}
+              />
+            );
+          })()
+        : null}
 
       <StreamDrawer
         open={drawer !== null}

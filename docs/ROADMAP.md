@@ -10,6 +10,7 @@ Effort is a rough single-developer estimate, not a promise:
 
 | Change |
 | --- |
+| Local P2P engine removed: torrent rows now play through a debrid account only |
 | Startup, playback and network latency pass: parallel fan-out with budgets, cached settings, merged progress writes, lighter Home |
 | Player runs in-process on libmpv; the external `mpv.exe` download is gone |
 | Subtitle choice remembered per episode; ASS tracks keep their styling until edited |
@@ -32,7 +33,7 @@ Effort is a rough single-developer estimate, not a promise:
 
 The five highest value-per-effort items, in order:
 
-1. **DL-01 downloads + offline** - the biggest real capability hole, and it makes the torrent cache worth keeping.
+1. **DL-01 downloads + offline** - the biggest real capability hole.
 2. **PF-01 profiles + PIN** - every per-profile feature is blocked behind it.
 3. **PL-01 subtitle auto-sync + PL-05 visible skip button** - the player polish users actually feel.
 4. **RG-07 deep links + RG-08 window restore** - small, and they unblock party and trailer links.
@@ -85,10 +86,6 @@ The five highest value-per-effort items, in order:
 | SP-15 | Debrid result rules | Max results, quality floor, DV/HDR/codec filters, size range, required/excluded tags, languages, release groups | L | |
 | SP-16 | Debrid name templates | Custom stream name and description formatting | S | |
 | SP-17 | Debrid cloud library | Browse and play cloud items; add-to-cloud list with status and delete | L | |
-| SP-18 | P2P profiles + cache UI | soft/balanced/fast, cache size, clear cache, usage readout | M | `p2pCacheMb` is display-only |
-| SP-19 | P2P consent at click | Consent dialog on first torrent play | S | Settings-only today; clicking a row throws an error string |
-| SP-20 | In-player P2P stats | Buffer, peers, speed overlay with a hide toggle | S | Stats live on a separate settings page; `seeds: 0` is hard-coded |
-| SP-21 | Seeder count | Real peer count | S | Hard-coded 0 |
 | SP-23 | Random episode shuffle | Shuffle entry points on details, home, playback | M | Whole feature missing |
 | SP-24 | Server as catalog source | Media server rows in Home and Library with TMDB matching | L | Settings-page browser only |
 | SP-25 | Server progress writeback | START / PROGRESS / PAUSE / RESUME / STOP sessions | M | Static URLs only |
@@ -109,7 +106,6 @@ The five highest value-per-effort items, in order:
 | DL-06 | Open downloads folder | Reveal in Explorer | S | |
 | DL-07 | Library badge | Unseen downloads indicator | S | |
 | DL-08 | Storage location | Choose the download directory | S | |
-| DL-09 | Persistent torrent cache | Keep the P2P cache across sessions | M | Wiped on every start today |
 
 ## Profiles, accounts, sync
 
@@ -195,7 +191,7 @@ The five highest value-per-effort items, in order:
 | UI-12 | Continue watching options | Card style, thumbnails, blur, up-next, sorting | M | |
 | UI-13 | Settings sync | Across devices | M | See PF-23 |
 | UI-14 | About depth | Licences list, privacy link, credits | S | |
-| UI-15 | Cache management | Clear image, metadata, P2P and CW caches, with sizes | S | |
+| UI-15 | Cache management | Clear image, metadata and CW caches, with sizes | S | |
 | UI-16 | UI scaling | Density and font scale, user zoom | M | |
 | UI-17 | Keep-awake outside playback | Inhibit while paused or idle in the UI | S | Only mpv covers it |
 | UI-18 | Middle-click autoscroll / precise wheel | Unverified whether WebView2 already does this | S | Test first |
@@ -242,13 +238,13 @@ Deliberately out of scope. Do not reopen these without a specific reason:
 - Tray, minimize-to-tray, single instance, always-on-top, media keys, gamepad/TV navigation,
   backup/restore, export and rebindable shortcuts.
 - Screenshot, sleep timer and a playback stats graph.
-- Manual torrent file selection, minimum-seeder filter, cached-only toggle, in-picker sort and a
-  download storage picker. (Storage location is still worth adding on its own merits, DL-08.)
+- In-picker sort and a download storage picker. (Storage location is still worth adding on its own
+  merits, DL-08.)
 
 ## Suggested milestones
 
 1. **Playback polish** - PL-01, PL-03, PL-05, PL-06, PL-08, PL-10, PL-12, PL-16, PL-17, PL-18, PL-20, PL-21.
-2. **Sources** - SP-01..03, SP-06..13, SP-19..21, SP-23.
+2. **Sources** - SP-01..03, SP-06..13, SP-23.
 3. **Downloads** - DL-01..09.
 4. **Profiles** - PF-01..07, then UI-09.
 5. **Platform basics** - RG-03, RG-06, RG-07, RG-08.
