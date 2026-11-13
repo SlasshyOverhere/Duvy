@@ -267,6 +267,20 @@ export interface Chapter {
   title?: string | null;
 }
 
+/** What the stream itself is: shape, rate, codec. */
+export interface MediaInfo {
+  width: number;
+  height: number;
+  /** Display aspect ratio. */
+  aspect?: number | null;
+  fps?: number | null;
+  /** Bits per second. */
+  bitrate?: number | null;
+  videoCodec?: string | null;
+  /** HDR10 or HLG; absent for SDR. */
+  hdr?: string | null;
+}
+
 /** What the player shows while a start is still resolving its source. */
 export interface StartingArt {
   name: string;
@@ -312,6 +326,8 @@ export interface PlayerSnapshot {
   activeAudio?: number | null;
   activeSub?: number | null;
   chapters?: Chapter[];
+  /** Resolution, shape and codec, once the video is initialised. */
+  media?: MediaInfo | null;
   session?: PlaybackSession | null;
   /** Identifies the mpv process; events from an older one are ignored. */
   generation?: number;

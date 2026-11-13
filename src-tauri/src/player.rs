@@ -39,6 +39,27 @@ pub struct Chapter {
     pub title: Option<String>,
 }
 
+/// What the stream itself is, as opposed to how the player is behaving.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaInfo {
+    pub width: i64,
+    pub height: i64,
+    /// Display aspect ratio, anamorphic pixels already accounted for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fps: Option<f64>,
+    /// Bits per second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitrate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_codec: Option<String>,
+    /// HDR10 or HLG; absent for SDR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hdr: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -68,6 +89,9 @@ pub struct Snapshot {
     pub active_audio: Option<i64>,
     pub active_sub: Option<i64>,
     pub chapters: Vec<Chapter>,
+    /// Resolution, shape and codec of the video stream, once it is initialised.
+    #[serde(default)]
+    pub media: Option<MediaInfo>,
     pub session: Option<PlaybackSession>,
     /// Which player produced this snapshot, so a dead player's late events can
     /// be ignored by the UI.
@@ -97,6 +121,7 @@ impl Default for Snapshot {
             active_audio: None,
             active_sub: None,
             chapters: Vec::new(),
+            media: None,
             session: None,
             generation: 0,
         }
@@ -242,6 +267,48 @@ fn refresh_tracks(mpv: &Mpv, snap: &mut Snapshot) {
     snap.sub_tracks = subs;
     snap.active_audio = active_audio;
     snap.active_sub = active_sub;
+}
+
+/// Describe the video stream. Read on load and on a reconfig, never per tick.
+fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
+    let int = |name: &str| mpv.get_property::<i64>(name).ok().unwrap_or(0);
+    let num = |name: &str| mpv.get_property::<f64>(name).ok().filter(|v| *v > 0.0);
+    let text = |name: &str| {
+        mpv.get_property::<String>(name)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let (width, height) = (int("video-params/w"), int("video-params/h"));
+    // Audio-only, or the video has not been initialised yet.
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let gamma = text("video-params/gamma").unwrap_or_default();
+    let hdr = match gamma.as_str() {
+        "pq" => Some("HDR10".to_string()),
+        "hlg" => Some("HLG".to_string()),
+        _ if text("video-params/primaries").as_deref() == Some("bt.2020") => {
+            Some("HDR".to_string())
+        }
+        _ => None,
+    };
+    // A network stream often has no video bitrate; size over runtime is a fair
+    // overall figure, and a zero is better than a wrong one.
+    let bitrate = num("video-bitrate").or_else(|| {
+        let size = num("file-size")?;
+        let runtime = num("duration").filter(|d| *d > 1.0)?;
+        Some(size * 8.0 / runtime)
+    });
+    snap.media = Some(MediaInfo {
+        width,
+        height,
+        aspect: num("video-params/aspect"),
+        fps: num("container-fps"),
+        bitrate,
+        video_codec: text("video-codec"),
+        hdr,
+    });
 }
 
 /// mpv reports tracks as `eng`, `en`, `English` or `und`; all become a name.
@@ -1035,8 +1102,16 @@ fn spawn_events(
                         snap.cut_short = false;
                         snap.error = None;
                         snap.buffering = false;
+                        refresh_media(&mpv, &mut snap);
                     }
                     crate::playback_log::mark("demuxer opened the stream");
+                }
+                // The decoder settled on a size: this is the reliable moment for
+                // video-params, and it fires again if the stream switches.
+                Event::VideoReconfig => {
+                    if let Ok(mut snap) = snapshot.lock() {
+                        refresh_media(&mpv, &mut snap);
+                    }
                 }
                 Event::EndFile(reason) => {
                     let reason = end_reason(reason);

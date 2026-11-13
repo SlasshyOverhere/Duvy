@@ -113,6 +113,24 @@ function Overlay({
   );
 }
 
+/** Bits per second, in the unit a person would say out loud. */
+function bitrateLabel(bits: number): string {
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbps`;
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbps`;
+  return `${Math.round(bits / 1e3)} kbps`;
+}
+
+/** The cinema name for a display aspect, when it has one. */
+function aspectLabel(aspect: number): string | null {
+  const near = (target: number) => Math.abs(aspect - target) < 0.06;
+  if (near(2.39) || near(2.4) || near(2.35)) return "Scope";
+  if (near(1.85) || near(1.86)) return "Flat";
+  if (near(16 / 9)) return "16:9";
+  if (near(4 / 3)) return "4:3";
+  if (near(2)) return "2:1";
+  return null;
+}
+
 /** One readout group: a quiet caption and its label/value lines. */
 function InfoGroup({
   title,
@@ -2199,31 +2217,26 @@ export function PlayerView() {
     [step],
   );
 
-  const playbackRows = useMemo<Array<[string, string]>>(
-    () => [
-      ["State", local?.ended ? "Ended" : local?.paused ? "Paused" : "Playing"],
-      ["Position", `${formatTime(position)} / ${formatTime(duration)}`],
-      ["Buffer", `${formatTime(local?.buffered ?? 0)} ahead`],
-      ["Speed", `${local?.speed ?? 1}×`],
-      ["Volume", `${Math.round(local?.volume ?? 0)}%${local?.muted ? " · muted" : ""}`],
-      ["Engine", "libmpv"],
-    ],
-    [
-      duration,
-      local?.buffered,
-      local?.ended,
-      local?.muted,
-      local?.paused,
-      local?.speed,
-      local?.volume,
-      position,
-    ],
-  );
+  // The stream, not the player: shape, rate, codec. Playback state belongs to
+  // the HUD, so this panel never repeats it.
+  const media = local?.media ?? null;
+  const shape = media?.aspect ? aspectLabel(media.aspect) : null;
+  const videoRows: Array<[string, string | null]> = media
+    ? [
+        ["Resolution", media.width > 0 ? `${media.width} × ${media.height}` : null],
+        [
+          "Aspect",
+          media.aspect ? `${media.aspect.toFixed(2)}:1${shape ? ` · ${shape}` : ""}` : null,
+        ],
+        ["Frame rate", media.fps ? `${Number(media.fps.toFixed(3))} fps` : null],
+        ["Bitrate", media.bitrate ? bitrateLabel(media.bitrate) : null],
+        ["Codec", media.videoCodec ?? null],
+        ["HDR", media.hdr ?? null],
+      ]
+    : [];
 
   const sourceRows = useMemo<Array<[string, string | null]>>(
     () => [
-      ["Stream", playingSource?.title ?? playingSource?.name ?? null],
-      ["Quality", playingSource?.quality ?? null],
       ["Size", playingSource?.size ?? null],
       [
         "Cached",
@@ -2579,10 +2592,10 @@ export function PlayerView() {
                     </p>
                   ) : null}
                 </header>
-                <InfoGroup title="Source" rows={sourceRows} />
+                <InfoGroup title="Video" rows={videoRows} />
                 <InfoGroup title="Audio" rows={audioRows} />
                 <InfoGroup title="Subtitles" rows={subtitleRows} />
-                <InfoGroup title="Playback" rows={playbackRows} />
+                <InfoGroup title="Release" rows={sourceRows} />
               </div>
             </Overlay>
           ) : null}

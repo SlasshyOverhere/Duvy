@@ -140,7 +140,8 @@ The UI turns a stream row into a playable URL in this order:
    `duration`, `demuxer-cache-time`, `paused-for-cache`, `pause`, `volume`, `mute`, `speed`,
    `track-list`, `eof-reached`, `media-title` and related fields. The snapshot reports `started`
    only after the first frame, so the UI never uncovers a black surface, and `buffering` while
-   mpv waits for the network.
+   mpv waits for the network. On `file-loaded` and `video-reconfig` the snapshot also takes the
+   stream's own shape from `video-params`: resolution, aspect, frame rate, bitrate and codec.
 4. Property events update a shared snapshot. A ticker emits `player:tick` every 500ms and
    persists progress every 5s.
 5. At 92% the title is marked watched and the progress row is kept for the Watched list. Below
