@@ -1599,17 +1599,17 @@
   flex: 1;
 }
 
-/* Two pills: playback on the left, tracks and options on the right. */
+/* Two groups: playback on the left, tracks and options on the right. No panel
+   behind them: the buttons are the controls, not chips on a bar. */
 .pv .pv-pill {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
   flex: none;
-  padding: 4px;
-  border-radius: 999px;
-  background: var(--pv-wash), var(--pv-panel);
-  box-shadow: var(--pv-glass-shadow);
+  padding: 0;
+  background: none;
+  box-shadow: none;
 }
 
 /* Pill buttons follow the pill shape, so a hover fill meets the pill edge. */
