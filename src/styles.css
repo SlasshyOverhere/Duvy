@@ -1567,7 +1567,7 @@ button.pill:hover {
   --hero-bleed: 180px;
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-start;
   min-height: 85vh;
   margin: 0;
