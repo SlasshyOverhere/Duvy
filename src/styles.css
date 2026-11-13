@@ -1225,8 +1225,10 @@ button.pill:hover {
   transition: transform 0.5s ease-out;
 }
 
+/* Lift only on real pointer hover or keyboard focus, so a clicked card never
+   stays raised over its neighbours' captions. */
 .poster-card:hover,
-.poster-card:focus-within {
+.poster-card:has(:focus-visible) {
   transform: scale(1.05);
   z-index: 2;
 }
@@ -1273,11 +1275,14 @@ button.pill:hover {
 }
 
 /* Hover is tonal: the artwork dims and the card lifts, as on the target. */
-.poster-frame:focus-within::after {
+.poster-frame:has(:focus-visible)::after {
   box-shadow: inset 0 0 0 2px var(--text);
 }
 
+/* Absolute, so a tall source image can never stretch the frame past its ratio. */
 .poster-frame img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1285,7 +1290,7 @@ button.pill:hover {
 }
 
 .poster-frame:hover img,
-.poster-frame:focus-within img {
+.poster-frame:has(:focus-visible) img {
   filter: brightness(0.5);
 }
 
@@ -1305,7 +1310,7 @@ button.pill:hover {
 }
 
 .poster-frame:hover .poster-fallback,
-.poster-frame:focus-within .poster-fallback {
+.poster-frame:has(:focus-visible) .poster-fallback {
   opacity: 0.18;
   transition: opacity 0.3s ease-out;
 }
@@ -1332,7 +1337,7 @@ button.pill:hover {
 }
 
 .poster-frame:hover .poster-hover,
-.poster-frame:focus-within .poster-hover {
+.poster-frame:has(:focus-visible) .poster-hover {
   opacity: 1;
   transform: none;
 }
@@ -1782,8 +1787,8 @@ button.pill:hover {
 /* Dots sit in the corner the target places them, as a quiet row. */
 .hero-dots {
   position: absolute;
-  right: clamp(20px, 3vw, 40px);
-  bottom: clamp(20px, 3vw, 32px);
+  right: clamp(24px, 4.5vw, 64px);
+  bottom: clamp(32px, 14vh, 128px);
   z-index: 2;
   display: flex;
   align-items: center;
