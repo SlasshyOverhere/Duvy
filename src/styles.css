@@ -456,18 +456,15 @@ select {
   height: 40px;
 }
 
-/* The primary navigation floats right as a single translucent capsule. */
+/* The primary navigation rides the middle of the header, bare on the artwork. */
 .dock {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px;
-  margin-right: 24px;
-  border-radius: var(--pill);
-  background: rgba(14, 14, 16, 0.38);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  backdrop-filter: blur(20px) saturate(1.2);
+  gap: 4px;
 }
 
 .dock-item {
@@ -476,59 +473,22 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   height: 40px;
-  padding: 0 24px;
+  padding: 0 16px;
   border: 0;
-  border-radius: var(--pill);
+  border-radius: 10px;
   background: none;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 14px;
-  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 16px;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
   transition: color 0.16s var(--ease);
 }
 
-.dock-item:hover {
-  color: #ffffff;
-}
-
+.dock-item:hover,
 .dock-item.is-active {
-  color: #000000;
-  font-weight: 500;
-}
-
-.dock-item.is-icon {
-  width: 40px;
-  padding: 0;
-}
-
-.dock-item svg {
-  position: relative;
-  z-index: 1;
-  flex: none;
-}
-
-/* Icon actions sit apart from the labels, as on the dock this follows. */
-.dock-item.is-divider {
-  margin-left: 10px;
-}
-
-.dock-item.is-divider::before {
-  content: "";
-  position: absolute;
-  left: -6px;
-  top: 50%;
-  width: 1px;
-  height: 18px;
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.16);
-  pointer-events: none;
-}
-
-.dock-item.is-active svg {
-  color: #000000;
+  color: #ffffff;
 }
 
 /* The indicator is a single element shared between items, so motion slides it
@@ -537,8 +497,8 @@ select {
   position: absolute;
   inset: 0;
   z-index: 0;
-  border-radius: var(--pill);
-  background: #ffffff;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
   pointer-events: none;
 }
 
@@ -546,29 +506,18 @@ select {
   position: relative;
   z-index: 1;
   display: inline-block;
-  margin-left: 0;
   white-space: nowrap;
   line-height: 1;
 }
 
 @media (max-width: 780px) {
   .dock {
-    padding: 4px;
+    top: 18px;
   }
 
   .dock-item {
-    height: 40px;
-    padding: 0 14px;
+    padding: 0 12px;
     font-size: 14px;
-  }
-
-  .dock-item.is-icon {
-    width: 40px;
-    padding: 0;
-  }
-
-  .dock-label {
-    margin-left: 0;
   }
 }
 
@@ -5211,14 +5160,6 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 1rem;
   }
 
-  .dock {
-    top: 8px;
-  }
-
-  .dock-item {
-    padding: 0 12px;
-  }
-
   .hero {
     min-height: 460px;
   }
@@ -5327,7 +5268,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .dock {
-    top: calc(var(--nav-h) - 14px);
+    top: 58px;
   }
 
   .page {

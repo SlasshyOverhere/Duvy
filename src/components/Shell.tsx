@@ -2,13 +2,13 @@ import { useEffect } from "react";
 import { motion } from "motion/react";
 import { useApp, usePlayer, type Route } from "../lib/store";
 import { WindowControls } from "./TitleBar";
-import { Icon, IconButton, type IconName } from "./ui";
+import { Icon, IconButton } from "./ui";
 
-const DOCK: { route: Route; label: string; icon: IconName; iconOnly?: boolean; showIcon?: boolean }[] = [
-  { route: { name: "home" }, label: "Home", icon: "home", showIcon: true },
-  { route: { name: "library" }, label: "My List", icon: "library" },
-  { route: { name: "search" }, label: "Search", icon: "search", iconOnly: true },
-  { route: { name: "settings" }, label: "Settings", icon: "settings", iconOnly: true },
+const DOCK: { route: Route; label: string }[] = [
+  { route: { name: "home" }, label: "Home" },
+  { route: { name: "search" }, label: "Search" },
+  { route: { name: "library" }, label: "Library" },
+  { route: { name: "settings" }, label: "Settings" },
 ];
 
 // A title page keeps Home lit, and watched history lives inside Library.
@@ -75,25 +75,17 @@ export function TopBar() {
 
       <div className="topbar-right" data-tauri-drag-region>
         <nav className="dock" aria-label="Primary">
-          {DOCK.map((item, index) => {
+          {DOCK.map((item) => {
             const active = isActive(route, item.route);
-            const divider = Boolean(item.iconOnly) && !DOCK[index - 1]?.iconOnly;
             return (
               <button
                 key={item.label}
                 type="button"
-                className={`dock-item${active ? " is-active" : ""}${item.iconOnly ? " is-icon" : ""}${
-                  divider ? " is-divider" : ""
-                }`}
+                className={`dock-item${active ? " is-active" : ""}`}
                 onClick={() => navigate(item.route)}
                 aria-current={active ? "page" : undefined}
-                aria-label={item.iconOnly ? item.label : undefined}
-                title={item.label}
               >
-                {item.iconOnly || item.showIcon ? (
-                  <Icon name={item.icon} size={item.iconOnly ? 20 : 16} />
-                ) : null}
-                {item.iconOnly ? null : <span className="dock-label">{item.label}</span>}
+                <span className="dock-label">{item.label}</span>
                 {active ? (
                   <motion.span
                     layoutId="dock-pill"
