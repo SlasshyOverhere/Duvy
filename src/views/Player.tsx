@@ -2881,9 +2881,9 @@ export function PlayerView() {
       ) : null}
 
       {/* A paused frame is a still, so it says what the still is, and resumes
-          on the click that would have unpaused it anyway. It belongs to the
-          chrome: when the controls leave, the card goes with them. */}
-      {chrome && paused && !failed && !locked && !surface && !showNext && !local.ended ? (
+          on the click that would have unpaused it anyway. It outlives the
+          chrome: when the controls leave, the frame still names itself. */}
+      {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
         <button
           type="button"
           className={`pv-now${skipSegment ? " pv-now--above" : ""}`}

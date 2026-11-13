@@ -1853,6 +1853,17 @@
   bottom: 190px;
 }
 
+/* With the controls gone the card is the only thing left on the frame, so it
+   settles to the edge instead of hovering over empty space. */
+.pv:not(.pv--awake) .pv-now {
+  bottom: 2.25rem;
+  transition: bottom 0.24s ease;
+}
+
+.pv:not(.pv--awake) .pv-now--above {
+  bottom: 5.5rem;
+}
+
 .pv .pv-now-art {
   width: 5.4rem;
   aspect-ratio: 2 / 3;
