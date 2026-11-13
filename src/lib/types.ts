@@ -180,6 +180,8 @@ export interface Settings {
   bufferForwardUnit: string;
   bufferBackwardValue: number;
   bufferBackwardUnit: string;
+  streamThreads: number;
+  minBufferSecs: number;
   traktScrobble: boolean;
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;

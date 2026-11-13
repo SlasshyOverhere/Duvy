@@ -122,6 +122,8 @@ pub struct Player {
     final_saved: AtomicBool,
     /// Exactly what mpv was handed, so frame previews decode the same stream.
     source: String,
+    /// Loopback fan-out for remote sources; `None` when mpv reads them directly.
+    proxy: Option<crate::proxy::StreamProxy>,
     /// Stamped on every snapshot and event, so the UI can drop a dead player's.
     generation: u64,
 }
@@ -553,6 +555,24 @@ impl Player {
             &settings.buffer_backward_unit,
         );
         let start = request.start_at.unwrap_or(0.0);
+        let threads = settings.stream_threads.clamp(1, 16) as usize;
+        // mpv reads a source on one connection. Fanning the ranges out on
+        // loopback is what makes a per-connection-slow source playable.
+        let proxy = if threads > 1 && request.url.starts_with("http") {
+            crate::proxy::StreamProxy::start(&request.url, threads)
+        } else {
+            None
+        };
+        if proxy.is_some() {
+            crate::playback_log::mark(format!(
+                "reading the source over {threads} parallel connections"
+            ));
+        }
+        let playback_url = match &proxy {
+            Some(proxy) => proxy.url().to_string(),
+            None => request.url.clone(),
+        };
+        let min_buffer = settings.min_buffer_secs.clamp(1, 120);
 
         // Keep a log next to the database: when a stream refuses to play on a
         // user's machine this is the only window into mpv's decision making.
@@ -588,6 +608,13 @@ impl Player {
             if let Some(secs) = forward_secs {
                 let _ = init.set_option("cache-secs", secs.to_string());
             }
+            // mpv resumes after one second of cache, which on a slow source
+            // stalls again the moment playback restarts. Wait for a real
+            // cushion instead, including before the first frame and after a
+            // seek.
+            let _ = init.set_option("cache-pause", "yes");
+            let _ = init.set_option("cache-pause-wait", min_buffer.to_string());
+            let _ = init.set_option("cache-pause-initial", "yes");
             let _ = init.set_option("network-timeout", "20");
             let _ = init.set_option("alang", language_arg(&settings.audio_language));
             let _ = init.set_option("slang", language_arg(&settings.subtitle_language));
@@ -672,7 +699,7 @@ impl Player {
         }
 
         crate::playback_log::mark(format!("handing the URL to mpv (start at {start:.1}s)"));
-        mpv.command("loadfile", &[request.url.as_str(), "replace"])
+        mpv.command("loadfile", &[playback_url.as_str(), "replace"])
             .map_err(|error| format!("mpv refused the source: {error}"))?;
         mpv.set_property("pause", false)
             .map_err(|error| format!("mpv would not start playback: {error}"))?;
@@ -714,6 +741,7 @@ impl Player {
             session,
             final_saved: AtomicBool::new(false),
             source: request.url.clone(),
+            proxy,
             generation,
         })
     }
@@ -757,6 +785,8 @@ impl Player {
         self.save_final();
         self.stop.store(true, Ordering::Relaxed);
         let _ = self.mpv.command("quit", &[]);
+        // The fetch tasks go with it; mpv is already quitting.
+        self.proxy = None;
     }
 
     /// Commands are thread-safe on the handle, so no lock stands between the UI

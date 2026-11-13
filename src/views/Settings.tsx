@@ -818,6 +818,41 @@ export function SettingsView({ section }: { section?: string }) {
               </Card>
 
               <Card
+                title="Streaming"
+                description="How a remote source is read, and how much of it mpv keeps ahead before it plays."
+              >
+                <Row
+                  title="Parallel connections"
+                  description="Ranges fetched from the source at once. A source that is slow on one connection plays faster with more. 1 reads it directly."
+                  control={
+                    <Range
+                      label="Parallel connections"
+                      min={1}
+                      max={16}
+                      step={1}
+                      value={settings.streamThreads}
+                      onChange={(value) => update({ streamThreads: value })}
+                    />
+                  }
+                />
+                <Row
+                  title="Minimum buffer"
+                  description="Playback waits for this much media before it starts, after it stalls, and after a seek."
+                  control={
+                    <Range
+                      label="Minimum buffer"
+                      min={1}
+                      max={60}
+                      step={1}
+                      value={settings.minBufferSecs}
+                      suffix="s"
+                      onChange={(value) => update({ minBufferSecs: value })}
+                    />
+                  }
+                />
+              </Card>
+
+              <Card
                 title="Try the player"
                 description="Play a local video to confirm mpv, hardware decoding and progress tracking work."
               >

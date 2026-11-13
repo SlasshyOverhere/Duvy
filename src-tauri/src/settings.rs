@@ -43,6 +43,10 @@ pub struct Settings {
     /// How much past data to keep for seeking back. Same units as the forward buffer.
     pub buffer_backward_value: i64,
     pub buffer_backward_unit: String,
+    /// Ranges read at once from a remote source. 1 reads it on one connection.
+    pub stream_threads: i64,
+    /// Seconds of media to buffer before playback starts or resumes after a stall.
+    pub min_buffer_secs: i64,
     /// Send watched events to Trakt while playing.
     pub trakt_scrobble: bool,
     /// Look for a new release on launch and every few hours.
@@ -81,6 +85,8 @@ impl Default for Settings {
             buffer_forward_unit: "mb".into(),
             buffer_backward_value: 75,
             buffer_backward_unit: "mb".into(),
+            stream_threads: 8,
+            min_buffer_secs: 10,
             trakt_scrobble: true,
             auto_update_check: true,
             ignored_update_version: String::new(),
@@ -123,6 +129,8 @@ impl Settings {
         // Megabyte maths in the player multiplies these by up to 1024.
         self.buffer_forward_value = self.buffer_forward_value.clamp(1, 65_536);
         self.buffer_backward_value = self.buffer_backward_value.clamp(1, 65_536);
+        self.stream_threads = self.stream_threads.clamp(1, 16);
+        self.min_buffer_secs = self.min_buffer_secs.clamp(1, 120);
     }
 
     pub fn save(&self, conn: &Connection) -> Result<(), String> {

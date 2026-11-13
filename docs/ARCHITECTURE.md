@@ -133,8 +133,13 @@ The UI turns a stream row into a playable URL in this order:
 2. Rust drops any existing player (destroying the old libmpv handle), then opens a new one with
    `no-config`, `idle=yes`, `keep-open=no`, hardware decoding from settings, `vo=gpu-next`,
    `tone-mapping=bt.2390`, `cache=yes`, `demuxer-max-bytes` / `demuxer-max-back-bytes` from the
-   buffer settings, `sub-auto=fuzzy`, subtitle/audio language preferences, and `wid=<app window>`
+   buffer settings, `cache-pause-wait` from the minimum buffer setting,
+   `sub-auto=fuzzy`, subtitle/audio language preferences, and `wid=<app window>`
    on Windows. Logs go to the app data directory (`mpv.log`, `mpv-stderr.log`).
+   A remote source is not handed to mpv directly: `proxy.rs` serves it on loopback and fetches
+   several ranges at once, since mpv reads one connection and a source that is slow per
+   connection plays at exactly that speed. A source that refuses ranges, or that rate-limits the
+   parallel reads, is passed through on a single connection instead.
 3. The handle is opened with a short retry loop. `observe_property` covers `time-pos`,
    `duration`, `demuxer-cache-time`, `pause`, `volume`, `mute`, `speed`, `track-list`,
    `eof-reached`, `media-title` and related fields. The snapshot reports `started` only after the
