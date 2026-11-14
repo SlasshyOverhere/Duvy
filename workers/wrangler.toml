@@ -1,0 +1,3 @@
+name = "duvy-tmdb"
+main = "tmdb-proxy.js"
+compatibility_date = "2026-11-14"
