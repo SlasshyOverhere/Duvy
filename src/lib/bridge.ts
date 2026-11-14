@@ -152,6 +152,8 @@ export const api = {
     list: () => call<WatchedItem[]>("watched_list"),
     /** Every explicit mark for one title, per episode. `list` keeps one row per title. */
     marks: (metaId: string) => call<Array<[string, number]>>("watched_marks", { metaId }),
+    /** Every marked key, per episode. `list` keeps one row per title. */
+    keys: () => call<string[]>("watched_keys"),
   },
 
   window: {

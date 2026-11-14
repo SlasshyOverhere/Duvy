@@ -515,6 +515,10 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       return null;
     case "watched_marks":
       return [];
+    case "watched_keys":
+      return progress
+        .filter((entry) => entry.duration > 0 && entry.position >= entry.duration * 0.9)
+        .map((entry) => entry.key);
     case "cast_photos":
       return {};
     case "similar":

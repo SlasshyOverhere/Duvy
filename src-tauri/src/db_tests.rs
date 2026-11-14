@@ -571,6 +571,22 @@ fn watched_marks_keep_every_episode_of_a_show() {
 }
 
 #[test]
+fn watched_keys_keep_every_episode_of_a_show() {
+    let (conn, path) = temp_database();
+    db::set_watched(&conn, "tt91:1:1", "tt91", true).expect("first");
+    db::set_watched(&conn, "tt91:1:2", "tt91", true).expect("second");
+
+    // The per-title list keeps only the newest mark, which is how a show that
+    // finished E1 then E2 lost E1 and put the card back on E1.
+    assert_eq!(db::list_watched_items(&conn).unwrap().len(), 1);
+    let mut keys = db::all_watched_keys(&conn).expect("keys");
+    keys.sort();
+    assert_eq!(keys, vec!["tt91:1:1", "tt91:1:2"]);
+
+    cleanup(conn, path);
+}
+
+#[test]
 fn watched_marks_drop_an_episode_marked_unwatched() {
     let (conn, path) = temp_database();
     db::set_watched(&conn, "tt90:1:1", "tt90", true).expect("mark");

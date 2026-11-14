@@ -636,6 +636,14 @@ pub fn list_watched_marks(
     rows.collect()
 }
 
+/// Every explicit mark, per episode. `list_watched_items` collapses to one row
+/// per title, which hides the earlier finished episodes of a show.
+pub fn all_watched_keys(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT key FROM watched WHERE watched = 1")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
 fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
