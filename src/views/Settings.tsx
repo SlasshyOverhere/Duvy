@@ -836,12 +836,12 @@ export function SettingsView({ section }: { section?: string }) {
               >
                 <div className="field-row settings-path">
                   <label className="field">
-                    <span>API key</span>
+                    <span>API key (optional)</span>
                     <input
                       value={tmdbKey}
                       onChange={(event) => setTmdbKey(event.target.value)}
-                      placeholder="TMDB v3 API key"
-                      aria-label="TMDB API key"
+                      placeholder="Leave blank to use the built-in catalog"
+                      aria-label="TMDB API key, optional"
                       autoComplete="off"
                       spellCheck={false}
                     />
