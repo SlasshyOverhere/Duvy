@@ -1969,6 +1969,16 @@
   color: #fff;
   text-align: left;
   cursor: pointer;
+  animation: pv-now-in 0.26s var(--ease) both;
+  /* Settles both ways, so the card glides when the chrome comes and goes. */
+  transition: bottom 0.24s var(--ease);
+}
+
+@keyframes pv-now-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
 }
 
 /* Enough shade for the type on a white frame, and nothing you can trace. */
@@ -1995,7 +2005,6 @@
    settles to the edge instead of hovering over empty space. */
 .pv:not(.pv--awake) .pv-now {
   bottom: 2.25rem;
-  transition: bottom 0.24s ease;
 }
 
 .pv:not(.pv--awake) .pv-now--above {
