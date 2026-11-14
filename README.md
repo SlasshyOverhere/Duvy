@@ -101,9 +101,10 @@ address visible to the swarm. Debrid accounts have their own terms.
 ## Privacy and local data
 
 - Everything is stored locally in one SQLite file. Release builds send anonymous usage counts to
-  PostHog (launches and playbacks: media type, minutes watched, finished or not, plus a random
-  install id). Never a title, an account or a link. The switch is in Settings, Privacy, and a
-  build without a key counts nothing. Crash reports are opt-in and off by default.
+  PostHog: launches, playbacks (media type, seconds watched, finished or not), library and addon
+  counts, and how many requests each backend host answered, plus a random install id. Never a
+  title, an account, a link or a request path. The switch is in Settings, Privacy, and a build
+  without a key counts nothing. Crash reports are opt-in and off by default.
 - Credentials are encrypted with Windows DPAPI for the current user before they are written, so a
   copied database cannot be read by another Windows account or machine.
 - Network requests go to the addons and services you configure, plus IntroDB for skip markers,

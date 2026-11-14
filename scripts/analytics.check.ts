@@ -19,7 +19,9 @@ const store = new Map<string, string>();
   return Promise.resolve({ ok: true });
 };
 
-const { analyticsAvailable, applyAnalytics, track } = await import("../src/lib/analytics.ts");
+const { analyticsAvailable, applyAnalytics, track, trackRequests } = await import(
+  "../src/lib/analytics.ts"
+);
 
 const checks: Array<{ name: string; fn: () => string[] }> = [];
 const check = (name: string, fn: () => string[]) => checks.push({ name, fn });
@@ -59,10 +61,31 @@ check("the install id is stable across events", () => {
   return bad;
 });
 
+check("outbound traffic is one event per host", () => {
+  sent.length = 0;
+  applyAnalytics(true, "0.1.14");
+  trackRequests({ "v3-cinemeta.strem.io": 12, "duvy-tmdb.slasshy02.workers.dev": 3 });
+  const bad: string[] = [];
+  if (sent.length !== 2) return [`${sent.length} events, want one per host`];
+  const hosts = sent.map((item) => (item.body.properties as any).host);
+  if (!hosts.includes("v3-cinemeta.strem.io")) bad.push("the addon host was lost");
+  if (!hosts.includes("duvy-tmdb.slasshy02.workers.dev")) bad.push("the worker host was lost");
+  const count = (sent[0].body.properties as any).count;
+  if (count !== 12) bad.push(`count ${count}, want 12`);
+  return bad;
+});
+
+check("a host with no requests sends nothing", () => {
+  sent.length = 0;
+  trackRequests({ "example.com": 0 });
+  return sent.length ? ["an empty host was sent"] : [];
+});
+
 check("the switch stops everything", () => {
   sent.length = 0;
   applyAnalytics(false);
   track("app_open");
+  trackRequests({ "v3-cinemeta.strem.io": 4 });
   return sent.length ? [`${sent.length} events escaped the off switch`] : [];
 });
 

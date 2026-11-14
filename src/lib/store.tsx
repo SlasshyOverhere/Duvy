@@ -21,7 +21,7 @@ import {
   type Sample,
 } from "./playback-watch";
 import { note, report } from "./telemetry";
-import { applyAnalytics, track } from "./analytics";
+import { applyAnalytics, track, trackRequests } from "./analytics";
 import type {
   AddonInfo,
   AppInfo,
@@ -460,6 +460,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   // One open per launch, however often settings are written.
   const countedOpen = useRef(false);
+  // Seconds actually played this session, and the playhead they were counted to.
+  const watchedSeconds = useRef(0);
+  const playedTo = useRef(0);
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -694,8 +697,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     applyAnalytics(settings.analytics, appInfo?.version);
     if (countedOpen.current || !settings.analytics || !appInfo) return;
     countedOpen.current = true;
-    track("app_open", { onboarded: settings.onboarded });
-  }, [settings, appInfo]);
+    // Counts only: how much is in the library, not what is in it.
+    track("app_open", {
+      onboarded: settings.onboarded,
+      library: library.length,
+      addons: addons.filter((item) => item.enabled).length,
+      in_progress: progress.length,
+      movies: library.filter((item) => item.type === "movie").length,
+      series: library.filter((item) => item.type === "series").length,
+    });
+  }, [settings, appInfo, library, addons, progress]);
+
+  // Outbound traffic per host. Hosts only: no path or query, so a debrid token
+  // or a stream link can never ride along. Reading the counts clears them.
+  useEffect(() => {
+    if (!isTauri() || !settings?.analytics) return;
+    let alive = true;
+    const report = async () => {
+      const hosts = await api.netStats().catch(() => null);
+      if (alive && hosts) trackRequests(hosts);
+    };
+    const timer = window.setInterval(() => void report(), 15 * 60_000);
+    // One early read, so a short session still reports the traffic it caused.
+    const first = window.setTimeout(() => void report(), 120_000);
+    // A closing window would otherwise lose the traffic since the last tick.
+    const flush = () => void report();
+    window.addEventListener("pagehide", flush);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.clearTimeout(first);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [settings?.analytics]);
 
   // Keep Stremio and Nuvio in step with the phone and the official apps: once
   // on launch, then every few minutes while this app stays open.
@@ -822,6 +856,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               });
             }
             playerRef.current = snap;
+            // Real watch time: a forward step of a tick or two, never a seek.
+            if (snap.playing && !snap.paused) {
+              const step = snap.position - playedTo.current;
+              if (step > 0 && step <= 5) watchedSeconds.current += step;
+            }
+            playedTo.current = snap.position;
             if (snap.session?.key) {
               lastTick.current = {
                 key: snap.session.key,
@@ -871,10 +911,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               track("playback_end", {
                 seconds: Math.round(last.position),
                 duration: Math.round(last.duration),
+                watched: Math.round(watchedSeconds.current),
                 completed: last.ended || share >= 0.9,
                 media: last.kind,
               });
             }
+            watchedSeconds.current = 0;
+            playedTo.current = 0;
             if (settings?.trackProgress && last && last.position > 60 && !last.ended) {
               // The ticker writes the playhead itself; a missing row or a stale
               // one is lost progress, which looks like "it forgot where I was".
@@ -1157,6 +1200,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         playerRef.current = snapshot;
         watch.current = createWatch(Date.now());
         lastTick.current = null;
+        watchedSeconds.current = 0;
+        playedTo.current = 0;
         openedAt.current = Date.now();
         firstFrame.current = false;
         stopRequested.current = false;

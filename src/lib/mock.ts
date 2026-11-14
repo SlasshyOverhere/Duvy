@@ -399,6 +399,10 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         dataDir: "~/Duvy",
       } satisfies AppInfo;
 
+    // The preview makes no outbound requests of its own.
+    case "net_stats":
+      return {};
+
     case "settings_get":
       return settings;
     case "settings_set":

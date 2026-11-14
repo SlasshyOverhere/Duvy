@@ -88,6 +88,7 @@ async fn fetch_json_within(
     cap: Option<std::time::Duration>,
 ) -> Result<Value, String> {
     validate_target(url)?;
+    crate::note_request(url);
     let mut request = client.get(url).header("accept", "application/json");
     if let Some(cap) = cap {
         request = request.timeout(cap);
@@ -315,6 +316,16 @@ async fn addon_meta(
 #[tauri::command]
 pub fn playback_log(lines: Option<usize>) -> Vec<String> {
     crate::playback_log::recent(lines.unwrap_or(200).min(400))
+}
+
+/// Requests made per host since the last read, then cleared: the caller
+/// reports them and asks again later.
+#[tauri::command]
+pub fn net_stats() -> std::collections::HashMap<String, u32> {
+    match crate::NET_STATS.lock() {
+        Ok(mut stats) => std::mem::take(&mut *stats),
+        Err(_) => Default::default(),
+    }
 }
 
 #[tauri::command]

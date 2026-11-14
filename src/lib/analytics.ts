@@ -1,16 +1,18 @@
-import { isTauri } from "./bridge";
-
 /**
- * Anonymous usage counts: opens, playbacks and how much was watched. Never a
- * title, an account or a link. Off unless the build carries a key, and off
- * again the moment the user says so in Settings, Privacy.
+ * Anonymous usage counts: opens, playbacks, watch time and the backend
+ * traffic the app causes. Never a title, an account or a link. Off unless the
+ * build carries a key, and off again the moment the user says so.
  */
 const KEY = (import.meta.env.VITE_POSTHOG_KEY ?? "").trim();
 const HOST = (import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com").replace(/\/+$/, "");
 const INSTALL_KEY = "duvy:install";
 
+// Inlined rather than imported from bridge: bridge is a lower layer and the
+// import would be a cycle.
+const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 /** A key is what turns counting on; dev builds tag their events and still send. */
-export const analyticsAvailable = Boolean(KEY && isTauri());
+export const analyticsAvailable = Boolean(KEY && inTauri);
 const ENVIRONMENT = import.meta.env.PROD ? "production" : "development";
 
 type Props = Record<string, string | number | boolean>;
@@ -37,6 +39,13 @@ function installId(): string {
 export function applyAnalytics(on: boolean, appVersion?: string): void {
   enabled = analyticsAvailable && on;
   if (appVersion) version = appVersion;
+}
+
+/** One event per host, so PostHog can break requests down by host natively. */
+export function trackRequests(hosts: Record<string, number>): void {
+  for (const [host, count] of Object.entries(hosts)) {
+    if (count > 0) track("net_requests", { host, count });
+  }
 }
 
 export function track(event: string, props: Props = {}): void {

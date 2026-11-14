@@ -533,6 +533,24 @@ where
     .map_err(|e| e.to_string())?
 }
 
+/// Outbound requests per host since the last read, so the app can report the
+/// traffic it causes without logging a URL anywhere.
+pub static NET_STATS: std::sync::LazyLock<Mutex<std::collections::HashMap<String, u32>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Count one request against its host. Unparseable URLs are skipped.
+pub fn note_request(url: &str) {
+    let Some(host) = url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_string))
+    else {
+        return;
+    };
+    if let Ok(mut stats) = NET_STATS.lock() {
+        *stats.entry(host).or_insert(0) += 1;
+    }
+}
+
 /// One client for every outbound request: the same user agent Cinemeta expects,
 /// and timeouts short enough that a dead host cannot hold a screen hostage.
 pub fn http_client() -> reqwest::Client {
@@ -641,6 +659,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::net_stats,
             commands::playback_log,
             commands::settings_get,
             commands::settings_set,

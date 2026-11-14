@@ -47,8 +47,10 @@ Out of scope:
 - The torrent HTTP endpoint binds to `127.0.0.1` on a random port.
 - Update bundles are signature-verified before install.
 - Usage counts are anonymous and limited to launches and playback shape: media type, seconds
-  watched, finished or not, app version and a random install id. No title, account, link or
-  content id. On by default in release builds, with the switch in Settings, Privacy, and nothing
-  sent from a build without a PostHog key. Crash reports are opt-in, off by default, capped per
+  watched, finished or not, library and addon counts, the host name of each backend request (never
+  its path or query, so a debrid token or stream link cannot ride along), app version and a random
+  install id. No title, account, link or content id. On by default in release builds, with the
+  switch in Settings, Privacy, and nothing sent from a build without a PostHog key. Crash reports
+  are opt-in, off by default, capped per
   session and scrubbed of links, credentials, magnets and account names. Only a release build with
   a configured Sentry DSN can send one; local builds and switched-off installs send nothing.
