@@ -257,9 +257,13 @@ run("continue watching compares exact episode keys", () => {
 run("continue watching advances a finished episode", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
-  // A finished episode must resolve its next one, not vanish from the row.
-  if (!/nextUpCache/.test(home) || !/queue\[at \+ 1\]/.test(home)) {
+  // A finished episode must resolve its next one, not vanish from the row, and
+  // an episode already marked watched must be skipped.
+  if (!/nextUpCache/.test(home) || !/queue\.slice\(at \+ 1\)/.test(home)) {
     out.push("Home.tsx drops a finished episode instead of resolving the next one");
+  }
+  if (!/!marked\.has\(`\$\{row\.metaId\}:\$\{season\}:\$\{episode\}`\)/.test(home)) {
+    out.push("Home.tsx offers an already watched episode as next up");
   }
   if (!/next=\{next\}/.test(home)) {
     out.push("Home.tsx never marks a resolved next episode as next up");

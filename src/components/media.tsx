@@ -329,7 +329,7 @@ export function ContinueCard({
   next?: boolean;
   onOpen: () => void;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [still, setStill] = useState(background ?? poster ?? null);
   const [gone, setGone] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
@@ -395,13 +395,14 @@ export function ContinueCard({
         }}
         style={{ background: placeholderGradient(name) } as CSSProperties}
       >
-        {(background || poster) && !failed ? (
+        {still ? (
           <img
-            src={background ?? poster ?? ""}
+            src={still}
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setFailed(true)}
+            // A dead still falls back to the poster, then to the gradient.
+            onError={() => setStill(still === poster ? null : (poster ?? null))}
           />
         ) : null}
         <span className="continue-veil" />

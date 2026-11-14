@@ -11,13 +11,14 @@ const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
 let feedSig = "";
 
-/** Next episode after a finished one, or null when the show is over. */
-const nextUpCache = new Map<string, ProgressItem | null>();
+/** Next episode after a finished one, or null when the show is over. The sig is
+ *  the title's newest mark, so a fresh mark re-resolves its next up. */
+const nextUpCache = new Map<string, { sig: string; entry: ProgressItem | null }>();
 
-function cachedNextUp(): Map<string, ProgressItem> {
+function cachedNextUp(sigOf: (metaId: string) => string): Map<string, ProgressItem> {
   const map = new Map<string, ProgressItem>();
-  for (const [key, entry] of nextUpCache) {
-    if (entry) map.set(key, entry);
+  for (const [key, { sig, entry }] of nextUpCache) {
+    if (entry && sig === sigOf(entry.metaId)) map.set(key, entry);
   }
   return map;
 }
@@ -94,7 +95,15 @@ export function HomeView() {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [slide, setSlide] = useState(0);
-  const [nextUp, setNextUp] = useState<Map<string, ProgressItem>>(cachedNextUp);
+
+  // Newest mark per title: marking an episode has to re-resolve its next up.
+  const markSig = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const mark of watched) map.set(mark.metaId, `${mark.key}:${mark.watchedAt}`);
+    return map;
+  }, [watched]);
+  const sigOf = useCallback((metaId: string) => markSig.get(metaId) ?? "", [markSig]);
+  const [nextUp, setNextUp] = useState<Map<string, ProgressItem>>(() => cachedNextUp(sigOf));
 
   useEffect(() => {
     if (attempt === 0 && fresh) {
@@ -179,17 +188,18 @@ export function HomeView() {
   }, [latestRows, watched, nextUp]);
 
   // A finished episode needs the next one from the catalog; it is not in the
-  // progress row. Cache per episode so a refresh never refetches a known title.
+  // progress row. Cache per episode so a refresh never refetches a known title,
+  // keyed by the title's marks so a new mark re-resolves the card.
   useEffect(() => {
-    const finishedKeys = new Set(watched.map((mark) => mark.key));
+    const marked = new Set(watched.map((mark) => mark.key));
     const pending = latestRows.filter(
       (row) =>
         row.type === "series" &&
-        (finishedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90) &&
-        !nextUpCache.has(row.key),
+        (marked.has(row.key) || progressPercent(row.position, row.duration) >= 90) &&
+        nextUpCache.get(row.key)?.sig !== sigOf(row.metaId),
     );
     if (pending.length === 0) {
-      setNextUp(cachedNextUp());
+      setNextUp(cachedNextUp(sigOf));
       return;
     }
     let alive = true;
@@ -206,37 +216,46 @@ export function HomeView() {
             video.season === row.season &&
             (video.episode ?? video.number) === row.episode,
         );
-        const video = at >= 0 ? queue[at + 1] : undefined;
+        // An episode already marked watched is behind the viewer, not next up.
+        const after = at < 0 || marked.has(row.metaId) ? [] : queue.slice(at + 1);
+        const video = after.find((candidate) => {
+          const season = candidate.season;
+          const episode = candidate.episode ?? candidate.number;
+          return (
+            season != null && episode != null && !marked.has(`${row.metaId}:${season}:${episode}`)
+          );
+        });
         const season = video?.season ?? null;
         const episode = video ? (video.episode ?? video.number ?? null) : null;
-        nextUpCache.set(
-          row.key,
-          video && season != null && episode != null
-            ? {
-                key: `${row.metaId}:${season}:${episode}`,
-                metaId: row.metaId,
-                type: row.type,
-                name: row.name,
-                poster: row.poster,
-                background: video.thumbnail ?? row.background ?? row.poster,
-                season,
-                episode,
-                episodeTitle: video.title ?? null,
-                position: 0,
-                duration: 0,
-                updatedAt: row.updatedAt,
-              }
-            : null,
-        );
+        nextUpCache.set(row.key, {
+          sig: sigOf(row.metaId),
+          entry:
+            video && season != null && episode != null
+              ? {
+                  key: `${row.metaId}:${season}:${episode}`,
+                  metaId: row.metaId,
+                  type: row.type,
+                  name: row.name,
+                  poster: row.poster,
+                  background: video.thumbnail ?? row.background ?? row.poster,
+                  season,
+                  episode,
+                  episodeTitle: video.title ?? null,
+                  position: 0,
+                  duration: 0,
+                  updatedAt: row.updatedAt,
+                }
+              : null,
+        });
       }),
     ).then(() => {
       if (!alive) return;
-      setNextUp(cachedNextUp());
+      setNextUp(cachedNextUp(sigOf));
     });
     return () => {
       alive = false;
     };
-  }, [latestRows, watched]);
+  }, [latestRows, watched, sigOf]);
 
   // One map for the card progress bars, so a row of cards costs no scans.
   const resumeProgress = useMemo(() => {
