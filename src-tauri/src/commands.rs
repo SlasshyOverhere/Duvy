@@ -6,7 +6,7 @@ use crate::addons::{
 };
 use crate::db::{self, LibraryItem, ProgressItem, StoredAddon};
 use crate::models::{
-    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, SubtitleTrack,
+    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, ParentalWarning, SubtitleTrack,
 };
 use crate::player::{self, PlayRequest, Player, Snapshot};
 use crate::settings::Settings;
@@ -1339,6 +1339,16 @@ pub async fn subtitles(
     // Same budget as the home rows: a dead addon cannot hold the picker open.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(10), drain).await;
     Ok(tracks)
+}
+
+/// IMDb's parents guide, as the player's content-warning card shows it.
+/// Any failure is an empty list: no card, nothing to explain.
+#[tauri::command]
+pub async fn parental_guide(
+    imdb_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ParentalWarning>, String> {
+    Ok(crate::parental::guide(&state.http, &imdb_id).await)
 }
 
 // ---------------------------------------------------------------------------

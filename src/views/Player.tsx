@@ -22,6 +22,7 @@ import {
 import { rememberedLogo } from "../lib/art";
 import type {
   Details,
+  ParentalEntry,
   PlayerSnapshot,
   ProgressItem,
   StreamOption,
@@ -68,6 +69,41 @@ import {
   magnetFor,
   useReturnFocus,
 } from "../components/player/hud";
+
+const GUIDE_LABELS: Record<ParentalEntry["category"], string> = {
+  nudity: "Sex & nudity",
+  violence: "Violence & gore",
+  profanity: "Profanity",
+  alcohol: "Alcohol & drugs",
+  frightening: "Frightening",
+};
+
+/** IMDb's parents guide, shown once as the picture starts. */
+function ParentalGuide({ warnings, onClose }: { warnings: ParentalEntry[]; onClose: () => void }) {
+  return (
+    <aside className="pv-guide" aria-label="Parents guide">
+      <header className="pv-guide-head">
+        <span>Parents guide</span>
+        <button
+          type="button"
+          className="pv-guide-close"
+          onClick={onClose}
+          aria-label="Dismiss parents guide"
+        >
+          <Icon name="x" size={14} />
+        </button>
+      </header>
+      <ul className="pv-guide-list">
+        {warnings.map((warning) => (
+          <li key={warning.category} className="pv-guide-row" data-severity={warning.severity}>
+            <span className="pv-guide-label">{GUIDE_LABELS[warning.category]}</span>
+            <span className="pv-guide-severity">{warning.severity}</span>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
 
 function Overlay({
   label,
@@ -1174,6 +1210,24 @@ export function PlayerView() {
     };
   }, [session?.metaId, session?.type]);
 
+  // The guide is per title, so one fetch serves every episode of it.
+  const [guide, setGuide] = useState<ParentalEntry[]>([]);
+  const [guideSeen, setGuideSeen] = useState(false);
+  const guideId = details?.imdbId ?? session?.metaId ?? null;
+  useEffect(() => {
+    if (!guideId) return;
+    let alive = true;
+    api
+      .parentalGuide(guideId)
+      .then((rows) => {
+        if (alive) setGuide(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [guideId]);
+
   const queue = useMemo<Video[]>(() => {
     if (!details || details.type !== "series") return [];
     return [...details.videos].sort(
@@ -1216,6 +1270,13 @@ export function PlayerView() {
   // A live stream never reports a duration, so only silence before the first
   // frame counts as loading.
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
+  // Once the picture is up, the card has its say and then gets out of the way.
+  const guideOn = guide.length > 0 && !guideSeen && !loading && !failed && Boolean(local);
+  useEffect(() => {
+    if (!guideOn) return;
+    const timer = window.setTimeout(() => setGuideSeen(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [guideOn]);
   // A zero level is silent too, so the icon and label must agree with it.
   const silent = muted || volLevel === 0;
   const audioTracks = local?.audioTracks ?? [];
@@ -1785,7 +1846,8 @@ export function PlayerView() {
   // Keep the close controls on screen while a source is opening or has failed.
   // Paused is not in here: a paused frame is still a frame, and the chrome has
   // to be able to leave the picture alone until the pointer asks for it again.
-  const holdChrome = Boolean(loading || failed || local?.ended || surface || showNext);
+  // The guide is part of the opening moment, so the chrome stays up with it.
+  const holdChrome = Boolean(loading || failed || local?.ended || surface || showNext || guideOn);
 
   // The HUD only needs a countdown while it is on screen, and the poll only
   // runs then: a hidden HUD asking every 100ms is a wakeup for nothing.
@@ -2497,6 +2559,11 @@ export function PlayerView() {
             <WindowControls variant="player" />
           </div>
         </header>
+      ) : null}
+
+      {/* A panel or the lock owns the frame; the card waits for neither. */}
+      {guideOn && !locked && !surface ? (
+        <ParentalGuide warnings={guide} onClose={() => setGuideSeen(true)} />
       ) : null}
 
       {failed && surface === null ? (

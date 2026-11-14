@@ -1405,6 +1405,108 @@
 
 /* Geometry and hover come from the shared .win-btn, same as the header. */
 
+/* ---- parents guide ------------------------------------------------------ */
+
+/* Nuvio's content warning: the IMDb parents guide, once, as playback starts.
+   It sits under the title bar, so the title and the back button keep their
+   place while the card is up. */
+.pv .pv-guide {
+  position: absolute;
+  top: 96px;
+  left: 24px;
+  z-index: 3;
+  width: min(16rem, calc(100vw - 3rem));
+  padding: 10px 12px 11px;
+  border-radius: 12px;
+  background: var(--pv-panel-2);
+  box-shadow: var(--pv-glass-shadow);
+  animation: pv-rise 0.24s var(--ease);
+}
+
+.pv .pv-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pv-muted);
+}
+
+.pv .pv-guide-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--pv-faint);
+  cursor: pointer;
+}
+
+.pv .pv-guide-close:hover {
+  background: var(--pv-control-hover);
+  color: #fff;
+}
+
+.pv .pv-guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv .pv-guide-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+/* The dot carries the severity; the word repeats it for anyone who cannot
+   read the colour. */
+.pv .pv-guide-row::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--guide-tone, var(--pv-faint));
+}
+
+.pv .pv-guide-row[data-severity="severe"] {
+  --guide-tone: #e5484d;
+}
+
+.pv .pv-guide-row[data-severity="moderate"] {
+  --guide-tone: #f0a53a;
+}
+
+.pv .pv-guide-row[data-severity="mild"] {
+  --guide-tone: #e3c46a;
+}
+
+.pv .pv-guide-label {
+  flex: 1;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.pv .pv-guide-severity {
+  flex: none;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+  color: var(--guide-tone, var(--pv-muted));
+}
+
 /* ---- seek row ----------------------------------------------------------- */
 
 .pv .pv-timeline {

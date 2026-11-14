@@ -14,6 +14,7 @@ import type {
   NuvioProfile,
   NuvioStatus,
   NuvioSyncReport,
+  ParentalEntry,
   PlayRequest,
   PlayerSnapshot,
   ProgressItem,
@@ -134,6 +135,9 @@ export const api = {
     season?: number | null;
     episode?: number | null;
   }) => call<SubtitleTrack[]>("subtitles", args),
+  /** IMDb parents guide, worst category first. Empty means nothing to warn about. */
+  parentalGuide: (imdbId: string) =>
+    call<ParentalEntry[]>("parental_guide", { imdbId }),
 
   library: {
     list: () => call<LibraryItem[]>("library_list"),

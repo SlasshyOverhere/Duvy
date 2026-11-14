@@ -14,6 +14,7 @@ import type {
   HomeRow,
   LibraryItem,
   MetaPreview,
+  ParentalEntry,
   PlayerSnapshot,
   ProgressItem,
   Settings,
@@ -475,6 +476,13 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
 
     case "meta_details":
       return detailsFor(String(payload.id));
+
+    case "parental_guide":
+      return [
+        { category: "violence", severity: "severe" },
+        { category: "profanity", severity: "moderate" },
+        { category: "nudity", severity: "mild" },
+      ] satisfies ParentalEntry[];
 
     case "streams": {
       const rows = streamsFor(String(payload.id));
