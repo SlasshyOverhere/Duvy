@@ -2529,6 +2529,8 @@ export function PlayerView() {
         const target = event.target as Element;
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
+        // The card is a surface of its own, not a hole onto the picture.
+        if (target.closest(".pv-upnext")) return;
         if (surface) return;
         // The click wakes the chrome directly: bump()'s throttle could swallow
         // it and leave a paused frame with nothing to resume from.
