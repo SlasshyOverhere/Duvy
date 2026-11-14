@@ -1768,20 +1768,24 @@ button.pill:hover {
   width: 20px;
   height: 20px;
   padding: 0;
-  display: grid;
-  place-items: center;
   border: 0;
   background: none;
   cursor: pointer;
 }
 
+/* Track and fill are both pinned to the dot's centre, so they can never drift
+   apart when the active pill widens past the 20px button. */
 .hero-dot::before {
   content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 8px;
   height: 8px;
+  margin: -4px 0 0 -4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.38);
-  transition: width 0.28s var(--ease), background-color 0.2s var(--ease);
+  transition: background-color 0.2s var(--ease);
 }
 
 .hero-dot:hover::before {
@@ -1791,17 +1795,18 @@ button.pill:hover {
 /* The active dot is the track the slide's clock runs in. */
 .hero-dot.is-active::before {
   width: 28px;
+  margin-left: -14px;
   background: rgba(255, 255, 255, 0.3);
 }
 
 .hero-dot.is-active::after {
   content: "";
   position: absolute;
-  left: calc(50% - 14px);
+  left: 50%;
   top: 50%;
   width: 0;
   height: 8px;
-  margin-top: -4px;
+  margin: -4px 0 0 -14px;
   border-radius: 999px;
   background: #ffffff;
   animation: hero-dot-fill var(--hero-slide, 9000ms) linear forwards;
