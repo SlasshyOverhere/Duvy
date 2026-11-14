@@ -97,7 +97,6 @@ function ParentalGuide({
         if (leaving && event.target === event.currentTarget) onGone();
       }}
     >
-      <p className="pv-guide-head">Parents guide</p>
       <ul className="pv-guide-list">
         {warnings.map((warning, index) => (
           <li
@@ -107,7 +106,10 @@ function ParentalGuide({
             style={{ "--row": index } as CSSProperties}
           >
             <span className="pv-guide-label">{GUIDE_LABELS[warning.category]}</span>
-            <span className="pv-guide-severity">{warning.severity}</span>
+            {/* A clean category keeps its line but says nothing. */}
+            {warning.severity === "none" ? null : (
+              <span className="pv-guide-severity">{warning.severity}</span>
+            )}
           </li>
         ))}
       </ul>

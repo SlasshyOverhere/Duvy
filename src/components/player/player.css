@@ -1426,15 +1426,6 @@
   animation: pv-guide-in 0.5s var(--ease) both;
 }
 
-.pv .pv-guide-head {
-  margin: 0 0 9px;
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.62);
-}
-
 .pv .pv-guide-list {
   display: flex;
   flex-direction: column;
@@ -1465,7 +1456,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--guide-tone, var(--pv-faint));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-tone, #fff) 22%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-tone, transparent) 22%, transparent);
 }
 
 .pv .pv-guide-row[data-severity="severe"] {
@@ -1478,6 +1469,17 @@
 
 .pv .pv-guide-row[data-severity="mild"] {
   --guide-tone: #e3c46a;
+}
+
+/* A clean category keeps its line so nothing looks omitted, but it recedes:
+   a hollow dot and a muted label, no severity word. */
+.pv .pv-guide-row[data-severity="none"]::before {
+  background: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34);
+}
+
+.pv .pv-guide-row[data-severity="none"] .pv-guide-label {
+  color: rgba(255, 255, 255, 0.42);
 }
 
 .pv .pv-guide-label {

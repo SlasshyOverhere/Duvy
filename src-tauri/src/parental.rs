@@ -31,36 +31,53 @@ fn category(id: &str) -> Option<&'static str> {
     })
 }
 
-/// Severe first: the worst thing in the title is what the card leads with.
+/// Severe first; a clean category sorts last so it never leads the card.
 fn rank(severity: &str) -> usize {
     match severity.to_ascii_lowercase().as_str() {
         "severe" => 0,
         "moderate" => 1,
-        _ => 2,
+        "mild" => 2,
+        _ => 3,
     }
 }
 
+/// The five categories in the order the card lists them when nothing is severe.
+const ORDER: [&str; 5] = ["violence", "profanity", "nudity", "alcohol", "frightening"];
+
 fn parse(value: &Value) -> Vec<ParentalWarning> {
-    let mut warnings: Vec<ParentalWarning> = value
+    let Some(list) = value
         .pointer("/data/title/parentsGuide/categories")
         .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|entry| {
-                    let id = entry.pointer("/category/id").and_then(Value::as_str)?;
-                    let severity = entry.pointer("/severity/text").and_then(Value::as_str)?;
-                    // "None" is a category IMDb found nothing in, not a warning.
-                    if severity.eq_ignore_ascii_case("none") {
-                        return None;
-                    }
-                    Some(ParentalWarning {
-                        category: category(id)?.to_string(),
-                        severity: severity.to_ascii_lowercase(),
-                    })
-                })
-                .collect()
+    else {
+        return Vec::new();
+    };
+    let mut found: HashMap<&'static str, String> = HashMap::new();
+    for entry in list {
+        let Some(id) = entry.pointer("/category/id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(name) = category(id) else {
+            continue;
+        };
+        // "None" is a category IMDb found nothing in: it still gets a row.
+        let severity = entry
+            .pointer("/severity/text")
+            .and_then(Value::as_str)
+            .unwrap_or("none")
+            .to_ascii_lowercase();
+        found.insert(name, severity);
+    }
+    // No guide at all means no card, not five empty rows.
+    if found.is_empty() {
+        return Vec::new();
+    }
+    let mut warnings: Vec<ParentalWarning> = ORDER
+        .iter()
+        .map(|name| ParentalWarning {
+            category: (*name).to_string(),
+            severity: found.get(name).cloned().unwrap_or_else(|| "none".to_string()),
         })
-        .unwrap_or_default();
+        .collect();
     warnings.sort_by_key(|warning| rank(&warning.severity));
     warnings
 }
@@ -128,9 +145,17 @@ mod tests {
             { "category": { "id": "SPOILERS" }, "severity": { "text": "Mild" } }
         ] } } } });
         let warnings = parse(&value);
-        assert_eq!(warnings.len(), 2);
+        // Every category keeps a line, so a clean one reads as clean rather
+        // than silently missing.
+        assert_eq!(warnings.len(), 5);
         assert_eq!(warnings[0].category, "profanity");
-        assert_eq!(warnings[1].severity, "mild");
+        assert_eq!(warnings[0].severity, "severe");
+        let nudity = warnings.iter().find(|w| w.category == "nudity").expect("nudity");
+        assert_eq!(nudity.severity, "mild");
+        let violence = warnings.iter().find(|w| w.category == "violence").expect("violence");
+        assert_eq!(violence.severity, "none");
+        // Severe, then moderate, then mild, then the clean ones.
+        assert_eq!(warnings[4].severity, "none");
     }
 
     #[test]

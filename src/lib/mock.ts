@@ -482,6 +482,8 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         { category: "violence", severity: "severe" },
         { category: "profanity", severity: "moderate" },
         { category: "nudity", severity: "mild" },
+        { category: "alcohol", severity: "none" },
+        { category: "frightening", severity: "none" },
       ] satisfies ParentalEntry[];
 
     case "streams": {
