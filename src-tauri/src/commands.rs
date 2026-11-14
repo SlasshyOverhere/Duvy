@@ -926,7 +926,7 @@ pub async fn search(
 
     let mut set: JoinSet<(String, Result<CatalogResponse, String>)> = JoinSet::new();
     let key = settings.tmdb_api_key.trim().to_string();
-    let tmdb_task = if key.is_empty() {
+    let tmdb_task = if !tmdb::available(&key) {
         None
     } else {
         let client = state.http.clone();
@@ -1022,7 +1022,7 @@ pub async fn meta_details(
     let key = settings.tmdb_api_key.trim().to_string();
 
     if let Some(rest) = id.strip_prefix("tmdb:") {
-        if key.is_empty() {
+        if !tmdb::available(&key) {
             return Err(
                 "This title comes from TMDB. Add a TMDB API key in Settings → Integrations.".into(),
             );
@@ -1086,7 +1086,7 @@ pub async fn meta_details(
         };
         match direct {
             Some(found) => found,
-            None if !key.is_empty() => {
+            None if tmdb::available(&key) => {
                 let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
                 match found {
                     Some((kind, tmdb_id)) => {
@@ -1123,7 +1123,7 @@ pub async fn meta_details(
         crate::meta::details(&state.http, imdb, &details.media_type).await
     };
     let rich = async {
-        if key.is_empty() || !needs_tmdb {
+        if !tmdb::available(&key) || !needs_tmdb {
             return None;
         }
         let imdb = imdb.as_deref()?;

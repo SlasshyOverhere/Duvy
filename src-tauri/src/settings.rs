@@ -9,7 +9,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
-    /// TMDB v3 API key. Optional: without it discovery falls back to addon catalogs.
+    /// Optional TMDB v3 API key. Overrides the bundled proxy when set.
     pub tmdb_api_key: String,
     /// Accent theme id, see the frontend theme table.
     pub accent: String,

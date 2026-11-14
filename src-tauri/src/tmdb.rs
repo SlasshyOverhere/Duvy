@@ -1,5 +1,5 @@
-//! Optional TMDB integration used for discovery rows, search and richer detail
-//! pages. Without a key the app works entirely from addon data.
+//! TMDB integration used for discovery rows, search and richer detail pages.
+//! The shared proxy makes it work without a key; a user key takes over instead.
 
 use crate::addons::MetaPreview;
 use crate::models::{CastMember, HomeRow, MetaDetails};
@@ -7,8 +7,28 @@ use serde_json::Value;
 use std::time::Duration;
 
 const API: &str = "https://api.themoviedb.org/3";
+/// Worker in `workers/tmdb-proxy.js`: holds the project's read token and caches
+/// responses. Empty until deployed.
+const PROXY: &str = "";
 const CINEMETA_CATALOG: &str = "https://v3-cinemeta.strem.io/catalog";
 const IMG: &str = "https://image.tmdb.org/t/p";
+
+/// Base URL and inline key: a user key wins, then the proxy, then nothing.
+fn route(key: &str) -> Option<(&'static str, Option<&str>)> {
+    let key = key.trim();
+    if !key.is_empty() {
+        Some((API, Some(key)))
+    } else if !PROXY.is_empty() {
+        Some((PROXY, None))
+    } else {
+        None
+    }
+}
+
+/// Whether TMDB can answer at all.
+pub(crate) fn available(key: &str) -> bool {
+    route(key).is_some()
+}
 
 fn poster_url(path: &str) -> String {
     format!("{IMG}/w500{path}")
@@ -304,13 +324,16 @@ async fn get(
     path: &str,
     query: &[(&str, &str)],
 ) -> Result<Value, String> {
-    let mut url = reqwest::Url::parse(&format!("{API}{path}")).map_err(|e| e.to_string())?;
+    let (base, key) = route(key).ok_or("TMDB is not configured")?;
+    let mut url = reqwest::Url::parse(&format!("{base}{path}")).map_err(|e| e.to_string())?;
     {
         let mut pairs = url.query_pairs_mut();
         for (name, value) in query {
             pairs.append_pair(name, value);
         }
-        pairs.append_pair("api_key", key);
+        if let Some(key) = key {
+            pairs.append_pair("api_key", key);
+        }
     }
     fetch(client, url.as_str()).await
 }
@@ -376,13 +399,13 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
         let key = key.to_string();
         set.spawn(async move {
             // Cinemeta answers without a key and hands back IMDb ids, which is
-            // what stream addons key on. TMDB is the fallback when a key is set.
+            // what stream addons key on. TMDB fills rows it cannot serve.
             let mut items = if cinemeta_path.is_empty() {
                 Vec::new()
             } else {
                 cinemeta_catalog(&client, cinemeta_path).await
             };
-            if items.is_empty() && !key.is_empty() {
+            if items.is_empty() && available(&key) {
                 items = get(
                     &client,
                     &key,
@@ -423,7 +446,7 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
     // Only the hero shows title art, so only the first row pays for the lookup.
     // Cinemeta items already carry a logo and skip it.
     if let Some(hero) = rows.first_mut()
-        && !key.is_empty()
+        && available(key)
     {
         attach_logos(client, key, &mut hero.items).await;
     }
@@ -438,7 +461,7 @@ pub async fn search(
     // Cinemeta first: no key, and the ids are the ones addons can stream.
     let mut items = cinemeta_search(client, query).await;
 
-    if items.is_empty() && !key.is_empty() {
+    if items.is_empty() && available(key) {
         let value = get(
             client,
             key,
@@ -637,6 +660,12 @@ pub async fn find_by_imdb(
 #[cfg(test)]
 mod catalog_tests {
     use super::*;
+
+    #[test]
+    fn a_user_key_wins_and_a_blank_one_falls_back() {
+        assert_eq!(route("abc").map(|(base, _)| base), Some(API));
+        assert_eq!(route("").is_some(), !PROXY.is_empty());
+    }
 
     #[test]
     fn catalog_urls_keep_their_slash() {

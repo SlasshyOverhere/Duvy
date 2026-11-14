@@ -832,7 +832,7 @@ export function SettingsView({ section }: { section?: string }) {
             <>
               <Card
                 title="TMDB"
-                description="Adds curated discovery rows, richer artwork, cast and trailers. Your key is stored locally."
+                description="Discovery rows, richer artwork, cast and trailers. Built in; your own key overrides it and stays local."
               >
                 <div className="field-row settings-path">
                   <label className="field">
