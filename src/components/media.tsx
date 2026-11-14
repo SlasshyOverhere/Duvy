@@ -562,12 +562,17 @@ export function Hero({
                     {item.releaseInfo}
                   </span>
                 ) : null,
-                item.runtime ? <span key="runtime">{item.runtime}</span> : null,
+                item.runtime ? (
+                  <span key="runtime" className="hero-meta-item">
+                    <Icon name="clock" size={16} />
+                    {item.runtime}
+                  </span>
+                ) : null,
                 ...(item.genres ?? [])
                   .slice(0, 3)
                   .map((genre) => (
                     <span key={genre} className="hero-meta-item">
-                      <Icon name="globe" size={16} />
+                      <Icon name="tag" size={16} />
                       {genre}
                     </span>
                   )),

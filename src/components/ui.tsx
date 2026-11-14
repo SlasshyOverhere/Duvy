@@ -52,7 +52,8 @@ export type IconName =
   | "cloud"
   | "star"
   | "calendar"
-  | "globe"
+  | "clock"
+  | "tag"
   | "minus"
   | "arrowUpRight";
 
@@ -244,10 +245,16 @@ const STROKE: Record<IconName, ReactNode> = {
       <path d="M8 3v4M16 3v4M3.5 10h17" />
     </>
   ),
-  globe: (
+  clock: (
     <>
       <circle cx="12" cy="12" r="8.5" />
-      <path d="M3.5 12h17M12 3.5c2.2 2.3 3.4 5.3 3.4 8.5S14.2 18.2 12 20.5c-2.2-2.3-3.4-5.3-3.4-8.5S9.8 5.8 12 3.5Z" />
+      <path d="M12 7.5V12l3 1.8" />
+    </>
+  ),
+  tag: (
+    <>
+      <path d="M12.6 3.4a2 2 0 0 0-1.4-.6H4.4a1.6 1.6 0 0 0-1.6 1.6v6.8a2 2 0 0 0 .6 1.4l7.6 7.6a2 2 0 0 0 2.8 0l6-6a2 2 0 0 0 0-2.8Z" />
+      <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" />
     </>
   ),
   stop: <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />,
