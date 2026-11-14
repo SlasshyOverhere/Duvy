@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, isTauri, openExternal } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { telemetryAvailable } from "../lib/telemetry";
+import { analyticsAvailable } from "../lib/analytics";
 import { Button, Icon, Loading, Toggle, type IconName } from "../components/ui";
 
 // Panels are split per tab: opening Settings must not fetch the addon, Trakt and
@@ -93,8 +94,9 @@ const SECTIONS: Section[] = [
     label: "Privacy",
     icon: "lock",
     group: "System",
-    blurb: "What leaves the app when something breaks.",
-    keywords: "privacy crash report sentry telemetry error log diagnostics opt in out data",
+    blurb: "What leaves the app, and the switch for each.",
+    keywords:
+      "privacy crash report sentry telemetry analytics usage counts posthog error log diagnostics opt in out data",
   },
   // Build-only, so a release never ships a panel that does nothing.
   ...(import.meta.env.DEV
@@ -199,11 +201,21 @@ function PrivacyPanel() {
   const [busy, setBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const on = settings?.telemetry === true;
+  const usage = settings?.analytics === true;
 
   const toggle = async (value: boolean) => {
     try {
       await saveSettings({ telemetry: value });
       notify(value ? "Crash reports are on" : "Crash reports are off");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  const toggleUsage = async (value: boolean) => {
+    try {
+      await saveSettings({ analytics: value });
+      notify(value ? "Usage counts are on" : "Usage counts are off");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
@@ -223,6 +235,28 @@ function PrivacyPanel() {
 
   return (
     <>
+      <Card
+        title="Usage counts"
+        description="Anonymous numbers so Duvy knows how many people use it and what they play. No titles, accounts or links leave the app."
+      >
+        <Row
+          title="Share usage counts"
+          description={
+            analyticsAvailable
+              ? "A random install id, the app version, and for each playback: the media type, the seconds watched and whether it finished. Nothing that identifies you or what you watched."
+              : "This build has no analytics endpoint, so nothing is counted."
+          }
+          control={
+            <Toggle
+              checked={usage}
+              onChange={(value) => void toggleUsage(value)}
+              label="Share usage counts"
+              disabled={!analyticsAvailable}
+            />
+          }
+        />
+      </Card>
+
       <Card
         title="Crash reports"
         description="When something in Duvy breaks, the error can be sent to Sentry so it can be fixed in a later build."

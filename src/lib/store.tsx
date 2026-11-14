@@ -21,6 +21,7 @@ import {
   type Sample,
 } from "./playback-watch";
 import { note, report } from "./telemetry";
+import { applyAnalytics, track } from "./analytics";
 import type {
   AddonInfo,
   AppInfo,
@@ -450,9 +451,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The playback watchdog: rules over the snapshot stream, one set per open.
   const watch = useRef(createWatch(0));
   const playerRef = useRef<PlayerSnapshot | null>(null);
-  const lastTick = useRef<{ key: string; position: number; duration: number; ended: boolean } | null>(
-    null,
-  );
+  const lastTick = useRef<{
+    key: string;
+    position: number;
+    duration: number;
+    ended: boolean;
+    kind: string;
+  } | null>(null);
+  // One open per launch, however often settings are written.
+  const countedOpen = useRef(false);
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -680,6 +687,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
   }, [settings?.accent, settings?.reduceMotion]);
 
+  // One open per launch, so active users come from launches and not from
+  // settings writes. Nothing is sent while the switch is off.
+  useEffect(() => {
+    if (!settings) return;
+    applyAnalytics(settings.analytics, appInfo?.version);
+    if (countedOpen.current || !settings.analytics || !appInfo) return;
+    countedOpen.current = true;
+    track("app_open", { onboarded: settings.onboarded });
+  }, [settings, appInfo]);
+
   // Keep Stremio and Nuvio in step with the phone and the official apps: once
   // on launch, then every few minutes while this app stays open.
   useEffect(() => {
@@ -811,6 +828,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 position: snap.position,
                 duration: snap.duration,
                 ended: snap.ended,
+                kind: snap.session.type,
               };
             }
             // Frozen playhead, dead controls, silent tracks: all state, no error.
@@ -847,6 +865,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             const last = lastTick.current;
             lastTick.current = null;
+            // What was watched, never what it was called.
+            if (last && firstFrame.current) {
+              const share = last.duration > 0 ? last.position / last.duration : 0;
+              track("playback_end", {
+                seconds: Math.round(last.position),
+                duration: Math.round(last.duration),
+                completed: last.ended || share >= 0.9,
+                media: last.kind,
+              });
+            }
             if (settings?.trackProgress && last && last.position > 60 && !last.ended) {
               // The ticker writes the playhead itself; a missing row or a stale
               // one is lost progress, which looks like "it forgot where I was".
@@ -1135,6 +1163,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         frameErrorReported.current = 0;
         armFrameWatchdog(request.title, request.session?.key ?? null);
         note("open returned", { generation: snapshot.generation ?? 0 });
+        track("playback_start", {
+          media: request.session?.type ?? "unknown",
+          resumed: (request.startAt ?? 0) > 0,
+        });
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
         return true;

@@ -192,6 +192,8 @@ export interface Settings {
   onboarded: boolean;
   /** Crash reporting: null until the user is asked, off unless they agree. */
   telemetry: boolean | null;
+  /** Anonymous usage counts. On unless the user turns it off in Privacy. */
+  analytics: boolean;
 }
 
 /** A release newer than the running build. */

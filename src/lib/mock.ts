@@ -124,6 +124,7 @@ let settings: Settings = {
   ignoredUpdateVersion: "",
   onboarded: true,
   telemetry: null,
+  analytics: true,
 };
 
 let addons: AddonInfo[] = [
