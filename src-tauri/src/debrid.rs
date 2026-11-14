@@ -696,6 +696,7 @@ fn request(
     key: &str,
     url: &str,
 ) -> reqwest::RequestBuilder {
+    crate::note_request(url);
     let builder = http.request(method, url);
     match provider {
         "alldebrid" => builder.query(&[("agent", "Duvy")]).bearer_auth(key),

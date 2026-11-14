@@ -124,6 +124,7 @@ let settings: Settings = {
   ignoredUpdateVersion: "",
   onboarded: true,
   telemetry: null,
+  analytics: true,
 };
 
 let addons: AddonInfo[] = [
@@ -397,6 +398,10 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         platform: "browser preview",
         dataDir: "~/Duvy",
       } satisfies AppInfo;
+
+    // The preview makes no outbound requests of its own.
+    case "net_stats":
+      return {};
 
     case "settings_get":
       return settings;

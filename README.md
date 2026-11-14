@@ -100,14 +100,16 @@ address visible to the swarm. Debrid accounts have their own terms.
 
 ## Privacy and local data
 
-- Everything is stored locally in one SQLite file. There is no analytics or usage tracking. Crash
-  reports are opt-in, off by default, and only a release build with a configured Sentry DSN can
-  send one.
+- Everything is stored locally in one SQLite file. Release builds send anonymous usage counts to
+  PostHog: launches, playbacks (media type, seconds watched, finished or not), library and addon
+  counts, and how many requests each backend host answered, plus a random install id. Never a
+  title, an account, a link or a request path. The switch is in Settings, Privacy, and a build
+  without a key counts nothing. Crash reports are opt-in and off by default.
 - Credentials are encrypted with Windows DPAPI for the current user before they are written, so a
   copied database cannot be read by another Windows account or machine.
 - Network requests go to the addons and services you configure, plus IntroDB for skip markers,
-  GitHub for the update feed, and Sentry when crash reports are on. P2P traffic goes directly to
-  other peers while a torrent source plays.
+  GitHub for the update feed, PostHog for usage counts and Sentry when crash reports are on. P2P
+  traffic goes directly to other peers while a torrent source plays.
 - Data lives in `%APPDATA%\app.duvy.desktop`: `duvy.db`, `mpv.log`, `playback.log` and the
   temporary `torrent-cache` folder. Delete the database to reset the app.
 

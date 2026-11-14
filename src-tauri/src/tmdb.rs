@@ -130,6 +130,7 @@ fn preview_from_item(item: &Value) -> Option<MetaPreview> {
 }
 
 async fn fetch(client: &reqwest::Client, url: &str) -> Result<Value, String> {
+    crate::note_request(url);
     let response = client
         .get(url)
         .timeout(Duration::from_secs(8))

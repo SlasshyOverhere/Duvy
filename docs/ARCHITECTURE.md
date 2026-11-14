@@ -49,6 +49,7 @@ src/components/player/ HUD styles and skip helpers
 src/lib/bridge.ts     typed invoke() wrappers (mock fallback in browser)
 src/lib/store.tsx     routing, settings, library, progress, playback orchestration
 src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback watchdog
+src/lib/analytics.ts  anonymous usage counts (PostHog capture, no SDK)
 ```
 
 ## Modules
@@ -182,7 +183,14 @@ not read SQLite per call.
 
 ## Privacy and trust boundaries
 
-- No analytics or usage tracking is built in. Crash reports are opt-in and off by default; they
+- Usage counts are anonymous and on by default in release builds: `analytics.ts` sends
+  `app_open` (library, addon and in-progress counts), `playback_start` and `playback_end` (media
+  type, seconds watched, finished or not) to PostHog with a random install id and the app version.
+  `net_requests` carries one host and its request count, tallied in Rust by `note_request` and read
+  back through the `net_stats` command; a host only, never a path or query. No title, content id,
+  account or link, and the Privacy switch stops it. A build compiled without `VITE_POSTHOG_KEY`
+  sends nothing.
+- Crash reports are opt-in and off by default; they
   only exist in a release build that was compiled with a Sentry DSN, and the user is asked once,
   after onboarding, with the same switch in Settings -> Privacy. The UI loads the Sentry SDK only
   after consent. `errors.ts` scrubs the event before it leaves: links lose their query and

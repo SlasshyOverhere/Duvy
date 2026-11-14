@@ -55,6 +55,8 @@ pub struct Settings {
     pub onboarded: bool,
     /// Crash reporting: `None` until the user is asked, and off unless they agree.
     pub telemetry: Option<bool>,
+    /// Anonymous usage counts: on from the first run, and only off if turned off.
+    pub analytics: bool,
 }
 
 impl Default for Settings {
@@ -87,6 +89,7 @@ impl Default for Settings {
             defaults_seeded: false,
             onboarded: false,
             telemetry: None,
+            analytics: true,
         }
     }
 }

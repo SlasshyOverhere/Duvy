@@ -21,6 +21,7 @@ import {
   type Sample,
 } from "./playback-watch";
 import { note, report } from "./telemetry";
+import { applyAnalytics, track, trackRequests } from "./analytics";
 import type {
   AddonInfo,
   AppInfo,
@@ -450,9 +451,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The playback watchdog: rules over the snapshot stream, one set per open.
   const watch = useRef(createWatch(0));
   const playerRef = useRef<PlayerSnapshot | null>(null);
-  const lastTick = useRef<{ key: string; position: number; duration: number; ended: boolean } | null>(
-    null,
-  );
+  const lastTick = useRef<{
+    key: string;
+    position: number;
+    duration: number;
+    ended: boolean;
+    kind: string;
+  } | null>(null);
+  // One open per launch, however often settings are written.
+  const countedOpen = useRef(false);
+  // Seconds actually played this session, and the playhead they were counted to.
+  const watchedSeconds = useRef(0);
+  const playedTo = useRef(0);
 
   const dismissToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -680,6 +690,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
   }, [settings?.accent, settings?.reduceMotion]);
 
+  // One open per launch, so active users come from launches and not from
+  // settings writes. Nothing is sent while the switch is off.
+  useEffect(() => {
+    if (!settings) return;
+    applyAnalytics(settings.analytics, appInfo?.version);
+    if (countedOpen.current || !settings.analytics || !appInfo) return;
+    countedOpen.current = true;
+    // Counts only: how much is in the library, not what is in it.
+    track("app_open", {
+      onboarded: settings.onboarded,
+      library: library.length,
+      addons: addons.filter((item) => item.enabled).length,
+      in_progress: progress.length,
+      movies: library.filter((item) => item.type === "movie").length,
+      series: library.filter((item) => item.type === "series").length,
+    });
+  }, [settings, appInfo, library, addons, progress]);
+
+  // Outbound traffic per host. Hosts only: no path or query, so a debrid token
+  // or a stream link can never ride along. Reading the counts clears them.
+  useEffect(() => {
+    if (!isTauri() || !settings?.analytics) return;
+    let alive = true;
+    const report = async () => {
+      const hosts = await api.netStats().catch(() => null);
+      if (alive && hosts) trackRequests(hosts);
+    };
+    const timer = window.setInterval(() => void report(), 15 * 60_000);
+    // One early read, so a short session still reports the traffic it caused.
+    const first = window.setTimeout(() => void report(), 120_000);
+    // A closing window would otherwise lose the traffic since the last tick.
+    const flush = () => void report();
+    window.addEventListener("pagehide", flush);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.clearTimeout(first);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [settings?.analytics]);
+
   // Keep Stremio and Nuvio in step with the phone and the official apps: once
   // on launch, then every few minutes while this app stays open.
   useEffect(() => {
@@ -805,12 +856,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               });
             }
             playerRef.current = snap;
+            // Real watch time: a forward step of a tick or two, never a seek.
+            if (snap.playing && !snap.paused) {
+              const step = snap.position - playedTo.current;
+              if (step > 0 && step <= 5) watchedSeconds.current += step;
+            }
+            playedTo.current = snap.position;
             if (snap.session?.key) {
               lastTick.current = {
                 key: snap.session.key,
                 position: snap.position,
                 duration: snap.duration,
                 ended: snap.ended,
+                kind: snap.session.type,
               };
             }
             // Frozen playhead, dead controls, silent tracks: all state, no error.
@@ -847,6 +905,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             const last = lastTick.current;
             lastTick.current = null;
+            // What was watched, never what it was called.
+            if (last && firstFrame.current) {
+              const share = last.duration > 0 ? last.position / last.duration : 0;
+              track("playback_end", {
+                seconds: Math.round(last.position),
+                duration: Math.round(last.duration),
+                watched: Math.round(watchedSeconds.current),
+                completed: last.ended || share >= 0.9,
+                media: last.kind,
+              });
+            }
+            watchedSeconds.current = 0;
+            playedTo.current = 0;
             if (settings?.trackProgress && last && last.position > 60 && !last.ended) {
               // The ticker writes the playhead itself; a missing row or a stale
               // one is lost progress, which looks like "it forgot where I was".
@@ -1129,12 +1200,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         playerRef.current = snapshot;
         watch.current = createWatch(Date.now());
         lastTick.current = null;
+        watchedSeconds.current = 0;
+        playedTo.current = 0;
         openedAt.current = Date.now();
         firstFrame.current = false;
         stopRequested.current = false;
         frameErrorReported.current = 0;
         armFrameWatchdog(request.title, request.session?.key ?? null);
         note("open returned", { generation: snapshot.generation ?? 0 });
+        track("playback_start", {
+          media: request.session?.type ?? "unknown",
+          resumed: (request.startAt ?? 0) > 0,
+        });
         // The screen is already up while the source resolves.
         if (routeRef.current.name !== "player") navigate({ name: "player" });
         return true;

@@ -38,6 +38,7 @@ pub(crate) fn clean(value: &str) -> String {
 }
 
 async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
+    crate::note_request(url);
     let response = client
         .get(url)
         .timeout(Duration::from_secs(8))

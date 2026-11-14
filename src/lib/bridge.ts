@@ -62,6 +62,8 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const api = {
   appInfo: () => call<AppInfo>("app_info"),
+  /** Requests per host since the last read; reading clears the counter. */
+  netStats: () => call<Record<string, number>>("net_stats"),
   playbackLog: (lines?: number) => call<string[]>("playback_log", { lines }),
 
   settings: {
