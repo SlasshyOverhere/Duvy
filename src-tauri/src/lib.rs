@@ -12,6 +12,7 @@ mod json;
 mod meta;
 mod models;
 mod nuvio_sync;
+mod parental;
 mod playback_log;
 mod player;
 mod secret;
@@ -661,6 +662,7 @@ pub fn run() {
             commands::similar,
             commands::streams,
             commands::subtitles,
+            commands::parental_guide,
             commands::library_list,
             commands::library_toggle,
             commands::progress_list,
@@ -669,6 +671,7 @@ pub fn run() {
             commands::watched_set,
             commands::watched_list,
             commands::watched_marks,
+            commands::watched_keys,
             commands::player_open,
             commands::player_state,
             commands::player_frame,

@@ -61,6 +61,15 @@ pub struct MetaDetails {
 }
 
 #[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ParentalWarning {
+    /// nudity, violence, profanity, alcohol or frightening.
+    pub category: String,
+    /// severe, moderate or mild.
+    pub severity: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
 pub struct SubtitleTrack {
     pub id: String,
     pub url: String,

@@ -329,7 +329,7 @@ export function ContinueCard({
   next?: boolean;
   onOpen: () => void;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [still, setStill] = useState(background ?? poster ?? null);
   const [gone, setGone] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
@@ -395,13 +395,14 @@ export function ContinueCard({
         }}
         style={{ background: placeholderGradient(name) } as CSSProperties}
       >
-        {(background || poster) && !failed ? (
+        {still ? (
           <img
-            src={background ?? poster ?? ""}
+            src={still}
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setFailed(true)}
+            // A dead still falls back to the poster, then to the gradient.
+            onError={() => setStill(still === poster ? null : (poster ?? null))}
           />
         ) : null}
         <span className="continue-veil" />
@@ -561,12 +562,17 @@ export function Hero({
                     {item.releaseInfo}
                   </span>
                 ) : null,
-                item.runtime ? <span key="runtime">{item.runtime}</span> : null,
+                item.runtime ? (
+                  <span key="runtime" className="hero-meta-item">
+                    <Icon name="clock" size={16} />
+                    {item.runtime}
+                  </span>
+                ) : null,
                 ...(item.genres ?? [])
                   .slice(0, 3)
                   .map((genre) => (
                     <span key={genre} className="hero-meta-item">
-                      <Icon name="globe" size={16} />
+                      <Icon name="tag" size={16} />
                       {genre}
                     </span>
                   )),
@@ -592,30 +598,26 @@ export function Hero({
                 title="Play"
                 aria-label="Play"
               >
-                <Icon name="play" size={20} />
-                <span>Play</span>
+                <Icon name="play" size={22} />
               </button>
-              <div className="hero-pill-group">
-                <button
-                  type="button"
-                  className="hero-pill-btn"
-                  onClick={onLibrary}
-                  title={inLibrary ? "Remove from library" : "Add to library"}
-                  aria-label={inLibrary ? "Remove from library" : "Add to library"}
-                >
-                  <Icon name={inLibrary ? "check" : "plus"} size={24} />
-                </button>
-                <span className="hero-pill-divider" aria-hidden="true" />
-                <button
-                  type="button"
-                  className="hero-pill-btn"
-                  onClick={onOpen}
-                  title="More info"
-                  aria-label="More info"
-                >
-                  <Icon name="info" size={24} />
-                </button>
-              </div>
+              <button
+                type="button"
+                className="hero-icon-btn"
+                onClick={onLibrary}
+                title={inLibrary ? "Remove from library" : "Add to library"}
+                aria-label={inLibrary ? "Remove from library" : "Add to library"}
+              >
+                <Icon name={inLibrary ? "check" : "plus"} size={22} />
+              </button>
+              <button
+                type="button"
+                className="hero-icon-btn"
+                onClick={onOpen}
+                title="More info"
+                aria-label="More info"
+              >
+                <Icon name="info" size={22} />
+              </button>
             </div>
           </div>
         </div>

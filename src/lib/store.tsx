@@ -99,6 +99,8 @@ interface Store {
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   watched: WatchedItem[];
+  /** Every marked key, per episode. `watched` keeps one row per title. */
+  watchedKeys: Set<string>;
   playRequest: (request: PlayRequest) => Promise<boolean>;
   playItem: (item: MetaPreview, fromStart?: boolean) => Promise<void>;
   resumeEntry: (entry: ProgressItem) => Promise<void>;
@@ -414,6 +416,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [watched, setWatched] = useState<WatchedItem[]>([]);
+  const [watchedKeys, setWatchedKeys] = useState<Set<string>>(() => new Set());
   const [player, setPlayer] = useState<PlayerSnapshot | null>(null);
   const [playingSource, setPlayingSource] = useState<StreamOption | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
@@ -599,9 +602,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refreshProgress = useCallback(async () => {
     try {
-      const [rows, marks] = await Promise.all([api.progress.list(), api.watched.list()]);
+      const [rows, marks, keys] = await Promise.all([
+        api.progress.list(),
+        api.watched.list(),
+        api.watched.keys(),
+      ]);
       setProgress(rows);
       setWatched(marks);
+      setWatchedKeys(new Set(keys));
       progressFails.current = 0;
     } catch {
       // Progress is cosmetic; a failed refresh must never break a screen. Two in
@@ -617,15 +625,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         // One failing slice (a broken addon store, a locked progress file) must
         // not cost the whole app: apply what loaded, then say what did not.
-        const [info, loadedSettings, loadedAddons, loadedLibrary, loadedProgress, loadedWatched] =
-          await Promise.allSettled([
-            api.appInfo(),
-            api.settings.get(),
-            api.addons.list(),
-            api.library.list(),
-            api.progress.list(),
-            api.watched.list(),
-          ]);
+        const [
+          info,
+          loadedSettings,
+          loadedAddons,
+          loadedLibrary,
+          loadedProgress,
+          loadedWatched,
+          loadedKeys,
+        ] = await Promise.allSettled([
+          api.appInfo(),
+          api.settings.get(),
+          api.addons.list(),
+          api.library.list(),
+          api.progress.list(),
+          api.watched.list(),
+          api.watched.keys(),
+        ]);
         if (!alive) return;
         if (info.status === "rejected") throw info.reason;
         setAppInfo(info.value);
@@ -634,6 +650,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (loadedLibrary.status === "fulfilled") setLibrary(loadedLibrary.value);
         if (loadedProgress.status === "fulfilled") setProgress(loadedProgress.value);
         if (loadedWatched.status === "fulfilled") setWatched(loadedWatched.value);
+        if (loadedKeys.status === "fulfilled") setWatchedKeys(new Set(loadedKeys.value));
         const failed = (
           [
             ["settings", loadedSettings.status],
@@ -1463,6 +1480,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dismissToast,
       progressFor,
       watched,
+      watchedKeys,
       playRequest,
       playItem,
       resumeEntry,
@@ -1505,6 +1523,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dismissToast,
       progressFor,
       watched,
+      watchedKeys,
       playRequest,
       playItem,
       resumeEntry,

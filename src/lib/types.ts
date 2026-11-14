@@ -56,6 +56,12 @@ export interface Details {
   source: string;
 }
 
+/** One IMDb parents-guide category. Severity is one of severe/moderate/mild. */
+export interface ParentalEntry {
+  category: "nudity" | "violence" | "profanity" | "alcohol" | "frightening";
+  severity: string;
+}
+
 export interface StreamOption {
   addon: string;
   name?: string | null;

@@ -44,3 +44,6 @@ src-tauri/resources/mpv/
 *.njsproj
 *.sln
 *.sw?
+
+# Impeccable hook cache (machine-local, absolute paths)
+.impeccable/hook.cache.json

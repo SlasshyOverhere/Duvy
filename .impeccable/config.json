@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-11-14T09:22:31.018Z",
+        "reason": "Project-wide bundled typeface: self-hosted Inter woff2 in src/assets, used as the body face across every view; established before this change and out of scope for a dot-animation fix"
+      }
+    ]
+  }
+}

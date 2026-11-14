@@ -238,16 +238,16 @@ run("subtitle size can go below the old floor", () => {
 run("continue watching compares exact episode keys", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
-  if (!/marked\.has\(row\.key\)/.test(home)) {
+  if (!/watchedKeys\.has\(row\.key\)/.test(home)) {
     out.push("Home.tsx hides a title by meta id instead of the watched episode key");
   }
-  if (!/marked\.has\(entry\.key\)/.test(home)) {
+  if (!/watchedKeys\.has\(entry\.key\)/.test(home)) {
     out.push("Home.tsx card progress is hidden by meta id instead of the episode key");
   }
   // The newest row claims the title before a finished row is dropped, or
   // finishing E2 puts E1 back on the shelf.
   const rankAt = home.indexOf("seen.has(row.metaId)");
-  const skipAt = home.indexOf("marked.has(row.key)");
+  const skipAt = home.indexOf("watchedKeys.has(row.key)");
   if (rankAt < 0 || skipAt < 0 || rankAt > skipAt) {
     out.push("Home.tsx filters a finished row before the newest one claims the title");
   }
@@ -257,9 +257,18 @@ run("continue watching compares exact episode keys", () => {
 run("continue watching advances a finished episode", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
-  // A finished episode must resolve its next one, not vanish from the row.
-  if (!/nextUpCache/.test(home) || !/queue\[at \+ 1\]/.test(home)) {
+  // A finished episode must resolve its next one, not vanish from the row, and
+  // an episode already marked watched must be skipped.
+  if (!/nextUpCache/.test(home) || !/queue\.slice\(at \+ 1\)/.test(home)) {
     out.push("Home.tsx drops a finished episode instead of resolving the next one");
+  }
+  if (!/!watchedKeys\.has\(`\$\{row\.metaId\}:\$\{season\}:\$\{episode\}`\)/.test(home)) {
+    out.push("Home.tsx offers an already watched episode as next up");
+  }
+  // `watched` collapses to one row per title, so a show marked E1 then E2
+  // loses E1 and the card jumps back. The key set has to come from every mark.
+  if (!/api\.watched\.keys\(\)/.test(store)) {
+    out.push("store.tsx tracks watched keys from the per-title list, which hides earlier episodes");
   }
   if (!/next=\{next\}/.test(home)) {
     out.push("Home.tsx never marks a resolved next episode as next up");
