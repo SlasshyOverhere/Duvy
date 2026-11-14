@@ -38,6 +38,7 @@ import "../components/player/player.css";
 import {
   SPEEDS,
   NEXT_LEAD,
+  NEXT_DELAY,
   SUB_STYLE_KEY,
   VIDEO_MODE_KEY,
   VOLUME_KEY,
@@ -1344,13 +1345,23 @@ export function PlayerView() {
       : duration > 60
         ? duration - NEXT_LEAD
         : null;
-  const showNext = Boolean(
+  const nextDue = Boolean(
     nextEpisode &&
       !nextOff &&
       !failed &&
       !dropped &&
       (local?.ended || (nextAt != null && position >= nextAt)),
   );
+  // The card lands a beat after the credits, so it does not cut into the scene.
+  const [showNext, setShowNext] = useState(false);
+  useEffect(() => {
+    if (!nextDue) {
+      setShowNext(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowNext(true), NEXT_DELAY * 1000);
+    return () => window.clearTimeout(timer);
+  }, [nextDue]);
   // Offered while the playhead sits inside a marker; never applied on its own.
   const skipSegment = findSkip(markers, position, duration);
   // At the credits the up-next card (or the end of the file) is the action, so
@@ -1358,8 +1369,7 @@ export function PlayerView() {
   // last episode until the file ends.
   const outroCovered =
     skipSegment?.kind === "outro" &&
-    (Boolean(local?.ended) ||
-      (nextEpisode != null && !nextOff && nextAt != null && position >= nextAt - 0.5));
+    (Boolean(local?.ended) || (showNext && nextEpisode != null && !nextOff));
 
   const playVideo = useCallback(
     async (video: Video) => {
@@ -1872,7 +1882,7 @@ export function PlayerView() {
   // Paused is not in here: a paused frame is still a frame, and the chrome has
   // to be able to leave the picture alone until the pointer asks for it again.
   // The guide is part of the opening moment, so the chrome stays up with it.
-  const holdChrome = Boolean(loading || failed || local?.ended || surface || showNext || guideOn);
+  const holdChrome = Boolean(loading || failed || local?.ended || surface || guideOn);
 
   // The HUD only needs a countdown while it is on screen, and the poll only
   // runs then: a hidden HUD asking every 100ms is a wakeup for nothing.
@@ -1910,14 +1920,6 @@ export function PlayerView() {
     setChrome(false);
     setSurface(null);
   }, [locked]);
-
-  // Keep the chrome on screen while the next-episode card is offered, so the
-  // card has the timeline it belongs above.
-  useEffect(() => {
-    if (!showNext) return;
-    actAt.current = Date.now();
-    setChrome(true);
-  }, [showNext]);
 
   const dismissNext = useCallback(() => {
     setNextOff(true);

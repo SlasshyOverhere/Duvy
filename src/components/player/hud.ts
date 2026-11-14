@@ -4,6 +4,8 @@ import type { StreamOption, SubtitleTrack, Track } from "../../lib/types";
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 // How much of the file counts as the ending when there is no credits marker.
 export const NEXT_LEAD = 45;
+// Settle time before the next-episode card slides in, in seconds.
+export const NEXT_DELAY = 1.5;
 export const SUB_STYLE_KEY = "duvy.subtitleStyle";
 export const VIDEO_MODE_KEY = "duvy.videoMode";
 export const VOLUME_KEY = "duvy.volume";
