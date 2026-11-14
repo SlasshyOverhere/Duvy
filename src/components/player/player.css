@@ -2082,7 +2082,25 @@
   background: var(--pv-panel-2);
   box-shadow: var(--pv-glass-shadow);
   overflow: hidden;
-  animation: pv-sheet 0.4s var(--ease);
+  animation: pv-upnext-in 0.5s var(--ease) both;
+  transition: bottom 0.24s var(--ease);
+}
+
+/* Lands from below with a touch of scale, so it reads as an arrival. */
+@keyframes pv-upnext-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The transport has left, so the card settles into the space it freed. */
+.pv:not(.pv--awake) .pv-upnext {
+  bottom: 2rem;
 }
 
 .pv .pv-upnext-art {
@@ -2161,6 +2179,18 @@
   right: 9.5rem;
   bottom: 0.9rem;
   min-width: 0;
+  animation: pv-upnext-fade 0.4s var(--ease) 0.12s both;
+}
+
+@keyframes pv-upnext-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .pv .pv-upnext-label {
