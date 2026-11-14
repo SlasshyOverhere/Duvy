@@ -1799,16 +1799,21 @@ button.pill:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Scaled, not widened: transform runs on the compositor, so the fill ticks at
+   frame rate instead of relaying out and snapping to whole pixels. */
 .hero-dot.is-active::after {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 0;
+  width: 28px;
   height: 8px;
   margin: -4px 0 0 -14px;
   border-radius: 999px;
   background: #ffffff;
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
   animation: hero-dot-fill var(--hero-slide, 9000ms) linear forwards;
 }
 
@@ -1818,13 +1823,13 @@ button.pill:hover {
 
 @keyframes hero-dot-fill {
   to {
-    width: 28px;
+    transform: scaleX(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hero-dot.is-active::after {
-    width: 28px;
+    transform: scaleX(1);
     animation: none;
   }
 }
