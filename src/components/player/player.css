@@ -1408,67 +1408,52 @@
 /* ---- parents guide ------------------------------------------------------ */
 
 /* Nuvio's content warning: the IMDb parents guide, once, as playback starts.
-   It sits under the title bar, so the title and the back button keep their
-   place while the card is up. */
+   It has no panel of its own — the lines hang off the back button and leave
+   the picture alone, so it reads as part of the opening, not a dialog. */
 .pv .pv-guide {
   position: absolute;
-  top: 96px;
-  left: 24px;
+  top: 104px;
+  left: 28px;
   z-index: 3;
-  width: min(16rem, calc(100vw - 3rem));
-  padding: 10px 12px 11px;
-  border-radius: 12px;
-  background: var(--pv-panel-2);
-  box-shadow: var(--pv-glass-shadow);
-  animation: pv-rise 0.24s var(--ease);
+  /* Sized to the longest row so the severities sit close to their labels
+     instead of drifting to the right edge of a fixed column. */
+  width: max-content;
+  max-width: min(17rem, calc(100vw - 3.5rem));
+  pointer-events: none;
+  /* The artwork behind it is unpredictable, so the type carries its own
+     contrast instead of a plate. */
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
+  animation: pv-guide-in 0.5s var(--ease) both;
 }
 
 .pv .pv-guide-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 0 6px;
-  font-size: 0.68rem;
+  margin: 0 0 9px;
+  font-size: 0.66rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--pv-muted);
-}
-
-.pv .pv-guide-close {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--pv-faint);
-  cursor: pointer;
-}
-
-.pv .pv-guide-close:hover {
-  background: var(--pv-control-hover);
-  color: #fff;
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .pv .pv-guide-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* Rows arrive one after another; --row is their index, so the list reads
+   top to bottom rather than snapping in as a block. */
 .pv .pv-guide-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.82rem;
-  line-height: 1.35;
+  gap: 9px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  animation: pv-guide-row-in 0.45s var(--ease) both;
+  animation-delay: calc(90ms + var(--row, 0) * 70ms);
 }
 
 /* The dot carries the severity; the word repeats it for anyone who cannot
@@ -1476,10 +1461,11 @@
 .pv .pv-guide-row::before {
   content: "";
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--guide-tone, var(--pv-faint));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-tone, #fff) 22%, transparent);
 }
 
 .pv .pv-guide-row[data-severity="severe"] {
@@ -1497,14 +1483,62 @@
 .pv .pv-guide-label {
   flex: 1;
   min-width: 0;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.94);
 }
 
 .pv .pv-guide-severity {
   flex: none;
-  font-size: 0.72rem;
+  font-size: 0.73rem;
   text-transform: capitalize;
   color: var(--guide-tone, var(--pv-muted));
+}
+
+/* Leaving: the rows peel away from the bottom up, then the block lifts out.
+   Both run on the compositor, so the exit never stutters over video. */
+.pv .pv-guide.is-leaving {
+  animation: pv-guide-out 0.42s var(--ease) 0.18s both;
+}
+
+.pv .pv-guide.is-leaving .pv-guide-row {
+  animation: pv-guide-row-out 0.26s var(--ease) both;
+  animation-delay: calc(var(--row, 0) * 45ms);
+}
+
+@keyframes pv-guide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pv-guide-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+@keyframes pv-guide-row-out {
+  to {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+@keyframes pv-guide-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv .pv-guide,
+  .pv .pv-guide-row,
+  .pv .pv-guide.is-leaving,
+  .pv .pv-guide.is-leaving .pv-guide-row {
+    animation: none;
+  }
 }
 
 /* ---- seek row ----------------------------------------------------------- */

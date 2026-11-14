@@ -79,23 +79,33 @@ const GUIDE_LABELS: Record<ParentalEntry["category"], string> = {
 };
 
 /** IMDb's parents guide, shown once as the picture starts. */
-function ParentalGuide({ warnings, onClose }: { warnings: ParentalEntry[]; onClose: () => void }) {
+function ParentalGuide({
+  warnings,
+  leaving,
+  onGone,
+}: {
+  warnings: ParentalEntry[];
+  leaving: boolean;
+  onGone: () => void;
+}) {
   return (
-    <aside className="pv-guide" aria-label="Parents guide">
-      <header className="pv-guide-head">
-        <span>Parents guide</span>
-        <button
-          type="button"
-          className="pv-guide-close"
-          onClick={onClose}
-          aria-label="Dismiss parents guide"
-        >
-          <Icon name="x" size={14} />
-        </button>
-      </header>
+    <aside
+      className={leaving ? "pv-guide is-leaving" : "pv-guide"}
+      aria-label="Parents guide"
+      // Only the card's own exit ends it; the rows animate too, and they bubble.
+      onAnimationEnd={(event) => {
+        if (leaving && event.target === event.currentTarget) onGone();
+      }}
+    >
+      <p className="pv-guide-head">Parents guide</p>
       <ul className="pv-guide-list">
-        {warnings.map((warning) => (
-          <li key={warning.category} className="pv-guide-row" data-severity={warning.severity}>
+        {warnings.map((warning, index) => (
+          <li
+            key={warning.category}
+            className="pv-guide-row"
+            data-severity={warning.severity}
+            style={{ "--row": index } as CSSProperties}
+          >
             <span className="pv-guide-label">{GUIDE_LABELS[warning.category]}</span>
             <span className="pv-guide-severity">{warning.severity}</span>
           </li>
@@ -1213,6 +1223,8 @@ export function PlayerView() {
   // The guide is per title, so one fetch serves every episode of it.
   const [guide, setGuide] = useState<ParentalEntry[]>([]);
   const [guideSeen, setGuideSeen] = useState(false);
+  // Kept mounted through its exit so it can animate out instead of blinking off.
+  const [guideLeaving, setGuideLeaving] = useState(false);
   const guideId = details?.imdbId ?? session?.metaId ?? null;
   useEffect(() => {
     if (!guideId) return;
@@ -1271,12 +1283,23 @@ export function PlayerView() {
   // frame counts as loading.
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
   // Once the picture is up, the card has its say and then gets out of the way.
-  const guideOn = guide.length > 0 && !guideSeen && !loading && !failed && Boolean(local);
+  const guideWanted = guide.length > 0 && !guideSeen && !loading && !failed && Boolean(local);
+  // Dismissing starts the exit; the card unmounts when its own animation ends.
+  const guideOn = guideWanted || guideLeaving;
   useEffect(() => {
-    if (!guideOn) return;
-    const timer = window.setTimeout(() => setGuideSeen(true), 8000);
+    if (!guideWanted) return;
+    const timer = window.setTimeout(() => setGuideLeaving(true), 8000);
     return () => window.clearTimeout(timer);
-  }, [guideOn]);
+  }, [guideWanted]);
+  // Reduced motion skips the exit animation, so nothing would fire its end.
+  useEffect(() => {
+    if (!guideLeaving) return;
+    const timer = window.setTimeout(() => {
+      setGuideLeaving(false);
+      setGuideSeen(true);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [guideLeaving]);
   // A zero level is silent too, so the icon and label must agree with it.
   const silent = muted || volLevel === 0;
   const audioTracks = local?.audioTracks ?? [];
@@ -2563,7 +2586,11 @@ export function PlayerView() {
 
       {/* A panel or the lock owns the frame; the card waits for neither. */}
       {guideOn && !locked && !surface ? (
-        <ParentalGuide warnings={guide} onClose={() => setGuideSeen(true)} />
+        <ParentalGuide
+          warnings={guide}
+          leaving={guideLeaving}
+          onGone={() => setGuideSeen(true)}
+        />
       ) : null}
 
       {failed && surface === null ? (
