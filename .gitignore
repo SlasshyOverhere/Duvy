@@ -21,6 +21,10 @@ src-tauri/gen/schemas
 .env.*
 !.env.example
 
+# Cloudflare worker state
+workers/.wrangler/
+workers/.dev.vars
+
 # Agent/debug scratch
 .opencode/
 

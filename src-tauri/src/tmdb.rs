@@ -8,8 +8,8 @@ use std::time::Duration;
 
 const API: &str = "https://api.themoviedb.org/3";
 /// Worker in `workers/tmdb-proxy.js`: holds the project's read token and caches
-/// responses. Empty until deployed.
-const PROXY: &str = "";
+/// responses. Empty falls back to Cinemeta only.
+const PROXY: &str = "https://duvy-tmdb.slasshy02.workers.dev";
 const CINEMETA_CATALOG: &str = "https://v3-cinemeta.strem.io/catalog";
 const IMG: &str = "https://image.tmdb.org/t/p";
 
