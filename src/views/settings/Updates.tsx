@@ -119,7 +119,7 @@ export function Updates() {
               aria-valuemax={100}
               aria-valuenow={share ?? undefined}
             >
-              <span style={share == null ? undefined : { width: `${share}%` }} />
+              <span style={share == null ? undefined : { transform: `scaleX(${share / 100})` }} />
             </div>
           ) : null}
           {installing && progress ? (

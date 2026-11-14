@@ -1686,73 +1686,74 @@ button.pill:hover {
   flex-wrap: wrap;
 }
 
+/* The one solid shape on the hero: a white circle, same size as the glass
+   ones beside it, so the three actions read as one row. */
 .hero-actions .btn.btn-primary {
-  min-width: 130px;
-  height: 52px;
-  gap: 8px;
-  padding: 0 24px;
+  width: 50px;
+  height: 50px;
+  padding: 0;
   border: 0;
   border-radius: var(--pill);
-  color: #000000;
-  background: #f2f2f2;
-  font-size: 18px;
-  font-weight: 600;
+  color: #050505;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  transition:
+    background-color 0.16s var(--ease),
+    box-shadow 0.16s var(--ease),
+    transform 0.16s var(--ease);
 }
 
 .hero-actions .btn.btn-primary:hover:not(:disabled) {
   background: #ffffff;
-  color: #000000;
+  color: #050505;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.42);
+  transform: translateY(-1px);
 }
 
-/* Plus and info share one frosted pill, split by a hairline. */
-.hero-pill-group {
-  display: inline-flex;
-  align-items: center;
-  height: 52px;
-  border-radius: var(--pill);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
-  backdrop-filter: blur(20px) saturate(1.5);
+.hero-actions .btn.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
-.hero-pill-btn {
+/* Plus and info are separate circles, not one split pill: each is its own
+   target, and the glass edge reads cleaner than a divider line. */
+.hero-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  padding: 0 20px;
-  border: 0;
-  background: none;
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--pill);
+  background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
   cursor: pointer;
-  transition: background-color 0.15s var(--ease);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  transition:
+    background-color 0.16s var(--ease),
+    border-color 0.16s var(--ease),
+    transform 0.16s var(--ease);
 }
 
-.hero-pill-btn:first-child {
-  border-radius: var(--pill) 0 0 var(--pill);
+.hero-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
-.hero-pill-btn:last-child {
-  border-radius: 0 var(--pill) var(--pill) 0;
+.hero-icon-btn:active {
+  background: rgba(255, 255, 255, 0.24);
+  transform: scale(0.96);
 }
 
-.hero-pill-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+.hero-icon-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
 }
 
-.hero-pill-btn:active {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.hero-pill-divider {
-  width: 1px;
-  height: 24px;
-  flex: none;
-  background: rgba(255, 255, 255, 0.25);
-}
-
-/* Dots sit in the corner the target places them, as a quiet row. */
+/* Hairlines, not dots: the index stays present without becoming an object.
+   The shadow keeps them legible on pale artwork. */
 .hero-dots {
   position: absolute;
   right: clamp(24px, 4.5vw, 64px);
@@ -1760,12 +1761,13 @@ button.pill:hover {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
 }
 
 .hero-dot {
   position: relative;
-  width: 20px;
+  width: 28px;
   height: 20px;
   padding: 0;
   border: 0;
@@ -1773,30 +1775,23 @@ button.pill:hover {
   cursor: pointer;
 }
 
-/* Track and fill are both pinned to the dot's centre, so they can never drift
-   apart when the active pill widens past the 20px button. */
+/* Track and fill share one box, so the fill can never drift off its line. */
 .hero-dot::before {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  margin: -4px 0 0 -4px;
+  inset: 9px 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.28);
   transition: background-color 0.2s var(--ease);
 }
 
 .hero-dot:hover::before {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.6);
 }
 
-/* The active dot is the track the slide's clock runs in. */
+/* The active line is the track the slide's clock runs in. */
 .hero-dot.is-active::before {
-  width: 28px;
-  margin-left: -14px;
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.32);
 }
 
 /* Scaled, not widened: transform runs on the compositor, so the fill ticks at
@@ -1804,11 +1799,7 @@ button.pill:hover {
 .hero-dot.is-active::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 28px;
-  height: 8px;
-  margin: -4px 0 0 -14px;
+  inset: 9px 0;
   border-radius: 999px;
   background: #ffffff;
   transform: scaleX(0);
@@ -1836,7 +1827,7 @@ button.pill:hover {
 
 .hero-dot:focus-visible {
   outline: 2px solid #ffffff;
-  outline-offset: -2px;
+  outline-offset: 1px;
   border-radius: 999px;
 }
 
@@ -3915,10 +3906,12 @@ input[type="range"]::-webkit-slider-thumb {
 .update-meter span {
   display: block;
   height: 100%;
-  width: 40%;
+  width: 100%;
   border-radius: inherit;
   background: var(--accent);
-  transition: width 0.2s linear;
+  transform: scaleX(0.4);
+  transform-origin: left center;
+  transition: transform 0.2s linear;
 }
 
 /* A corner card: it carries a version, a meter and two actions without
@@ -5243,11 +5236,22 @@ input[type="range"]::-webkit-slider-thumb {
 
   .hero {
     min-height: 460px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
   }
 
   .hero-body {
     padding-top: 108px;
     padding-bottom: 34px;
+  }
+
+  /* The copy fills the width here, so the rail drops below it instead of
+     sitting over the description. */
+  .hero-dots {
+    position: static;
+    align-self: flex-start;
+    margin: 0 var(--pad) 28px;
   }
 
   .hero-title {

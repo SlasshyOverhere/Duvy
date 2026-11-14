@@ -98,7 +98,7 @@ function Prompt({ version, current }: { version: string; current: string }) {
             aria-valuemax={100}
             aria-valuenow={share ?? undefined}
           >
-            <span style={{ width: `${share ?? 0}%` }} />
+            <span style={{ transform: `scaleX(${(share ?? 0) / 100})` }} />
           </div>
           <p className="update-bytes">
             {progress?.total

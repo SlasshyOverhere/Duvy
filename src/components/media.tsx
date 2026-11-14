@@ -593,30 +593,26 @@ export function Hero({
                 title="Play"
                 aria-label="Play"
               >
-                <Icon name="play" size={20} />
-                <span>Play</span>
+                <Icon name="play" size={22} />
               </button>
-              <div className="hero-pill-group">
-                <button
-                  type="button"
-                  className="hero-pill-btn"
-                  onClick={onLibrary}
-                  title={inLibrary ? "Remove from library" : "Add to library"}
-                  aria-label={inLibrary ? "Remove from library" : "Add to library"}
-                >
-                  <Icon name={inLibrary ? "check" : "plus"} size={24} />
-                </button>
-                <span className="hero-pill-divider" aria-hidden="true" />
-                <button
-                  type="button"
-                  className="hero-pill-btn"
-                  onClick={onOpen}
-                  title="More info"
-                  aria-label="More info"
-                >
-                  <Icon name="info" size={24} />
-                </button>
-              </div>
+              <button
+                type="button"
+                className="hero-icon-btn"
+                onClick={onLibrary}
+                title={inLibrary ? "Remove from library" : "Add to library"}
+                aria-label={inLibrary ? "Remove from library" : "Add to library"}
+              >
+                <Icon name={inLibrary ? "check" : "plus"} size={22} />
+              </button>
+              <button
+                type="button"
+                className="hero-icon-btn"
+                onClick={onOpen}
+                title="More info"
+                aria-label="More info"
+              >
+                <Icon name="info" size={22} />
+              </button>
             </div>
           </div>
         </div>
