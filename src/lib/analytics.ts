@@ -9,7 +9,9 @@ const KEY = (import.meta.env.VITE_POSTHOG_KEY ?? "").trim();
 const HOST = (import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com").replace(/\/+$/, "");
 const INSTALL_KEY = "duvy:install";
 
-export const analyticsAvailable = Boolean(import.meta.env.PROD && KEY && isTauri());
+/** A key is what turns counting on; dev builds tag their events and still send. */
+export const analyticsAvailable = Boolean(KEY && isTauri());
+const ENVIRONMENT = import.meta.env.PROD ? "production" : "development";
 
 type Props = Record<string, string | number | boolean>;
 
@@ -50,7 +52,12 @@ export function track(event: string, props: Props = {}): void {
       api_key: KEY,
       event,
       distinct_id: id,
-      properties: { ...props, app_version: version, $process_person_profile: false },
+      properties: {
+        ...props,
+        app_version: version,
+        environment: ENVIRONMENT,
+        $process_person_profile: false,
+      },
     }),
   }).catch(() => undefined);
 }

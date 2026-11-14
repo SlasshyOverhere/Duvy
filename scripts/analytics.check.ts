@@ -1,6 +1,6 @@
 // Usage-count rules. Run with: bun scripts/analytics.check.ts
-// The module reads Vite's env at import time, so the shape of a release build
-// is faked before it loads. Dynamic import below: a static one would hoist.
+// The module reads Vite's env at import time, so the shape of a build is faked
+// before it loads. Dynamic import below: a static one would hoist.
 const env = (import.meta as unknown as { env: Record<string, unknown> }).env;
 env.PROD = true;
 env.VITE_POSTHOG_KEY = "pk_test";
@@ -43,6 +43,7 @@ check("an event carries what PostHog needs, and nothing that identifies the user
   if (props.$process_person_profile !== false) bad.push("the event is not anonymous");
   if (props.app_version !== "0.1.14") bad.push("the version is missing");
   if (props.media !== "movie" || props.seconds !== 600) bad.push("the playback props were lost");
+  if (props.environment !== "production") bad.push("the build is not tagged");
   return bad;
 });
 
