@@ -243,7 +243,7 @@ function PrivacyPanel() {
           title="Share usage counts"
           description={
             analyticsAvailable
-              ? "A random install id, the app version, and for each playback: the media type, the seconds watched and whether it finished. Nothing that identifies you or what you watched."
+              ? "A random install id, the app version, how many titles and addons you have, and for each playback: the media type, the seconds watched and whether it finished. Plus the host each request went to, never the address itself. Nothing that identifies you or what you watched."
               : "This build has no analytics endpoint, so nothing is counted."
           }
           control={
