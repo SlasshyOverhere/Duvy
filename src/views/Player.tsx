@@ -2528,10 +2528,12 @@ export function PlayerView() {
         // A control owns its own click; the rest of the frame is the video.
         if (target.closest("button, input, [role='slider'], a")) return;
         if (surface) return;
-        if (!chrome) {
-          bump();
-          return;
-        }
+        // The click wakes the chrome directly: bump()'s throttle could swallow
+        // it and leave a paused frame with nothing to resume from.
+        actAt.current = Date.now();
+        setChrome(true);
+        // While playing, a bare click only brings the controls back.
+        if (!paused && !chrome) return;
         togglePause();
       }}
     >
