@@ -75,7 +75,7 @@ export function Updates() {
       <div className="settings-row">
         <div>
           <h3>Automatic checks</h3>
-          <p>Look for a new release on launch, then every hour.</p>
+          <p>Look for a new release on launch, then every 5 minutes.</p>
         </div>
         <Toggle
           checked={settings.autoUpdateCheck}

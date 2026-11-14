@@ -215,7 +215,7 @@ feature.
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| RG-01 | Update channels | Stable/beta selection | S | Signed updater, skip-version and hourly checks shipped; single channel only |
+| RG-01 | Update channels | Stable/beta selection | S | Signed updater, skip-version and 5-minute checks shipped; single channel only |
 | RG-03 | Delta updates | zsync metadata | M | |
 | RG-04 | Crash reporting | Sentry (or equivalent), DSN, opt-out, PII scrubbing | M | Shipped: opt-in Sentry reports in release builds with a DSN, scrubbed and capped; off by default |
 | RG-06 | Installer signing | Authenticode certificate | M | Updater bundles are signed in CI; the installer itself is unsigned |
