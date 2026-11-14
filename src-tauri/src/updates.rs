@@ -33,7 +33,7 @@ struct Progress {
 }
 
 /// How often a running app looks again after a successful check.
-const RECHECK: Duration = Duration::from_secs(60 * 60);
+const RECHECK: Duration = Duration::from_secs(5 * 60);
 
 /// A check must answer (or fail) instead of hanging on a stalled host.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
@@ -185,7 +185,7 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     update.install(bytes).map_err(|e| e.to_string())
 }
 
-/// Check on launch, then hourly while the app stays open. A failed check
+/// Check on launch, then every 5 minutes while the app stays open. A failed check
 /// retries in a minute, then backs off, so one bad request is not a blank day.
 ///
 /// A skipped version stays quiet in the background; a manual check still
@@ -220,7 +220,7 @@ pub fn watch(app: AppHandle) {
 /// In-app toast plus a desktop notification, so an update is noticed even when
 /// the window is behind something else.
 fn announce(app: &AppHandle, info: &UpdateInfo) {
-    // One announcement per version: the hourly re-check must not nag.
+    // One announcement per version: the periodic re-check must not nag.
     match ANNOUNCED.lock() {
         Ok(mut seen) => {
             if *seen == info.version {

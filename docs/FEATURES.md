@@ -71,7 +71,7 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Crash reports | **Done (opt-in)** | Sentry reports from release builds that carry a DSN: the error, screen, version and last playback steps, with links and secrets scrubbed and any replay masked; off until the user agrees, and every build keeps a local `playback.log` |
 | Discord rich presence | **Planned** | Not built |
 | Plugin runtime | **Planned** | Addon protocol only |
-| Auto-updater | **Done** | Signed and verified, single channel, launch and hourly checks, installs only when asked |
+| Auto-updater | **Done** | Signed and verified, single channel, launch and 5-minute checks, installs only when asked |
 
 ## Platform
 
