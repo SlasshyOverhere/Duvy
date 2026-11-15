@@ -148,7 +148,7 @@ pub struct Player {
     app: AppHandle,
     session: Arc<Mutex<Option<PlaybackSession>>>,
     /// The final save must run once, whichever of kill and drop comes first.
-    final_saved: AtomicBool,
+    final_saved: Arc<AtomicBool>,
     /// Exactly what mpv was handed, so frame previews decode the same stream.
     source: String,
     /// Stamped on every snapshot and event, so the UI can drop a dead player's.
@@ -772,6 +772,7 @@ impl Player {
         let snapshot = Arc::new(Mutex::new(snapshot));
         let stop = Arc::new(AtomicBool::new(false));
         let session = Arc::new(Mutex::new(request.session.clone()));
+        let final_saved = Arc::new(AtomicBool::new(false));
 
         spawn_events(
             app.clone(),
@@ -787,6 +788,7 @@ impl Player {
             Arc::clone(&stop),
             Arc::clone(&session),
             host,
+            Arc::clone(&final_saved),
         );
 
         Ok(Self {
@@ -795,7 +797,7 @@ impl Player {
             stop,
             app,
             session,
-            final_saved: AtomicBool::new(false),
+            final_saved,
             source: request.url.clone(),
             generation,
         })
@@ -1377,6 +1379,7 @@ fn spawn_ticker(
     stop: Arc<AtomicBool>,
     session: Arc<Mutex<Option<PlaybackSession>>>,
     host: Option<isize>,
+    final_saved: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
         let mut ticks: u64 = 0;
@@ -1448,8 +1451,11 @@ fn spawn_ticker(
                 }
             }
         }
-        // Final save when the window closes. The snapshot lock is released first:
-        // persist writes to the database, and the reader thread waits on it.
+        // Final save when the window closes, unless kill or drop already saved:
+        // a second write puts the playhead back and drops the watched mark.
+        if final_saved.swap(true, Ordering::Relaxed) {
+            return;
+        }
         let last = snapshot.lock().map(|snap| snap.clone());
         if let Ok(snap) = last {
             let session = session.lock().ok().and_then(|guard| guard.clone());

@@ -653,6 +653,7 @@ const EpisodesPanel = memo(function EpisodesPanel({
   currentEpisode,
   metaId,
   progress,
+  watchedKeys,
   busy,
   onSeason,
   onPick,
@@ -664,6 +665,7 @@ const EpisodesPanel = memo(function EpisodesPanel({
   currentEpisode: number | null;
   metaId: string;
   progress: Map<string, ProgressItem>;
+  watchedKeys: Set<string>;
   busy: boolean;
   onSeason: (value: number) => void;
   onPick: (video: Video) => void;
@@ -708,7 +710,11 @@ const EpisodesPanel = memo(function EpisodesPanel({
             const key =
               video.season != null ? `${metaId}:${video.season}:${episode}` : metaId;
             const saved = key ? progress.get(key) : undefined;
-            const watched = Boolean(saved && saved.duration > 0 && saved.position / saved.duration >= 0.92);
+            // Same 90% the watched list uses: an episode finished at 91% still
+            // counts when the credits stopped the ticker.
+            const watched =
+              watchedKeys.has(key) ||
+              progressPercent(saved?.position ?? 0, saved?.duration ?? 0) >= 90;
             const pct =
               saved && saved.duration > 0
                 ? Math.min(100, (saved.position / saved.duration) * 100)
@@ -1021,6 +1027,8 @@ export function PlayerView() {
     progressByKey,
     leavePlayer,
     stopPlayer,
+    markWatched,
+    watchedKeys,
     playerControl,
     starting,
     cancelStart,
@@ -1345,13 +1353,10 @@ export function PlayerView() {
       : duration > 60
         ? duration - NEXT_LEAD
         : null;
-  const nextDue = Boolean(
-    nextEpisode &&
-      !nextOff &&
-      !failed &&
-      !dropped &&
-      (local?.ended || (nextAt != null && position >= nextAt)),
-  );
+  // The credits (or the end of the file) are the end of the episode; a dropped
+  // stream is not.
+  const overTheCredits = Boolean(local?.ended) || (nextAt != null && position >= nextAt);
+  const nextDue = Boolean(nextEpisode && !nextOff && overTheCredits && !failed && !dropped);
   // The card lands a beat after the credits, so it does not cut into the scene.
   const [showNext, setShowNext] = useState(false);
   useEffect(() => {
@@ -1374,6 +1379,16 @@ export function PlayerView() {
   const playVideo = useCallback(
     async (video: Video) => {
       if (!details) return;
+      // The credits are the end of this episode, so leaving for the next one is
+      // a finish: the ticker stops before its 92% and would never mark it.
+      const leaving =
+        overTheCredits &&
+        !failed &&
+        !dropped &&
+        nextEpisode != null &&
+        episodeCode(video) === episodeCode(nextEpisode)
+          ? sessionRef.current
+          : null;
       setBusy(true);
       try {
         const nextSession = buildSession(details, video);
@@ -1422,6 +1437,10 @@ export function PlayerView() {
           startAt,
           session: nextSession,
         });
+        // After the open: the killed player's own final save would clear this.
+        if (opened && leaving) {
+          void markWatched(leaving.key, leaving.metaId, true).catch(() => undefined);
+        }
         if (opened) rememberSource(nextSession.key, source);
         if (!alive.current) return;
         pushPlaybackPrefs();
@@ -1435,7 +1454,12 @@ export function PlayerView() {
       addons,
       buildSession,
       details,
+      dropped,
+      failed,
+      markWatched,
+      nextEpisode,
       notify,
+      overTheCredits,
       playRequest,
       progressFor,
       pushPlaybackPrefs,
@@ -2842,6 +2866,7 @@ export function PlayerView() {
               currentEpisode={session?.episode ?? null}
               metaId={session?.metaId ?? ""}
               progress={progressByKey}
+              watchedKeys={watchedKeys}
               busy={busy}
               onSeason={setSeason}
               onPick={pickEpisode}
