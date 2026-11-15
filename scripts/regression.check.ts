@@ -254,6 +254,26 @@ run("continue watching compares exact episode keys", () => {
   return out;
 });
 
+run("leaving at the credits counts the episode as watched", () => {
+  const out: string[] = [];
+  // The ticker's own final save used to land after kill's, putting the sub-92%
+  // playhead back and dropping the mark the advance had just written.
+  if (!/final_saved\.swap\(true/.test(rustFn(player, "spawn_ticker"))) {
+    out.push("player.rs saves again after the final save, undoing a watched mark");
+  }
+  if (
+    !/episodeCode\(video\) === episodeCode\(nextEpisode\)/.test(playerView) ||
+    !/markWatched\(leaving\.key/.test(playerView)
+  ) {
+    out.push("Player.tsx advances to the next episode without finishing the one it leaves");
+  }
+  // The credits sit under the 92% the row is read with, so the mark has to count.
+  if (!/watchedKeys\.has\(key\)/.test(playerView)) {
+    out.push("Player.tsx episode list ignores an explicit watched mark");
+  }
+  return out;
+});
+
 run("continue watching advances a finished episode", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
