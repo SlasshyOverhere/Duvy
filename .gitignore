@@ -33,6 +33,7 @@ reference/
 
 # Bundled media player (120 MB). Keep it out of git; see README for how to fetch it.
 src-tauri/resources/mpv/
+src-tauri/libmpv/
 
 # Editor directories and files
 .vscode/*
