@@ -53,17 +53,31 @@ function parseCss(css: string): Rule[] {
   return rules;
 }
 
-// Walk a JSX opening tag starting at `<Name`, respecting quotes and brace depth.
+// Walk a JSX opening tag starting at `<Name`, respecting quotes, template
+// literals, comments and brace depth.
 function openingTag(src: string, from: number): { tag: string; end: number } | null {
   let depth = 0;
   let quote = "";
   for (let i = from; i < src.length; i += 1) {
     const ch = src[i];
     if (quote) {
-      if (ch === quote) quote = "";
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = "";
       continue;
     }
-    if (ch === '"' || ch === "'") quote = ch;
+    if (ch === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2);
+      if (end < 0) return null;
+      i = end + 1;
+      continue;
+    }
+    if (ch === "/" && src[i + 1] === "/") {
+      const end = src.indexOf("\n", i);
+      if (end < 0) return null;
+      i = end;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
     else if (ch === "{") depth += 1;
     else if (ch === "}") depth -= 1;
     else if (ch === ">" && depth === 0) return { tag: src.slice(from, i + 1), end: i + 1 };
@@ -170,9 +184,36 @@ run("panels fit the viewport", () => {
   return out;
 });
 
+run("the tag scanner survives comments and template strings", () => {
+  const out: string[] = [];
+  const cases = [
+    '<Icon name={paused ? "pause" : "play"} size={26} />',
+    '<button /* a > in a comment */ type="button" aria-label={`Play ${title} > now`}>',
+    '<button type="button" title="a > b">',
+    "<button // a > in a line comment\n type=\"button\">",
+  ];
+  for (const source of cases) {
+    const got = openingTag(source, 0);
+    if (!got) out.push(`no tag found in ${JSON.stringify(source)}`);
+    else if (got.tag !== source) out.push(`cut at ${JSON.stringify(got.tag)}`);
+  }
+  return out;
+});
+
 run("pause is deterministic", () => {
   const out: string[] = [];
   if (/toggl[ea]-pause/.test(playerTsx)) out.push('Player.tsx still sends "toggle-pause"');
+
+  // One sender, and it sends a state value: a toggle sent from two places is
+  // what cancels itself out.
+  const sites = [...playerTsx.matchAll(/send\(\s*["']pause["']\s*,\s*([^)]*)\)/g)];
+  if (sites.length !== 1) {
+    return [...out, `${sites.length} send("pause") sites, want exactly 1`];
+  }
+  const arg = sites[0][1].trim();
+  if (!/^!?\s*[A-Za-z_$][\w$]*(?:\.[\w$]+)*$/.test(arg) || /^(?:true|false|null|undefined)$/.test(arg)) {
+    out.push(`send("pause", ${arg}) sends a constant instead of the target state`);
+  }
 
   let helper = "";
   for (const m of playerTsx.matchAll(/send\(\s*["']pause["']/g)) {
@@ -322,9 +363,11 @@ run("catch-up marking spans seasons", async () => {
     { id: "s3e1", season: 3, episode: 1 },
   ];
   const cases: Array<[string, { season: number; episode: number }, string[]]> = [
-    ["end of season 1", { season: 1, episode: 2 }, ["s1e1", "s0e1", "s1e2"]],
-    ["start of season 2", { season: 2, episode: 3 }, ["s2e3", "s1e1", "s0e1", "s1e2"]],
-    ["late season 6", { season: 6, episode: 2 }, ["s2e3", "s1e1", "s0e1", "s1e2", "s6e2", "s3e1"]],
+    ["end of season 1", { season: 1, episode: 2 }, ["s1e1", "s1e2"]],
+    ["start of season 2", { season: 2, episode: 3 }, ["s1e1", "s1e2", "s2e3"]],
+    ["late season 6", { season: 6, episode: 2 }, ["s1e1", "s1e2", "s2e3", "s3e1", "s6e2"]],
+    // A special only marks other specials, never the whole show.
+    ["a special", { season: 0, episode: 1 }, ["s0e1"]],
   ];
   for (const [label, target, want] of cases) {
     const got = fn(show, target).map((video) => video.id).sort();

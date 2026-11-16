@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/bridge";
+import { errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
 import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
+import { useFocusTrap } from "./ui";
 
 /**
  * Asks once, then honours the answer: the SDK is only live while the user has
@@ -10,7 +12,17 @@ import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
  */
 export function CrashReporting() {
   const { settings, appInfo, saveSettings } = useApp();
+  const [error, setError] = useState<string | null>(null);
   const choice = settings?.telemetry ?? null;
+  const trap = useFocusTrap<HTMLDivElement>(
+    Boolean(telemetryAvailable && settings?.onboarded && choice === null),
+  );
+
+  const decide = (telemetry: boolean) => {
+    setError(null);
+    // A failed save keeps the dialog open, so the answer is never lost silently.
+    void saveSettings({ telemetry }).catch((e) => setError(errorMessage(e)));
+  };
 
   useEffect(() => {
     if (!appInfo) return;
@@ -42,7 +54,13 @@ export function CrashReporting() {
 
   return (
     <div className="consent">
-      <div className="consent-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div
+        ref={trap}
+        className="consent-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consent-title"
+      >
         <h2 id="consent-title">Send crash reports?</h2>
         <p>
           When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A
@@ -60,18 +78,23 @@ export function CrashReporting() {
             type="button"
             className="btn btn-primary"
             autoFocus
-            onClick={() => void saveSettings({ telemetry: true })}
+            onClick={() => decide(true)}
           >
             Send reports
           </button>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void saveSettings({ telemetry: false })}
+            onClick={() => decide(false)}
           >
             No thanks
           </button>
         </div>
+        {error ? (
+          <p className="form-error" role="alert" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   );

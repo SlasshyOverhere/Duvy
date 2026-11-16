@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
-import { PosterCard, Row, menuFromKey } from "../components/media";
-import { Button, ContextMenu, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
+import { PosterCard, Row, menuFromKey, useDragScroll } from "../components/media";
+import { Button, ContextMenu, EmptyState, Icon, IconButton, ImdbMark, Loading, type ContextAction } from "../components/ui";
 import {
+  airOrder,
   episodeCode,
   episodesUpTo,
   placeholderGradient,
   progressPercent,
+  runtimeLabel,
   scoreLabel,
   timeAgo,
 } from "../lib/format";
@@ -27,6 +29,15 @@ function firstSeason(details: Details): number | null {
   return seasons.find((value) => value > 0) ?? seasons[0] ?? null;
 }
 
+/** TMDB sends a language code; the table reads better as its name. */
+function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 /** The first episode of the default season, so Specials never lead. */
 function firstEpisode(details: Details): Video | null {
   const season = firstSeason(details);
@@ -37,7 +48,45 @@ function firstEpisode(details: Details): Video | null {
   );
 }
 
-export function DetailsView({ id, type }: { id: string; type: string }) {
+/** The row that opened this page holds the hero: name, art, year, rating, blurb. */
+function seededDetails(preview: MetaPreview): Details {
+  return {
+    id: preview.id,
+    type: preview.type,
+    name: preview.name,
+    poster: preview.poster,
+    background: preview.background,
+    logo: preview.logo,
+    description: preview.description,
+    releaseInfo: preview.releaseInfo,
+    year: preview.releaseInfo,
+    rating: preview.imdbRating,
+    genres: preview.genres ?? [],
+    runtime: preview.runtime,
+    videos: [],
+    cast: [],
+    director: [],
+    writer: [],
+    country: [],
+    trailers: [],
+    seasons: [],
+    networks: [],
+    companies: [],
+    collectionItems: [],
+    originCountry: [],
+    source: "seed",
+  };
+}
+
+export function DetailsView({
+  id,
+  type,
+  preview,
+}: {
+  id: string;
+  type: string;
+  preview?: MetaPreview;
+}) {
   const cacheKey = `${type}:${id}`;
   const {
     navigate,
@@ -65,11 +114,26 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [picked, setPicked] = useState<{ key: string; season: number } | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; video: Video } | null>(null);
+  const [actionsMenu, setActionsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
-  const details = loaded?.key === cacheKey ? loaded.details : null;
+  // The card that was clicked already knows the hero, so paint it at once and
+  // let the rest of the page fill in behind it.
+  const details =
+    loaded?.key === cacheKey
+      ? loaded.details
+      : preview && !error
+        ? seededDetails(preview)
+        : null;
+  // A TMDB id and its IMDb twin are the same title, so one id owns its rows.
+  const metaId = details?.imdbId ?? id;
+  const episodeRail = useRef<HTMLDivElement>(null);
+  const castRail = useRef<HTMLDivElement>(null);
+  useDragScroll(episodeRail, details);
+  useDragScroll(castRail, details);
 
   useEffect(() => {
     let alive = true;
@@ -101,15 +165,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   // Photos and neighbours land after the page paints: the title is readable
   // immediately, and both requests are decoration, never a blocker.
   useEffect(() => {
-    if (!details) return;
+    if (!details || details.source === "seed") return;
     let alive = true;
     const cast = details.cast ?? [];
-    if (cast.length > 0) {
+    // TMDB already sent a face per cast member; only the gaps need a lookup.
+    const faceless = cast.filter((member) => !member.photo).map((member) => member.name);
+    if (faceless.length > 0) {
       api
-        .castPhotos(
-          cast.map((member) => member.name),
-          details.name,
-        )
+        .castPhotos(faceless, details.name)
         .then((map) => {
           if (alive) setPhotos(map);
         })
@@ -132,15 +195,25 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const seriesProgress = useMemo(
     () =>
       progress
-        .filter((entry) => entry.metaId === id)
+        .filter((entry) => entry.metaId === metaId)
         .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null,
-    [progress, id],
+    [progress, metaId],
   );
 
   const seasons = useMemo(
     () => [...new Set((details?.videos ?? []).map((video) => video.season ?? 1))].sort((a, b) => a - b),
     [details],
   );
+
+  // TMDB art for the seasons we can actually play; a missing poster falls back
+  // to the chip picker instead of an empty tile.
+  const seasonArt = useMemo(() => {
+    const art = new Map<number, string>();
+    for (const season of details?.seasons ?? []) {
+      if (season.poster) art.set(season.number, season.poster);
+    }
+    return art;
+  }, [details]);
 
   // Explicit marks for this title, so an episode can be ticked off without
   // playing it first. The store's watched list keeps one row per title, so the
@@ -150,7 +223,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   useEffect(() => {
     let alive = true;
     api.watched
-      .marks(id)
+      .marks(metaId)
       .then((rows) => {
         if (alive) setMarked(rows);
       })
@@ -158,17 +231,17 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     return () => {
       alive = false;
     };
-  }, [id, watched]);
+  }, [metaId, watched]);
 
   const marks = useMemo(() => new Map(marked), [marked]);
 
-  const toggleEpisodeWatched = useCallback(
+  const toggleWatched = useCallback(
     (key: string, next: boolean) => {
-      markWatched(key, id, next)
+      markWatched(key, metaId, next)
         .then(() => notify(next ? "Marked as watched" : "Marked as unwatched"))
         .catch(() => notify("Could not update that", "error"));
     },
-    [markWatched, id, notify],
+    [markWatched, metaId, notify],
   );
 
   /** Every episode from the first one through `target` still needing a mark. */
@@ -190,11 +263,11 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     (target: Video) => {
       const keys = unmarkedUpTo(target);
       if (!keys.length) return;
-      markWatchedMany(keys, id)
+      markWatchedMany(keys, metaId)
         .then(() => notify(`${keys.length} episodes marked as watched`))
         .catch(() => notify("Could not update those", "error"));
     },
-    [unmarkedUpTo, markWatchedMany, id, notify],
+    [unmarkedUpTo, markWatchedMany, metaId, notify],
   );
 
   const defaultSeason = useMemo(() => (details ? firstSeason(details) : null), [details]);
@@ -223,48 +296,74 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <PosterCard
           key={item.id}
           item={item}
-          onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+          onOpen={() =>
+            navigate({ name: "details", id: item.id, type: item.type, preview: item })
+          }
         />
       )),
     [similar, navigate],
   );
 
+  // A title or episode is behind the viewer once it is marked or played out.
+  const finished = useCallback(
+    (key: string) => {
+      if (marks.has(key)) return true;
+      const entry = progressFor(key);
+      return Boolean(entry && progressPercent(entry.position, entry.duration) >= 90);
+    },
+    [marks, progressFor],
+  );
+
   const resumeTarget = useMemo(() => {
     if (!details) return { video: null as Video | null, position: 0, label: "Play" };
     if (details.type !== "series") {
-      const entry = progressFor(details.id);
+      const entry = finished(metaId) ? undefined : progressFor(metaId);
       return {
         video: null,
         position: entry?.position ?? 0,
-        label: entry ? `Resume ${timeAgo(entry.updatedAt)}` : "Play",
+        label: entry ? "Resume" : "Play",
       };
     }
-    const stored =
-      seriesProgress &&
-      details.videos.find(
-        (candidate) =>
-          candidate.season === seriesProgress.season &&
-          (candidate.episode ?? candidate.number) === seriesProgress.episode,
-      );
-    const video = stored || firstEpisode(details);
+    const queue = [...details.videos].sort((a, b) => {
+      const [aSeason, aEpisode] = airOrder(a);
+      const [bSeason, bEpisode] = airOrder(b);
+      return aSeason - bSeason || aEpisode - bEpisode;
+    });
+    // A finished episode is behind the viewer, so resume walks forward to the
+    // first one still open instead of replaying it.
+    const done = (video: Video) => finished(buildSession(details, video).key);
+    const at = queue.findIndex(
+      (candidate) =>
+        candidate.season === seriesProgress?.season &&
+        (candidate.episode ?? candidate.number) === seriesProgress?.episode,
+    );
+    const start = at < 0 ? 0 : at;
+    const video =
+      queue.slice(start).find((candidate) => !done(candidate)) ?? firstEpisode(details);
     const entry = video ? progressFor(buildSession(details, video).key) : undefined;
     return {
       video,
       position: entry?.position ?? 0,
       label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
-  }, [details, seriesProgress, progressFor, buildSession]);
+  }, [details, seriesProgress, progressFor, buildSession, finished]);
+
+  // The check marks what the play button points at: the title for a movie, the
+  // episode it would resume for a show.
+  const watchTarget = useMemo(() => {
+    if (!details) return null;
+    const video = details.type === "series" ? resumeTarget.video : null;
+    if (details.type === "series" && !video) return null;
+    const key = video ? buildSession(details, video).key : metaId;
+    return { key, watched: finished(key) };
+  }, [details, resumeTarget.video, buildSession, metaId, finished]);
 
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
     if (!details) return;
     const target = resumeTarget.video;
-    const entry =
-      details.type === "series"
-        ? target
-          ? progressFor(buildSession(details, target).key)
-          : null
-        : progressFor(details.id);
+    const key = target ? buildSession(details, target).key : metaId;
+    const entry = finished(key) ? undefined : progressFor(key);
     if (entry) {
       void resumeEntry(entry);
       return;
@@ -347,7 +446,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             aria-pressed={done}
             aria-label={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
             title={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
-            onClick={() => toggleEpisodeWatched(key, !done)}
+            onClick={() => toggleWatched(key, !done)}
           >
             <Icon name="check" size={15} />
           </button>
@@ -361,7 +460,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     progressFor,
     buildSession,
     marks,
-    toggleEpisodeWatched,
+    toggleWatched,
   ]);
 
   const startStream = async (stream: StreamOption) => {
@@ -369,8 +468,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     const session = buildSession(details, drawer.video);
     const stored = settings?.autoResume ? progressFor(session.key) : undefined;
     // A finished session restarts instead of opening on its last seconds.
-    const resume =
-      stored && progressPercent(stored.position, stored.duration) < 90 ? stored.position : 0;
+    const resume = stored && !finished(session.key) ? stored.position : 0;
     const title = drawer.video
       ? `${details.name} · ${episodeCode(drawer.video)}`
       : details.name;
@@ -415,10 +513,45 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     );
   }
 
-  const inWatchlist = inLibrary(details.id);
+  const inWatchlist = inLibrary(metaId);
   const rating = scoreLabel(details.rating);
   const trailer = details.trailer;
-  const logo = details.logo ?? rememberedLogo(details.id);
+  const detailMenu: ContextAction[] = [
+    { label: "Sources", icon: "sliders", onSelect: () => openSources(resumeTarget.video) },
+  ];
+  if (trailer) {
+    detailMenu.push({
+      label: "Trailer",
+      icon: "external",
+      onSelect: () =>
+        void openExternal(trailer).catch(() => notify("Could not open the trailer", "error")),
+    });
+  }
+  const logo = details.logo ?? rememberedLogo(metaId);
+  const origin = (details.originCountry ?? []).length
+    ? details.originCountry ?? []
+    : details.country ?? [];
+  const factRows = (
+    [
+      ["Status", details.status ?? ""],
+      ["Release info", details.releaseInfo ?? ""],
+      ["Runtime", runtimeLabel(details.runtime) ?? ""],
+      ["Certification", details.certification ?? ""],
+      ["Origin country", origin.join(", ")],
+      ["Original language", details.originalLanguage ? languageName(details.originalLanguage) : ""],
+    ] as Array<[string, string]>
+  ).filter(([, value]) => value);
+
+  // A show belongs to its network; a film to its studio. Either falls back.
+  const isSeries = details.type === "series";
+  const studios = isSeries
+    ? (details.networks ?? []).length
+      ? details.networks ?? []
+      : details.companies ?? []
+    : (details.companies ?? []).length
+      ? details.companies ?? []
+      : details.networks ?? [];
+  const collection = details.collectionItems ?? [];
 
   return (
     <div className="page detail-page">
@@ -447,7 +580,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               <div className="detail-meta">
                 <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
                 {details.year ? <span>{details.year}</span> : null}
-                {details.runtime ? <span>{details.runtime}</span> : null}
+                {runtimeLabel(details.runtime) ? <span>{runtimeLabel(details.runtime)}</span> : null}
                 {rating ? (
                   <span className="detail-rating">
                     <span>{rating}</span>
@@ -463,48 +596,60 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               </div>
               <p className="detail-overview">{details.description || "No overview yet."}</p>
 
-              <div className="detail-actions">
+              <div className={`detail-actions${actionsOpen ? " is-open" : ""}`}>
                 <button
                   type="button"
                   className="btn btn-primary"
                   onClick={playOrResume}
                   disabled={details.type === "series" && details.videos.length === 0}
-                  aria-label={resumeTarget.label}
-                  title={resumeTarget.label}
                 >
                   <Icon name="play" size={17} />
+                  <span>{resumeTarget.label}</span>
                 </button>
-                <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
-                  Sources
-                </Button>
-                <Button
-                  icon={inWatchlist ? "check" : "plus"}
-                  onClick={() =>
-                    void toggleLibrary({
-                      id: details.id,
-                      type: details.type,
-                      name: details.name,
-                      poster: details.poster,
-                      background: details.background,
-                      releaseInfo: details.year,
-                      imdbRating: rating,
-                    })
-                  }
-                >
-                  {inWatchlist ? "In library" : "Library"}
-                </Button>
-                {trailer ? (
-                  <Button
-                    icon="external"
+                <div className="detail-actions-extra" inert={!actionsOpen}>
+                  <IconButton
+                    icon="check"
+                    size={19}
+                    label={watchTarget?.watched ? "Mark as unwatched" : "Mark as watched"}
+                    active={watchTarget?.watched}
+                    disabled={!watchTarget}
+                    onClick={() => {
+                      if (watchTarget) toggleWatched(watchTarget.key, !watchTarget.watched);
+                    }}
+                  />
+                  <IconButton
+                    icon="library"
+                    size={19}
+                    label={inWatchlist ? "Remove from library" : "Add to library"}
+                    active={inWatchlist}
                     onClick={() =>
-                      void openExternal(trailer).catch(() =>
-                        notify("Could not open the trailer", "error"),
-                      )
+                      void toggleLibrary({
+                        id: metaId,
+                        type: details.type,
+                        name: details.name,
+                        poster: details.poster,
+                        background: details.background,
+                        releaseInfo: details.year,
+                        imdbRating: rating,
+                      })
                     }
-                  >
-                    Trailer
-                  </Button>
-                ) : null}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className={`icon-btn detail-actions-toggle${actionsOpen ? " is-active" : ""}`}
+                  aria-label={actionsOpen ? "Hide actions" : "Show actions"}
+                  aria-expanded={actionsOpen}
+                  title={actionsOpen ? "Hide actions" : "Show actions"}
+                  onClick={() => setActionsOpen((open) => !open)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setActionsMenu({ x: box.left, y: box.bottom + 8 });
+                  }}
+                >
+                  <Icon name="more" size={19} />
+                </button>
               </div>
 
             <div className="detail-credits">
@@ -521,12 +666,6 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                     <dd>{(details.writer ?? []).join(", ")}</dd>
                   </div>
                 ) : null}
-                {(details.country ?? []).length ? (
-                  <div className="detail-fact">
-                    <dt>Country</dt>
-                    <dd>{(details.country ?? []).join(", ")}</dd>
-                  </div>
-                ) : null}
               </dl>
               {details.source === "tmdb" ? (
                 <p className="detail-source">Metadata from TMDB</p>
@@ -540,36 +679,85 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <section className="detail-shell detail-section episodes">
           <div className="episodes-head">
             <h2>Episodes</h2>
-            <div className="season-tabs" role="group" aria-label="Seasons">
-              {seasons.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`chip${season === value ? " is-active" : ""}`}
-                  aria-pressed={season === value}
-                  onClick={() => setPicked({ key: cacheKey, season: value })}
-                >
-                  {value === 0 ? "Specials" : `Season ${value}`}
-                </button>
-              ))}
-            </div>
+            {seasonArt.size === 0 ? (
+              <div className="season-tabs" role="group" aria-label="Seasons">
+                {seasons.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`chip${season === value ? " is-active" : ""}`}
+                    aria-pressed={season === value}
+                    onClick={() => setPicked({ key: cacheKey, season: value })}
+                  >
+                    {value === 0 ? "Specials" : `Season ${value}`}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
-          <div className="episode-list">{episodeRows}</div>
+          {seasonArt.size > 0 ? (
+            <div className="season-rail" role="group" aria-label="Seasons">
+              {seasons.map((value) => {
+                const poster = seasonArt.get(value);
+                const active = season === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`season-card${active ? " is-active" : ""}`}
+                    aria-pressed={active}
+                    onClick={() => setPicked({ key: cacheKey, season: value })}
+                  >
+                    <span className="season-poster">
+                      {poster ? (
+                        <img src={poster} alt="" loading="lazy" />
+                      ) : (
+                        <span className="season-fallback">{value === 0 ? "S" : value}</span>
+                      )}
+                    </span>
+                    <span className="season-name">
+                      {value === 0 ? "Specials" : `Season ${value}`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <div className="episode-list" ref={episodeRail}>{episodeRows}</div>
+        </section>
+      ) : null}
+
+      {studios.length ? (
+        <section className="detail-shell detail-section production-section">
+          <h2>{isSeries ? "Network" : "Production"}</h2>
+          <div className="network-row">
+            {studios.slice(0, 6).map((studio) => (
+              <span className="network" key={studio.name}>
+                {studio.logo ? (
+                  <img src={studio.logo} alt={studio.name} loading="lazy" />
+                ) : (
+                  studio.name
+                )}
+              </span>
+            ))}
+          </div>
         </section>
       ) : null}
 
       {(details.cast ?? []).length ? (
         <section className="detail-shell detail-section cast-section">
           <h2>Cast</h2>
-          <div className="cast-grid">
+          <div className="cast-grid" ref={castRail}>
             {(details.cast ?? []).map((member, index) => {
               const photo = brokenPhotos[member.name]
                 ? undefined
                 : member.photo ?? photos[member.name];
-              return (
-                <div className="cast-card" key={`${member.name}:${index}`}>
-                  <div className="cast-photo">
+              const personId = member.personId;
+              const face = (
+                <>
+                  <span className="cast-photo">
                     {photo ? (
                       <img
                         src={photo}
@@ -582,13 +770,86 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                     ) : (
                       <span>{member.name.slice(0, 1)}</span>
                     )}
-                  </div>
+                  </span>
                   <span className="cast-name">{member.name}</span>
                   {member.character ? <span className="cast-role">{member.character}</span> : null}
+                </>
+              );
+              // A face with a TMDB id opens the person behind it.
+              return personId ? (
+                <button
+                  key={`${member.name}:${index}`}
+                  type="button"
+                  className="cast-card is-link"
+                  onClick={() => navigate({ name: "person", id: personId })}
+                >
+                  {face}
+                </button>
+              ) : (
+                <div className="cast-card" key={`${member.name}:${index}`}>
+                  {face}
                 </div>
               );
             })}
           </div>
+        </section>
+      ) : null}
+
+      {(details.trailers ?? []).length ? (
+        <section className="detail-shell detail-section">
+          <Row title="Trailers">
+            {(details.trailers ?? []).map((link) => (
+              <button
+                key={link.url}
+                type="button"
+                className="trailer-card"
+                onClick={() =>
+                  void openExternal(link.url).catch(() =>
+                    notify("Could not open the trailer", "error"),
+                  )
+                }
+              >
+                <span className="trailer-thumb">
+                  {link.thumbnail ? <img src={link.thumbnail} alt="" loading="lazy" /> : null}
+                  <span className="trailer-play">
+                    <Icon name="play" size={16} />
+                  </span>
+                </span>
+                <span className="trailer-name">{link.name}</span>
+                {link.year ? <span className="trailer-year">{link.year}</span> : null}
+              </button>
+            ))}
+          </Row>
+        </section>
+      ) : null}
+
+      {factRows.length ? (
+        <section className="detail-shell detail-section">
+          <h2>Details</h2>
+          <dl className="detail-table">
+            {factRows.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+
+      {collection.length ? (
+        <section className="detail-shell detail-section collection-section">
+          <Row title={details.collectionName ?? "Collection"}>
+            {collection.map((item) => (
+              <PosterCard
+                key={item.id}
+                item={item}
+                onOpen={() =>
+                  navigate({ name: "details", id: item.id, type: item.type, preview: item })
+                }
+              />
+            ))}
+          </Row>
         </section>
       ) : null}
 
@@ -600,7 +861,18 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           >
             {similarRow}
           </Row>
+          {details.source === "tmdb" ? <p className="detail-source">Powered by TMDB</p> : null}
         </section>
+      ) : null}
+
+      {actionsMenu ? (
+        <ContextMenu
+          x={actionsMenu.x}
+          y={actionsMenu.y}
+          title={details.name}
+          onClose={() => setActionsMenu(null)}
+          actions={detailMenu}
+        />
       ) : null}
 
       {menu
@@ -623,7 +895,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   {
                     label: done ? "Mark as unwatched" : "Mark as watched",
                     icon: "check",
-                    onSelect: () => toggleEpisodeWatched(key, !done),
+                    onSelect: () => toggleWatched(key, !done),
                   },
                   {
                     label:

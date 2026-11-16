@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, isTauri } from "./bridge";
+import { api, isTauri, validUpdate } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
 import { wentBackwards } from "./errors";
@@ -46,7 +46,8 @@ export type Route =
   | { name: "library" }
   | { name: "watched" }
   | { name: "settings"; section?: string }
-  | { name: "details"; id: string; type: string }
+  | { name: "details"; id: string; type: string; preview?: MetaPreview }
+  | { name: "person"; id: number }
   | { name: "player" };
 
 type ToastTone = "info" | "success" | "error";
@@ -70,6 +71,9 @@ interface Store {
   libraryIds: Set<string>;
   toasts: Toast[];
   route: Route;
+  /** One fullscreen state for the window, shared by the shell and the player. */
+  fullscreen: boolean;
+  setFullscreen: (on: boolean) => void;
   /** Non-null from the click until the source is resolved; the player opens at once. */
   starting: StartingArt | null;
   cancelStart: () => void;
@@ -133,12 +137,14 @@ export function usePlayer(): PlayerSnapshot | null {
 function sessionFor(details: Details, video: Video | null): PlaybackSession {
   const season = video?.season ?? null;
   const episode = video?.episode ?? video?.number ?? null;
+  // A TMDB id and its IMDb twin are the same title, so both routes share a row.
+  const metaId = details.imdbId ?? details.id;
   return {
     key:
       season != null && episode != null
-        ? `${details.id}:${season}:${episode}`
-        : details.id,
-    metaId: details.id,
+        ? `${metaId}:${season}:${episode}`
+        : metaId,
+    metaId,
     type: details.type,
     name: details.name,
     poster: details.poster ?? null,
@@ -156,6 +162,7 @@ const ROUTE_NAMES = new Set<Route["name"]>([
   "watched",
   "settings",
   "details",
+  "person",
   "player",
 ]);
 
@@ -164,6 +171,7 @@ function validRoute(value: unknown): value is Route {
   if (!value || typeof value !== "object") return false;
   const route = value as Route;
   if (!ROUTE_NAMES.has(route.name)) return false;
+  if (route.name === "person") return Number.isFinite(route.id) && route.id > 0;
   return route.name !== "details" || (Boolean(route.id) && Boolean(route.type));
 }
 
@@ -174,6 +182,7 @@ function sameRoute(a: Route, b: Route): boolean {
   if (a.name === "settings" && b.name === "settings")
     return (a.section ?? "") === (b.section ?? "");
   if (a.name === "details" && b.name === "details") return a.id === b.id && a.type === b.type;
+  if (a.name === "person" && b.name === "person") return a.id === b.id;
   return true;
 }
 
@@ -211,6 +220,9 @@ function resumePosition(position: number, duration: number): number {
   return position / duration >= FINISHED_SHARE ? 0 : position;
 }
 
+/** Addon rows are untrusted: a null or numeric field must not break a pick. */
+const lower = (value: unknown): string => (typeof value === "string" ? value.toLowerCase() : "");
+
 /**
  * The quality wanted, preferring the pack and the addon already playing, then
  * the source this session used last time, then the best source offered.
@@ -224,9 +236,9 @@ export function pickSource(
 ): StreamOption | undefined {
   const playable = options.filter((stream) => stream.playable);
   // The pack playing now holds the next episode: a binge stays in one torrent.
-  const packHash = playing?.infoHash?.toLowerCase() ?? null;
+  const packHash = lower(playing?.infoHash);
   if (packHash) {
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === packHash);
+    const samePack = playable.find((stream) => lower(stream.infoHash) === packHash);
     if (samePack) return samePack;
   }
   // The addon playing now beats a memory from another session: a source the
@@ -234,16 +246,17 @@ export function pickSource(
   const fromAddon = playing ? playable.filter((stream) => stream.addon === playing.addon) : [];
   const wanted = quality && quality !== "auto" ? quality.toLowerCase() : null;
   const fits = (stream: StreamOption) =>
-    wanted === null || stream.quality.toLowerCase().includes(wanted);
+    wanted === null || lower(stream.quality).includes(wanted);
   const home = fromAddon.find(fits) ?? fromAddon[0];
   if (home) return home;
   // The source this session used last time wins, as long as the addon still
   // offers it.
   if (remembered) {
+    const memoryHash = lower(remembered.infoHash);
     const same = playable.find((stream) =>
-      remembered.infoHash
+      memoryHash
         ? stream.addon === remembered.addon &&
-          stream.infoHash?.toLowerCase() === remembered.infoHash.toLowerCase() &&
+          lower(stream.infoHash) === memoryHash &&
           (remembered.fileIdx == null || stream.fileIdx === remembered.fileIdx)
         : remembered.url
           ? stream.addon === remembered.addon && stream.url === remembered.url
@@ -255,9 +268,9 @@ export function pickSource(
   }
   // Then the pack this season played from last time, so a pack that broke one
   // episode is not reopened on the next one after a restart.
-  if (pack?.infoHash) {
-    const seasonPack = pack.infoHash.toLowerCase();
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === seasonPack);
+  const seasonPack = lower(pack?.infoHash);
+  if (seasonPack) {
+    const samePack = playable.find((stream) => lower(stream.infoHash) === seasonPack);
     if (samePack) return samePack;
   }
   if (wanted !== null) {
@@ -303,7 +316,13 @@ function packKey(key: string): string {
 export function rememberedSource(key: string | null | undefined): SourceMemory | null {
   if (!key) return null;
   const found = readSourceMemory()[key];
-  return found && typeof found.addon === "string" && typeof found.quality === "string"
+  // Stored rows outlive the build that wrote them: only the shapes the play
+  // path reads are trusted.
+  return found &&
+    typeof found.addon === "string" &&
+    typeof found.quality === "string" &&
+    (found.infoHash == null || typeof found.infoHash === "string") &&
+    (found.url == null || typeof found.url === "string")
     ? found
     : null;
 }
@@ -409,6 +428,7 @@ export function noSourceError(options: StreamOption[]): Error {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>({ name: "home" });
+  const [fullscreen, setFullscreen] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -438,6 +458,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const toggling = useRef(new Set<string>());
   const progressFails = useRef(0);
+  // Only the newest read may land: refreshes fire from marks, both player
+  // events, sync and the cards, and an older one finishing last loses.
+  const progressGen = useRef(0);
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
@@ -491,6 +514,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // The window chrome keys off one attribute, so one place owns it.
+  useEffect(() => {
+    if (fullscreen) document.documentElement.dataset.fullscreen = "on";
+    else delete document.documentElement.dataset.fullscreen;
+  }, [fullscreen]);
+
   const clearFrameWatchdog = useCallback(() => {
     if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
     frameTimer.current = null;
@@ -514,6 +543,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [clearFrameWatchdog],
   );
+
+  // A provider swap (or a quit) must not leave the watchdog armed.
+  useEffect(() => clearFrameWatchdog, [clearFrameWatchdog]);
 
   const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
     const current = routeRef.current;
@@ -603,20 +635,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [player]);
 
   const refreshAddons = useCallback(async () => {
-    setAddons(await api.addons.list());
+    try {
+      setAddons(await api.addons.list());
+    } catch (error) {
+      // Callers still decide what to show, but a silent failure is invisible.
+      note("addon refresh failed", { error: errorMessage(error) });
+      throw error;
+    }
   }, []);
 
   const refreshLibrary = useCallback(async () => {
-    setLibrary(await api.library.list());
+    try {
+      setLibrary(await api.library.list());
+    } catch (error) {
+      note("library refresh failed", { error: errorMessage(error) });
+      throw error;
+    }
   }, []);
 
   const refreshProgress = useCallback(async () => {
+    const run = ++progressGen.current;
     try {
       const [rows, marks, keys] = await Promise.all([
         api.progress.list(),
         api.watched.list(),
         api.watched.keys(),
       ]);
+      if (run !== progressGen.current) return;
       setProgress(rows);
       setWatched(marks);
       setWatchedKeys(new Set(keys));
@@ -766,7 +811,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     void listen<UpdateInfo>("update:available", (event) => {
       // The corner card carries this, not a toast.
-      setUpdate(event.payload);
+      const found = validUpdate(event.payload);
+      if (found) setUpdate(found);
     })
       .then((stop) => {
         if (disposed) stop();
@@ -894,6 +940,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               !firstFrame.current && !stopRequested.current && openedAt.current > 0 && afterMs < 15000;
             clearFrameWatchdog();
             setPlayer(null);
+            setPlayingUrl(null);
             playerRef.current = null;
             if (diedEarly) {
               note("closed before first frame", { afterMs, generation });
@@ -946,7 +993,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         keep(
           await listen("player:ended", () => {
-            void refreshProgress();
+            // The ticker's final save lands after this event, so reading now
+            // would cache the previous checkpoint without the watched mark.
+            window.setTimeout(() => {
+              if (!disposed) void refreshProgress();
+            }, 750);
           }),
         );
       } catch {
@@ -1052,8 +1103,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const markWatchedMany = useCallback(
     async (keys: string[], metaId: string) => {
       note("mark watched many", { metaId, count: keys.length });
-      for (const key of keys) await api.progress.setWatched(key, metaId, true);
-      await refreshProgress();
+      // One refresh even when a key fails: the marks that did land must show.
+      try {
+        for (const key of keys) await api.progress.setWatched(key, metaId, true);
+      } finally {
+        await refreshProgress();
+      }
     },
     [refreshProgress],
   );
@@ -1217,6 +1272,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (error) {
         note("open failed", { error: errorMessage(error) });
+        // The link never played, so the next episode must not resume from it.
+        setPlayingUrl(null);
         notify(errorMessage(error), "error");
         return false;
       } finally {
@@ -1307,9 +1364,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (startToken.current !== token) return;
         let video: Video | null = null;
         if (details.type === "series") {
-          const last = progress
-            .filter((entry) => entry.metaId === details.id)
-            .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+          const last = fromStart
+            ? undefined
+            : progress
+                .filter((entry) => entry.metaId === (details.imdbId ?? details.id))
+                .sort((a, b) => b.updatedAt - a.updatedAt)[0];
           video =
             (last
               ? details.videos.find(
@@ -1535,6 +1594,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       libraryIds,
       toasts,
       route,
+      fullscreen,
+      setFullscreen,
       starting,
       cancelStart,
       navigate,
@@ -1578,6 +1639,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       libraryIds,
       toasts,
       route,
+      fullscreen,
+      setFullscreen,
       starting,
       cancelStart,
       navigate,

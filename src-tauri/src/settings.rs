@@ -2,6 +2,7 @@
 
 use crate::AppState;
 use crate::db;
+use crate::secret::SecretError;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -95,24 +96,38 @@ impl Default for Settings {
 }
 
 impl Settings {
-    pub fn load(conn: &Connection) -> Self {
-        let stored = db::read_settings(conn).unwrap_or(Value::Null);
-        let mut settings = Settings::default();
-        // An install that ran before onboarding existed is already past it.
-        let known = stored.get("onboarded").is_some();
-        if stored.is_object()
-            && let Ok(merged) = serde_json::from_value::<Settings>(merge(
-                serde_json::to_value(&settings).unwrap_or(Value::Null),
-                stored,
-            ))
+    /// Settings, or an error when the row exists but cannot be read.
+    pub fn try_load(conn: &Connection) -> Result<Self, SecretError> {
+        let stored = db::read_settings(conn)?;
+        if let Some(value) = stored.as_ref()
+            && !value.is_object()
         {
-            settings = merged;
+            return Err(SecretError::Decode(
+                "the stored settings are not an object".into(),
+            ));
         }
+        // An install that ran before onboarding existed is already past it.
+        let known = stored
+            .as_ref()
+            .is_some_and(|value| value.get("onboarded").is_some());
+        let mut settings = match stored {
+            Some(value) => from_stored(value),
+            None => Settings::default(),
+        };
         if !known && settings.defaults_seeded {
             settings.onboarded = true;
         }
         settings.sanitize();
-        settings
+        Ok(settings)
+    }
+
+    /// Defaults on an unreadable row: the app still starts, and `save` refuses
+    /// to write them back over the row that could not be read.
+    pub fn load(conn: &Connection) -> Self {
+        Self::try_load(conn).unwrap_or_else(|error| {
+            eprintln!("settings: cannot read the stored settings: {error}");
+            Self::default()
+        })
     }
 
     /// Stored values can come from an older build or a hand-edited row, and a
@@ -129,6 +144,12 @@ impl Settings {
     }
 
     pub fn save(&self, conn: &Connection) -> Result<(), String> {
+        // Never replace a row we could not read with the defaults we fell back to.
+        if let Err(error) = db::read_settings(conn) {
+            return Err(format!(
+                "settings were not saved: the stored settings could not be read ({error})"
+            ));
+        }
         let value = serde_json::to_value(self).map_err(|e| e.to_string())?;
         db::write_settings(conn, &value).map_err(|e| e.to_string())
     }
@@ -146,26 +167,53 @@ impl Settings {
 
 /// Hot callers: one DB read plus a DPAPI decrypt is too much per tick.
 pub fn load_cached(state: &AppState) -> Settings {
-    if let Ok(cache) = state.settings.read()
-        && let Some(settings) = cache.as_ref()
     {
-        return settings.clone();
+        let cache = state
+            .settings
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(settings) = cache.as_ref() {
+            return settings.clone();
+        }
     }
     let loaded = {
         let conn = state.db.conn();
         Settings::load(&conn)
     };
-    if let Ok(mut cache) = state.settings.write() {
-        *cache = Some(loaded.clone());
-    }
+    *state
+        .settings
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(loaded.clone());
     loaded
 }
 
 /// Call after any write to the settings row.
 pub fn invalidate(state: &AppState) {
-    if let Ok(mut cache) = state.settings.write() {
-        *cache = None;
+    *state
+        .settings
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+}
+
+/// One bad field keeps its default instead of resetting the whole object.
+fn from_stored(stored: Value) -> Settings {
+    let base = serde_json::to_value(Settings::default()).unwrap_or(Value::Null);
+    let mut accepted = Value::Object(Default::default());
+    for (key, value) in stored.as_object().into_iter().flatten() {
+        let mut probe = base.clone();
+        if let Some(object) = probe.as_object_mut() {
+            object.insert(key.clone(), value.clone());
+        }
+        match serde_json::from_value::<Settings>(probe) {
+            Ok(_) => {
+                if let Some(object) = accepted.as_object_mut() {
+                    object.insert(key.clone(), value.clone());
+                }
+            }
+            Err(error) => eprintln!("settings: ignoring the stored {key}: {error}"),
+        }
     }
+    serde_json::from_value(merge(base, accepted)).unwrap_or_default()
 }
 
 /// Shallow merge where a `null` patch value means "reset to default".

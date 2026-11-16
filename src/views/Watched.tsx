@@ -116,6 +116,13 @@ export function WatchedView() {
     return { cells, total: [...byDay.values()].reduce((sum, list) => sum + list.length, 0) };
   }, [items, month]);
 
+  // A table needs rows: each week is one row of seven days.
+  const weeks = useMemo(() => {
+    const rows: { day: number | null; entries: WatchedItem[] }[][] = [];
+    for (let at = 0; at < week.cells.length; at += 7) rows.push(week.cells.slice(at, at + 7));
+    return rows;
+  }, [week.cells]);
+
   const today = new Date();
   const isThisMonth =
     today.getFullYear() === month.getFullYear() && today.getMonth() === month.getMonth();
@@ -127,7 +134,18 @@ export function WatchedView() {
   };
 
   const open = (item: WatchedItem) =>
-    navigate({ name: "details", id: item.metaId, type: item.type });
+    navigate({
+      name: "details",
+      id: item.metaId,
+      type: item.type,
+      preview: {
+        id: item.metaId,
+        type: item.type,
+        name: titleOf(item),
+        poster: item.poster,
+        background: item.background,
+      },
+    });
 
   const status = error
     ? "History unavailable"
@@ -142,17 +160,19 @@ export function WatchedView() {
     () =>
       (items ?? []).map((item) => {
         const title = titleOf(item);
+        const preview = {
+          id: item.metaId,
+          type: item.type,
+          name: title,
+          poster: item.poster,
+          background: item.background,
+        } as MetaPreview;
         return {
           key: item.key,
-          preview: {
-            id: item.metaId,
-            type: item.type,
-            name: title,
-            poster: item.poster,
-            background: item.background,
-          } as MetaPreview,
+          preview,
           meta: [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · "),
-          onOpen: () => navigate({ name: "details", id: item.metaId, type: item.type }),
+          onOpen: () =>
+            navigate({ name: "details", id: item.metaId, type: item.type, preview }),
         };
       }),
     [items, navigate],
@@ -240,64 +260,75 @@ export function WatchedView() {
             </div>
           </div>
 
-          <div className="calendar">
-            {WEEKDAYS.map((label) => (
-              <div className="calendar-weekday" key={label}>
-                {label}
+          <div
+            className="calendar"
+            role="table"
+            aria-label={`Watched in ${MONTHS[month.getMonth()]} ${month.getFullYear()}`}
+          >
+            <div className="calendar-week" role="row">
+              {WEEKDAYS.map((label) => (
+                <div className="calendar-weekday" role="columnheader" key={label}>
+                  {label}
+                </div>
+              ))}
+            </div>
+            {weeks.map((row, weekIndex) => (
+              <div className="calendar-week" role="row" key={weekIndex}>
+                {row.map((cell, position) => {
+                  const isToday = isThisMonth && cell.day === today.getDate();
+                  const day = cell.day;
+                  const expanded = day !== null && expandedDay === day;
+                  const shown = expanded ? cell.entries : cell.entries.slice(0, 4);
+                  return (
+                    <div
+                      key={day ?? `blank-${weekIndex}-${position}`}
+                      role="cell"
+                      className={`calendar-day${day ? "" : " is-blank"}${
+                        isToday ? " is-today" : ""
+                      }`}
+                    >
+                      {day ? (
+                        <>
+                          <span className="calendar-day-num">{day}</span>
+                          {shown.map((item) => {
+                            const title = titleOf(item);
+                            const code = episodeCode(item);
+                            const when = watchedOn(item.watchedAt);
+                            const label = [title, code, when].filter(Boolean).join(" · ");
+                            return (
+                              <button
+                                type="button"
+                                className="calendar-item"
+                                key={item.key}
+                                onClick={() => open(item)}
+                                title={label}
+                                aria-label={label}
+                              >
+                                <Thumb src={item.poster} seed={title} />
+                                <span className="calendar-item-text">
+                                  {title}
+                                  {code ? <span className="calendar-code"> {code}</span> : null}
+                                </span>
+                              </button>
+                            );
+                          })}
+                          {cell.entries.length > 4 ? (
+                            <button
+                              type="button"
+                              className="calendar-more"
+                              aria-expanded={expanded}
+                              onClick={() => setExpandedDay(expanded ? null : day)}
+                            >
+                              {expanded ? "Show less" : `+${cell.entries.length - 4} more`}
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ))}
-            {week.cells.map((cell, position) => {
-              const isToday = isThisMonth && cell.day === today.getDate();
-              const day = cell.day;
-              const expanded = day !== null && expandedDay === day;
-              const shown = expanded ? cell.entries : cell.entries.slice(0, 4);
-              return (
-                <div
-                  key={day ?? `blank-${position}`}
-                  className={`calendar-day${day ? "" : " is-blank"}${
-                    isToday ? " is-today" : ""
-                  }`}
-                >
-                  {day ? (
-                    <>
-                      <span className="calendar-day-num">{day}</span>
-                      {shown.map((item) => {
-                        const title = titleOf(item);
-                        const code = episodeCode(item);
-                        const when = watchedOn(item.watchedAt);
-                        const label = [title, code, when].filter(Boolean).join(" · ");
-                        return (
-                          <button
-                            type="button"
-                            className="calendar-item"
-                            key={item.key}
-                            onClick={() => open(item)}
-                            title={label}
-                            aria-label={label}
-                          >
-                            <Thumb src={item.poster} seed={title} />
-                            <span className="calendar-item-text">
-                              {title}
-                              {code ? <span className="calendar-code"> {code}</span> : null}
-                            </span>
-                          </button>
-                        );
-                      })}
-                      {cell.entries.length > 4 ? (
-                        <button
-                          type="button"
-                          className="calendar-more"
-                          aria-expanded={expanded}
-                          onClick={() => setExpandedDay(expanded ? null : day)}
-                        >
-                          {expanded ? "Show less" : `+${cell.entries.length - 4} more`}
-                        </button>
-                      ) : null}
-                    </>
-                  ) : null}
-                </div>
-              );
-            })}
           </div>
         </>
       ) : (

@@ -39,7 +39,10 @@ export function TraktView() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api.trakt.status());
+      const next = await api.trakt.status();
+      setStatus(next);
+      // A code issued before a restart is still pending: resume waiting on it.
+      if (!next.connected && next.userCode) setCode(next.userCode);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -146,9 +149,6 @@ export function TraktView() {
 
   const disconnect = async () => {
     if (working.current) return;
-    if (!window.confirm("Disconnect Trakt? History already stored locally stays on this machine.")) {
-      return;
-    }
     working.current = true;
     setBusy("disconnect");
     setError(null);
@@ -196,6 +196,21 @@ export function TraktView() {
         <p className="form-error" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {/* Without a status the screen has nothing to act on, so offer the retry. */}
+      {!status && error ? (
+        <div className="field-row">
+          <Button
+            icon="refresh"
+            onClick={() => {
+              setError(null);
+              void refresh();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
       ) : null}
 
       {status && !status.connected && code ? (

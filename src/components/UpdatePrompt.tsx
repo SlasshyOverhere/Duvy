@@ -19,6 +19,7 @@ export function UpdatePrompt() {
 function Prompt({ version, current }: { version: string; current: string }) {
   const [progress, setProgress] = useState<{ got: number; total: number | null } | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [installed, setInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [closed, setClosed] = useState(dismissed === version);
   const busy = useRef(false);
@@ -63,6 +64,8 @@ function Prompt({ version, current }: { version: string; current: string }) {
     setError(null);
     try {
       await api.updates.install();
+      setInstalling(false);
+      setInstalled(true);
     } catch (e) {
       setError(errorMessage(e));
       setInstalling(false);
@@ -112,14 +115,19 @@ function Prompt({ version, current }: { version: string; current: string }) {
           {error}
         </p>
       ) : null}
+      {installed ? (
+        <p className="update-bytes" role="status">
+          Installed. Restart Duvy to finish.
+        </p>
+      ) : null}
       <div className="update-actions">
         <Button
           variant="primary"
           icon="download"
-          disabled={installing}
+          disabled={installing || installed}
           onClick={() => void install()}
         >
-          {installing ? "Installing" : "Update now"}
+          {installed ? "Installed" : installing ? "Installing" : "Update now"}
         </Button>
         <Button variant="text" disabled={installing} onClick={dismiss}>
           Later

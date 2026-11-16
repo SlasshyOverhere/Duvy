@@ -260,17 +260,13 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
     (audio, subs, active_audio, active_sub)
 }
 
-/// Rebuild the track list and the selected ids from mpv's current state.
-fn refresh_tracks(mpv: &Mpv, snap: &mut Snapshot) {
-    let (audio, subs, active_audio, active_sub) = parse_tracks(&read_tracks(mpv));
-    snap.audio_tracks = audio;
-    snap.sub_tracks = subs;
-    snap.active_audio = active_audio;
-    snap.active_sub = active_sub;
+/// The track list and the selected ids, read from mpv outside any lock.
+fn read_track_state(mpv: &Mpv) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i64>) {
+    parse_tracks(&read_tracks(mpv))
 }
 
 /// Describe the video stream. Read on load and on a reconfig, never per tick.
-fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
+fn read_media(mpv: &Mpv) -> Option<MediaInfo> {
     let int = |name: &str| mpv.get_property::<i64>(name).ok().unwrap_or(0);
     let num = |name: &str| mpv.get_property::<f64>(name).ok().filter(|v| *v > 0.0);
     let text = |name: &str| {
@@ -282,7 +278,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
     let (width, height) = (int("video-params/w"), int("video-params/h"));
     // Audio-only, or the video has not been initialised yet.
     if width <= 0 || height <= 0 {
-        return;
+        return None;
     }
     let gamma = text("video-params/gamma").unwrap_or_default();
     let hdr = match gamma.as_str() {
@@ -300,7 +296,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
         let runtime = num("duration").filter(|d| *d > 1.0)?;
         Some(size * 8.0 / runtime)
     });
-    snap.media = Some(MediaInfo {
+    Some(MediaInfo {
         width,
         height,
         aspect: num("video-params/aspect"),
@@ -308,7 +304,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
         bitrate,
         video_codec: text("video-codec"),
         hdr,
-    });
+    })
 }
 
 /// mpv reports tracks as `eng`, `en`, `English` or `und`; all become a name.
@@ -552,24 +548,54 @@ pub fn version() -> Option<String> {
     mpv.get_property::<String>("mpv-version").ok()
 }
 
-/// Only remote HTTP(S), file sources and local paths may reach mpv.
+/// The extensions the two file pickers offer. Local playback goes no wider.
+const PLAYABLE_EXT: &[&str] = &[
+    "mkv", "mp4", "webm", "avi", "mov", "m4v", "ts", "srt", "ass", "ssa", "vtt", "sub",
+];
+
+/// Only remote HTTP(S) and local media files may reach mpv.
 pub fn validate_media_url(url: &str) -> Result<(), String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("No media URL supplied".into());
     }
-    // The file pickers return a bare path, which has no scheme.
-    if std::path::Path::new(url).is_absolute() {
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
         return Ok(());
     }
-    let scheme = url
-        .split_once(':')
-        .map(|(scheme, _)| scheme.to_ascii_lowercase())
-        .unwrap_or_default();
-    if matches!(scheme.as_str(), "http" | "https" | "file") {
-        return Ok(());
+    // The pickers return a bare path; a file URL is decoded to the same thing.
+    let path = if lower.starts_with("file:") {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.to_file_path().ok())
+            .ok_or("Only http, https and local media files can be played")?
+    } else {
+        std::path::PathBuf::from(url)
+    };
+    validate_local_path(&path)
+}
+
+/// Rejects network shares, device namespaces and anything that is not media.
+fn validate_local_path(path: &std::path::Path) -> Result<(), String> {
+    let text = path.to_string_lossy();
+    if text.starts_with(r"\\") || text.starts_with("//") {
+        return Err("Network and device paths cannot be played".into());
     }
-    Err("Only http, https and file sources can be played".into())
+    if !path.is_absolute() {
+        return Err("Only http, https and local media files can be played".into());
+    }
+    let ext = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !PLAYABLE_EXT.contains(&ext.as_str()) {
+        return Err("Only media files can be played".into());
+    }
+    if !path.is_file() {
+        return Err("That file cannot be read".into());
+    }
+    Ok(())
 }
 
 /// English is the fallback only when the user configured no language.
@@ -722,9 +748,8 @@ impl Player {
         crate::playback_log::mark("libmpv initialised");
 
         let mpv = Arc::new(mpv);
-        // A second handle for the event loop: `wait_event` needs `&mut`, while
-        // commands and property reads come in on the shared one. No client
-        // name: libmpv2 5 builds a dangling `CString` when one is given.
+        // A second handle for the event loop; commands and property reads come
+        // in on the shared one. No client name: libmpv2 leaks the `CString`.
         let events = mpv
             .create_client(None)
             .map_err(|error| format!("Could not attach the player's events: {error}"))?;
@@ -995,11 +1020,11 @@ impl Drop for Player {
     }
 }
 
-/// The event thread owns the handle it waits on: `wait_event` needs `&mut`,
-/// while commands and property reads use the shared one.
+/// The event thread owns the handle it waits on, while commands and property
+/// reads use the shared one.
 fn spawn_events(
     app: AppHandle,
-    mut events: Mpv,
+    events: Mpv,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
     mpv: Arc<Mpv>,
@@ -1037,6 +1062,11 @@ fn spawn_events(
             };
             match event {
                 Event::PropertyChange { name, change, .. } => {
+                    // mpv is read before the lock: a wedged source must not pin it.
+                    let tracks = matches!(name, "track-list/count" | "aid" | "sid")
+                        .then(|| read_track_state(&mpv));
+                    let chapters = (name == "chapter-list/count")
+                        .then(|| parse_chapters(&read_chapters(&mpv)));
                     let mut snap = match snapshot.lock() {
                         Ok(snap) => snap,
                         Err(_) => break,
@@ -1087,16 +1117,24 @@ fn spawn_events(
                         // mpv reports a switch as an aid/sid change, not as a
                         // new track list, so re-read it or the UI never moves.
                         "track-list/count" | "aid" | "sid" => {
-                            refresh_tracks(&mpv, &mut snap);
+                            if let Some((audio, subs, active_audio, active_sub)) = tracks {
+                                snap.audio_tracks = audio;
+                                snap.sub_tracks = subs;
+                                snap.active_audio = active_audio;
+                                snap.active_sub = active_sub;
+                            }
                         }
                         "chapter-list/count" => {
-                            snap.chapters = parse_chapters(&read_chapters(&mpv))
+                            if let Some(chapters) = chapters {
+                                snap.chapters = chapters;
+                            }
                         }
                         _ => {}
                     }
                     drop(snap);
                 }
                 Event::FileLoaded => {
+                    let media = read_media(&mpv);
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
                         snap.paused = false;
@@ -1104,15 +1142,19 @@ fn spawn_events(
                         snap.cut_short = false;
                         snap.error = None;
                         snap.buffering = false;
-                        refresh_media(&mpv, &mut snap);
+                        if media.is_some() {
+                            snap.media = media;
+                        }
                     }
                     crate::playback_log::mark("demuxer opened the stream");
                 }
                 // The decoder settled on a size: this is the reliable moment for
                 // video-params, and it fires again if the stream switches.
                 Event::VideoReconfig => {
-                    if let Ok(mut snap) = snapshot.lock() {
-                        refresh_media(&mpv, &mut snap);
+                    if let Some(media) = read_media(&mpv)
+                        && let Ok(mut snap) = snapshot.lock()
+                    {
+                        snap.media = Some(media);
                     }
                 }
                 Event::EndFile(reason) => {
@@ -1223,13 +1265,16 @@ fn end_stream(
     crate::playback_log::mark(format!("stream ended ({reason})"));
     let _ = app.emit("player:ended", reason.to_string());
     // An episode or a dead source keeps its player: the epilogue on screen is
-    // the viewer's to act on, and closing is never our call.
-    if reason != "eof" && reason != "error" {
-        // Whichever handle goes last ends the core, so the picture and the
-        // audio go with the stream.
-        let _ = mpv.command("quit", &[]);
-        close(app, snapshot, stop);
+    // the viewer's to act on, and closing is never our call. Only the ticker
+    // stops, so the snapshot behind the end card survives.
+    if reason == "eof" || reason == "error" {
+        stop.store(true, Ordering::Relaxed);
+        return;
     }
+    // Whichever handle goes last ends the core, so the picture and the audio go
+    // with the stream.
+    let _ = mpv.command("quit", &[]);
+    close(app, snapshot, stop);
 }
 
 /// The tail every exit path shares: silence the ticker and give the slot back.
@@ -1491,7 +1536,7 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
         duration: snap.duration,
         updated_at: db::now(),
     };
-    let watched = snap.position / snap.duration >= 0.92;
+    let watched = snap.position / snap.duration >= db::FINISHED_AT;
     let _ = db::save_playback(&conn, &item, watched);
 }
 
@@ -1547,16 +1592,49 @@ mod tests {
     #[test]
     fn media_urls_must_be_http_https_or_file() {
         assert!(validate_media_url("https://cdn.example/movie.mkv").is_ok());
-        assert!(validate_media_url(" file:///C:/movie.mkv ").is_ok());
+        assert!(validate_media_url("http://cdn.example/movie.mkv").is_ok());
         assert!(validate_media_url("magnet:?xt=urn:btih:abc").is_err());
         assert!(validate_media_url("   ").is_err());
+        assert!(validate_media_url("movie.mkv").is_err());
     }
 
-    #[cfg(windows)]
+    /// A real file with the extension a picker would return.
+    fn temp_file(ext: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("duvy-media-{nanos}.{ext}"));
+        std::fs::write(&path, b"x").unwrap();
+        path
+    }
+
     #[test]
-    fn a_bare_path_from_the_file_picker_is_playable() {
-        assert!(validate_media_url(r"C:\Movies\movie.mkv").is_ok());
-        assert!(validate_media_url(r"C:\Movies\subs.srt").is_ok());
+    fn a_path_a_picker_returns_is_playable() {
+        for ext in ["mkv", "mp4", "srt"] {
+            let path = temp_file(ext);
+            assert!(validate_media_url(&path.to_string_lossy()).is_ok(), "{ext}");
+            let url = url::Url::from_file_path(&path).unwrap().to_string();
+            assert!(validate_media_url(&url).is_ok(), "{ext} as file URL");
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn paths_outside_the_picker_filters_are_rejected() {
+        let path = temp_file("txt");
+        assert!(validate_media_url(&path.to_string_lossy()).is_err());
+        let _ = std::fs::remove_file(path);
+        assert!(validate_media_url(r"C:\Windows\System32\drivers\etc\hosts").is_err());
+        assert!(validate_media_url(r"C:\Movies\missing.mkv").is_err());
+    }
+
+    #[test]
+    fn network_and_device_paths_are_rejected() {
+        assert!(validate_media_url(r"\\server\share\movie.mkv").is_err());
+        assert!(validate_media_url("//server/share/movie.mkv").is_err());
+        assert!(validate_media_url(r"\\?\C:\movie.mkv").is_err());
+        assert!(validate_media_url("file://server/share/movie.mkv").is_err());
     }
 
     #[test]

@@ -74,7 +74,6 @@ export function StremioSync() {
   };
 
   const signOut = async () => {
-    if (!window.confirm("Sign out of Stremio? Local history stays on this machine.")) return;
     setBusy("out");
     setError(null);
     setNote(null);
@@ -108,7 +107,7 @@ export function StremioSync() {
   return (
     <>
       {error ? (
-        <p className="form-error" role="alert">
+        <p className="form-error" role="alert" id="stremio-signin-error">
           {error}
         </p>
       ) : null}
@@ -120,39 +119,52 @@ export function StremioSync() {
             Use the email and password of your Stremio account. Addons, library rows and resume
             points land here on the first sync, and anything you watch here goes back.
           </p>
-          <div className="field-grid">
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                autoComplete="username"
-                spellCheck={false}
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Never stored on this machine"
-                autoComplete="off"
-              />
-            </label>
-          </div>
-          <div className="field-row">
-            <Button
-              variant="primary"
-              icon="key"
-              onClick={() => void submit()}
-              disabled={busy !== null || !email.trim() || !password}
-            >
-              {busy === "in" ? "Signing in…" : "Sign in"}
-            </Button>
-          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (busy === null && email.trim() && password) void submit();
+            }}
+          >
+            <div className="field-grid">
+              <label className="field">
+                <span>Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  spellCheck={false}
+                  required
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "stremio-signin-error" : undefined}
+                />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Never stored on this machine"
+                  autoComplete="off"
+                  required
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "stremio-signin-error" : undefined}
+                />
+              </label>
+            </div>
+            <div className="field-row">
+              <Button
+                type="submit"
+                variant="primary"
+                icon="key"
+                disabled={busy !== null || !email.trim() || !password}
+              >
+                {busy === "in" ? "Signing in…" : "Sign in"}
+              </Button>
+            </div>
+          </form>
           <p className="settings-note">
             <Icon name="info" size={14} />
             <span>

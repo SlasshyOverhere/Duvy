@@ -7,11 +7,12 @@ import {
   type CSSProperties,
   type KeyboardEvent as KeyEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
-import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
+import { placeholderGradient, progressPercent, remainingLabel, runtimeLabel } from "../lib/format";
 import { ContextMenu, Icon, IconButton, type ContextAction } from "./ui";
 
 function initials(name: string) {
@@ -67,11 +68,21 @@ function PosterMenu({
   const current = marked ? undefined : hit;
 
   const setWatched = (next: boolean) => {
-    // Unmarking has to hit the key that is actually marked; once a whole show
-    // is marked, the newest playhead is a different key.
-    const mark = watched.find((row) => row.metaId === item.id);
-    const key = next ? current?.key ?? item.id : mark?.key ?? item.id;
-    void markWatched(key, item.id, next)
+    const apply = async () => {
+      if (next) {
+        // A show with no resume point has no episode to mark; the action is
+        // hidden in that case, so this only runs for a movie or a real episode.
+        const key = current?.key ?? item.id;
+        await markWatched(key, item.id, true);
+        return;
+      }
+      // Unmarking a show has to clear every episode, not just the newest one.
+      const marks = await api.watched.marks(item.id);
+      const keys = marks.length ? marks.map(([key]) => key) : current ? [current.key] : [];
+      for (const key of keys) await api.progress.setWatched(key, item.id, false);
+      await refreshProgress();
+    };
+    void apply()
       .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
   };
@@ -90,11 +101,14 @@ function PosterMenu({
       onSelect: () => void playItem(item, true),
     });
   }
-  actions.push({
-    label: marked ? "Mark as unwatched" : "Mark as watched",
-    icon: marked ? "x" : "check",
-    onSelect: () => setWatched(!marked),
-  });
+  // A series with no episode to point at cannot be marked from a card.
+  if (marked || current || item.type === "movie") {
+    actions.push({
+      label: marked ? "Mark as unwatched" : "Mark as watched",
+      icon: marked ? "x" : "check",
+      onSelect: () => setWatched(!marked),
+    });
+  }
   if (current) {
     actions.push({
       label: "Remove from continue watching",
@@ -130,6 +144,7 @@ export const PosterCard = memo(function PosterCard({
   wide?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const gradient = placeholderGradient(item.name);
   const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
@@ -175,9 +190,20 @@ export const PosterCard = memo(function PosterCard({
           }}
         />
         <div className="poster-hover">
-          <span className="poster-hover-title">{item.name}</span>
+          {item.logo && !logoFailed ? (
+            <img
+              className="poster-hover-logo"
+              src={item.logo}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <span className="poster-hover-title">{item.name}</span>
+          )}
           <span className="poster-hover-meta">
-            {[item.releaseInfo, item.imdbRating ? `${item.imdbRating} IMDb` : null]
+            {[item.releaseInfo, runtimeLabel(item.runtime), item.imdbRating ? `${item.imdbRating} IMDb` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -207,29 +233,10 @@ export const PosterCard = memo(function PosterCard({
   );
 });
 
-export function Row({
-  title,
-  detail,
-  children,
-}: {
-  title: string;
-  detail?: ReactNode;
-  children: ReactNode;
-}) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const [atStart, setAtStart] = useState(true);
-
-  const onScroll = () => setAtStart((scroller.current?.scrollLeft ?? 0) < 8);
-
-  const scroll = (direction: number) => {
-    const node = scroller.current;
-    if (!node) return;
-    node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
-  };
-
-  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+/** Grab-and-drag a scroller like a touch surface; a drag never opens a card. */
+export function useDragScroll(ref: RefObject<HTMLElement | null>, rebind?: unknown) {
   useEffect(() => {
-    const node = scroller.current;
+    const node = ref.current;
     if (!node) return;
     let start: { x: number; left: number } | null = null;
     let moved = false;
@@ -260,6 +267,11 @@ export function Row({
       node.scrollLeft = start.left - dx;
     };
     const click = (event: MouseEvent) => {
+      // Keyboard activation carries no detail, so a stale drag flag cannot eat it.
+      if (!event.detail) {
+        moved = false;
+        return;
+      }
       if (!moved) return;
       event.preventDefault();
       event.stopPropagation();
@@ -281,7 +293,40 @@ export function Row({
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, []);
+  }, [ref, rebind]);
+}
+
+export function Row({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail?: ReactNode;
+  children: ReactNode;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const measure = () => {
+    const node = scroller.current;
+    if (!node) return;
+    setAtStart(node.scrollLeft < 8);
+    setAtEnd(node.scrollLeft + node.clientWidth >= node.scrollWidth - 8);
+  };
+
+  // Cards arrive after the first paint, so the arrows re-measure with them.
+  useEffect(measure, [children]);
+
+  const scroll = (direction: number) => {
+    const node = scroller.current;
+    if (!node) return;
+    node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
+  };
+
+  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+  useDragScroll(scroller);
 
   return (
     <section className="row">
@@ -290,7 +335,7 @@ export function Row({
         {detail ? <div className="row-head-right">{detail}</div> : null}
       </header>
       <div className="row-track">
-        <div className="row-scroller" ref={scroller} onScroll={onScroll}>
+        <div className="row-scroller" ref={scroller} onScroll={measure}>
           {children}
         </div>
         <div className="row-arrows">
@@ -301,7 +346,13 @@ export function Row({
             className={atStart ? "is-edge is-hidden" : "is-edge"}
             onClick={() => scroll(-1)}
           />
-          <IconButton icon="forward" label="Scroll right" size={18} className="is-edge" onClick={() => scroll(1)} />
+          <IconButton
+            icon="forward"
+            label="Scroll right"
+            size={18}
+            className={atEnd ? "is-edge is-hidden" : "is-edge"}
+            onClick={() => scroll(1)}
+          />
         </div>
       </div>
     </section>
@@ -314,41 +365,57 @@ export function ContinueCard({
   background,
   name,
   subtitle,
+  meta,
   position,
   duration,
   next = false,
-  onOpen,
+  onDetails,
+  onPlay,
 }: {
   entry: ProgressItem;
   poster?: string | null;
   background?: string | null;
   name: string;
   subtitle?: string;
+  meta?: MetaPreview;
   position: number;
   duration: number;
   next?: boolean;
-  onOpen: () => void;
+  onDetails: () => void;
+  onPlay: () => void;
 }) {
   const [still, setStill] = useState(background ?? poster ?? null);
-  const [gone, setGone] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
   const raw = progressPercent(position, duration);
   const percent = Number.isFinite(raw) ? raw : 0;
   const left = duration - position;
+  // Progress rows carry no art or score, so the feed row for the same title is
+  // reused when there is one, and an IMDb id still has its logo for free.
+  const logo =
+    meta?.logo ??
+    (entry.metaId.startsWith("tt")
+      ? `https://images.metahub.space/logo/medium/${entry.metaId}/img`
+      : null);
+  const details = [meta?.releaseInfo, runtimeLabel(meta?.runtime), meta?.imdbRating ? `${meta.imdbRating} IMDb` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const drop = (label: string, task: Promise<unknown>) => {
     void task
       .then(() => {
-        setGone(true);
         notify(label);
+        // The parent list drops the card once the refresh lands; hiding it here
+        // would strand it invisible if the readback failed.
         return refreshProgress();
       })
       .catch(() => notify("That did not stick. Try again.", "error"));
   };
 
   const actions: ContextAction[] = [
-    { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onOpen },
+    { label: "Go to details", icon: "info", onSelect: onDetails },
+    { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onPlay },
     {
       label: "Start from beginning",
       icon: "replay10",
@@ -377,49 +444,72 @@ export function ContinueCard({
     },
   ];
 
-  if (gone) return null;
-
   return (
     <div className="continue-item">
-      <button
-        type="button"
-        className="continue-card"
-        onClick={onOpen}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY });
-        }}
-        onKeyDown={(event) => {
-          const at = menuFromKey(event);
-          if (at) setMenu(at);
-        }}
-        style={{ background: placeholderGradient(name) } as CSSProperties}
-      >
-        {still ? (
-          <img
-            src={still}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            // A dead still falls back to the poster, then to the gradient.
-            onError={() => setStill(still === poster ? null : (poster ?? null))}
-          />
-        ) : null}
-        <span className="continue-veil" />
-        <span className="continue-hover">
-          <span className="continue-hover-name">{name}</span>
-          {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
-          {next ? (
-            <span className="continue-hover-sub">Next up</span>
-          ) : Number.isFinite(left) && left > 0 ? (
-            <span className="continue-hover-sub">{remainingLabel(left)}</span>
+      <div className="continue-frame">
+        <button
+          type="button"
+          className="continue-card"
+          aria-label={`${name}${next ? ", next up" : ""}`}
+          onClick={onPlay}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY });
+          }}
+          onKeyDown={(event) => {
+            const at = menuFromKey(event);
+            if (at) setMenu(at);
+          }}
+          style={{ background: placeholderGradient(name) } as CSSProperties}
+        >
+          {still ? (
+            <img
+              src={still}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              // A dead still falls back to the poster, then to the gradient.
+              onError={() => setStill(still === poster ? null : (poster ?? null))}
+            />
           ) : null}
-        </span>
-        {next ? null : (
-          <span className="continue-progress">
-            <span style={{ width: `${Math.max(2, percent)}%` }} />
+          <span className="continue-veil" />
+          <span className="continue-hover">
+            {logo && !logoFailed ? (
+              <img
+                className="continue-hover-logo"
+                src={logo}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span className="continue-hover-name">{name}</span>
+            )}
+            {details ? <span className="continue-hover-sub">{details}</span> : null}
+            {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
+            {next ? (
+              <span className="continue-hover-sub">Next up</span>
+            ) : Number.isFinite(left) && left > 0 ? (
+              <span className="continue-hover-sub">{remainingLabel(left)}</span>
+            ) : null}
           </span>
-        )}
+          {next ? null : (
+            <span className="continue-progress">
+              <span style={{ width: `${percent}%` }} />
+            </span>
+          )}
+        </button>
+        <IconButton
+          className="continue-more"
+          icon="more"
+          size={16}
+          label={`More options for ${name}`}
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: box.left, y: box.bottom + 8 });
+          }}
+        />
         {menu ? (
           <ContextMenu
             x={menu.x}
@@ -429,7 +519,7 @@ export function ContinueCard({
             onClose={() => setMenu(null)}
           />
         ) : null}
-      </button>
+      </div>
       <div className="continue-caption">
         <span className="continue-name">{name}</span>
         <span className="continue-sub">
@@ -562,10 +652,10 @@ export function Hero({
                     {item.releaseInfo}
                   </span>
                 ) : null,
-                item.runtime ? (
+                runtimeLabel(item.runtime) ? (
                   <span key="runtime" className="hero-meta-item">
                     <Icon name="clock" size={16} />
-                    {item.runtime}
+                    {runtimeLabel(item.runtime)}
                   </span>
                 ) : null,
                 ...(item.genres ?? [])

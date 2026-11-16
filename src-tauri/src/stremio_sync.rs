@@ -27,6 +27,10 @@ const SESSION_KEY: &str = "stremio";
 const LIBRARY_COLLECTION: &str = "libraryItem";
 const UA: &str = "Duvy/0.1";
 
+/// One pull/merge/push at a time: two overlapping passes would push the same
+/// rows twice and merge each other's half-written state.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // ---------------------------------------------------------------------------
 // Session + status
 // ---------------------------------------------------------------------------
@@ -64,17 +68,30 @@ pub struct SyncReport {
     pub pushed: i64,
 }
 
+fn stored_session(conn: &Connection) -> Result<Option<Session>, String> {
+    let Some(value) = db::read_secret_kv(conn, SESSION_KEY).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|e| format!("the stored Stremio session could not be read: {e}"))
+}
+
 pub fn load_session(conn: &Connection) -> Session {
-    db::read_kv(conn, SESSION_KEY)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+    match stored_session(conn) {
+        Ok(session) => session.unwrap_or_default(),
+        Err(error) => {
+            eprintln!("stremio: {error}");
+            Session::default()
+        }
+    }
 }
 
 fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
+    // Refuse to write over a session row we could not read.
+    stored_session(conn)?;
     let value = serde_json::to_value(session).map_err(|e| e.to_string())?;
-    db::write_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
+    db::write_secret_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
 }
 
 pub fn status(conn: &Connection) -> Status {
@@ -163,7 +180,7 @@ pub async fn sign_in(state: &AppState, email: &str, password: &str) -> Result<St
 
 pub fn sign_out(state: &AppState) -> Result<(), String> {
     let conn = state.db.conn();
-    db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
+    db::delete_secret_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -215,11 +232,13 @@ async fn pull(http: &reqwest::Client, key: &str) -> Result<Pulled, String> {
         &json!({ "type": "AddonCollectionGet", "authKey": key, "update": true }),
     )
     .await?;
+    // A success without the collection must not read as "no addons": the push
+    // would then replace the account's list with this machine's.
     let addons = collection
         .get("addons")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .ok_or("Stremio returned no addon collection.")?;
 
     let library = api(
         http,
@@ -373,7 +392,7 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
 
         let times = int(state, "timesWatched");
         let flagged = int(state, "flaggedWatched");
-        let finished = duration > 0 && offset * 10 >= duration * 9;
+        let finished = duration > 0 && offset.saturating_mul(10) >= duration.saturating_mul(9);
         // A partial playhead is the current state even when the title was
         // finished before. `timesWatched` is per title, not per episode, so a
         // series only counts the current video's own flag.
@@ -422,6 +441,7 @@ fn merge_all(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
 }
 
 pub async fn pull_and_merge(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -435,6 +455,7 @@ pub async fn pull_and_merge(state: &AppState) -> Result<SyncReport, String> {
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -477,6 +498,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 /// Pushes the local union without pulling first. Used by `sync_all` after the
 /// Nuvio pass so Nuvio's rows reach Stremio in the same sync.
 pub async fn push(state: &AppState) -> Result<i64, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -505,12 +527,10 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
     Ok(pushed)
 }
 
-async fn push_addons(
-    http: &reqwest::Client,
-    key: &str,
-    addons: &[db::StoredAddon],
-    remote: &[Value],
-) -> Result<i64, String> {
+/// Local addons become descriptors; a disabled one is flagged rather than
+/// dropped. Remote entries this machine does not have are kept, so a push can
+/// never delete them from the account.
+fn addon_descriptors(addons: &[db::StoredAddon], remote: &[Value]) -> Vec<Value> {
     let mut by_url: HashMap<String, Value> = HashMap::new();
     for row in remote {
         if let Some(url) = descriptor_url(row) {
@@ -522,11 +542,7 @@ async fn push_addons(
     let mut descriptors = Vec::new();
     for addon in addons {
         let url = crate::addons::normalize_addon_url(&addon.url);
-        if url.is_empty()
-            || !addon.enabled
-            || !seen.insert(url.clone())
-            || !addon.manifest.is_object()
-        {
+        if url.is_empty() || !seen.insert(url.clone()) || !addon.manifest.is_object() {
             continue;
         }
         let mut descriptor = by_url.remove(&url).unwrap_or_else(|| {
@@ -547,11 +563,22 @@ async fn push_addons(
             if let Some(flags) = flags.as_object_mut() {
                 flags.entry("official").or_insert(json!(false));
                 flags.entry("protected").or_insert(json!(false));
+                flags.insert("disabled".into(), json!(!addon.enabled));
             }
         }
         descriptors.push(descriptor);
     }
+    descriptors.extend(by_url.into_values());
+    descriptors
+}
 
+async fn push_addons(
+    http: &reqwest::Client,
+    key: &str,
+    addons: &[db::StoredAddon],
+    remote: &[Value],
+) -> Result<i64, String> {
+    let descriptors = addon_descriptors(addons, remote);
     if descriptors.is_empty() {
         return Ok(0);
     }
@@ -597,11 +624,15 @@ async fn push_library(
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
         let progress = newest.get(&item.id).copied();
-        match progress {
-            Some(p) if remote_updated <= p.updated_at => {}
-            Some(_) => continue,
-            None if remote_row.is_some() => continue,
-            None => {}
+        // A tombstoned remote row for a title kept here must be revived, even
+        // when the remote timestamp is the newer one.
+        let remote_tombstoned = remote_row.is_some_and(tombstoned);
+        let push = match progress {
+            Some(p) => remote_updated <= p.updated_at || remote_tombstoned,
+            None => remote_row.is_none() || remote_tombstoned,
+        };
+        if !push {
+            continue;
         }
         changes.push(library_record(
             remote_row,
@@ -660,6 +691,13 @@ async fn push_library(
         .await?;
     }
     Ok(changes.len() as i64)
+}
+
+/// A remote row the account has removed, or one that was never confirmed.
+fn tombstoned(row: &Value) -> bool {
+    ["removed", "temp"]
+        .iter()
+        .any(|key| row.get(*key).and_then(Value::as_bool).unwrap_or(false))
 }
 
 struct LibraryFields<'a> {
@@ -737,12 +775,12 @@ fn library_record(
             if progress.key.starts_with(&format!("{}:", progress.meta_id)) {
                 state.insert("video_id".into(), Value::String(progress.key.clone()));
             }
-            if duration > 0 && offset * 10 >= duration * 9 {
+            if duration > 0 && offset.saturating_mul(10) >= duration.saturating_mul(9) {
                 let times = state
                     .get("timesWatched")
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
-                state.insert("timesWatched".into(), json!(times + 1));
+                state.insert("timesWatched".into(), json!(times.saturating_add(1)));
                 if progress.media_type == "movie" {
                     state.insert("flaggedWatched".into(), json!(1));
                 }
@@ -784,6 +822,18 @@ fn parse_iso(text: &str) -> Option<i64> {
         let digits: String = fraction.chars().take(3).collect();
         format!("{digits:0<3}").parse().ok()?
     };
+    // A field out of range is a different instant, not a lenient parse.
+    if date.next().is_some()
+        || clock.next().is_some()
+        || !(1900..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || seconds > 60
+    {
+        return None;
+    }
     let days = days_from_civil(year, month, day);
     Some(days * 86_400_000 + (hour * 3600 + minute * 60 + seconds) * 1000 + millis)
 }
@@ -837,6 +887,36 @@ mod tests {
         ];
         let urls: HashSet<String> = rows.iter().filter_map(descriptor_url).collect();
         assert_eq!(urls.len(), 1);
+    }
+
+    #[test]
+    fn disabled_addons_are_pushed_flagged_and_remote_ones_survive() {
+        let addons = vec![db::StoredAddon {
+            url: "https://example.com/off".into(),
+            addon_id: "off".into(),
+            name: "Off".into(),
+            manifest: json!({ "id": "off", "name": "Off" }),
+            enabled: false,
+            position: 0,
+        }];
+        let remote = vec![json!({
+            "transportUrl": "https://remote.example/addon",
+            "manifest": { "id": "remote", "name": "Remote" },
+        })];
+        let descriptors = addon_descriptors(&addons, &remote);
+        assert_eq!(descriptors.len(), 2, "the remote-only addon is kept");
+
+        let off = descriptors
+            .iter()
+            .find(|row| row["transportUrl"] == "https://example.com/off")
+            .expect("a disabled addon is still pushed");
+        assert_eq!(off["flags"]["disabled"], json!(true));
+        assert!(
+            descriptors
+                .iter()
+                .any(|row| row["transportUrl"] == "https://remote.example/addon"),
+            "a push must not delete the account's other addons"
+        );
     }
 
     #[test]
@@ -990,5 +1070,22 @@ mod tests {
         assert_eq!(text, "2026-10-28T12:24:56Z");
         assert_eq!(parse_iso(&text), Some(ms));
         assert_eq!(parse_iso("2026-10-28T12:24:56.789Z"), Some(ms + 789));
+    }
+
+    #[test]
+    fn an_out_of_range_stremio_date_is_rejected() {
+        for bad in [
+            "2026-13-28T12:24:56Z",
+            "2026-10-32T12:24:56Z",
+            "2026-10-28T24:24:56Z",
+            "2026-10-28T12:61:56Z",
+            "2026-10-28T12:24:61Z",
+            "2026/10/28T12:24:56Z",
+            "2026-10-28T12:24:56Z:30",
+            "999999999999-10-28T12:24:56Z",
+            "not a date",
+        ] {
+            assert_eq!(parse_iso(bad), None, "{bad} must be rejected");
+        }
     }
 }

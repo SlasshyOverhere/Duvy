@@ -80,7 +80,6 @@ export function NuvioSync() {
   };
 
   const signOut = async () => {
-    if (!window.confirm("Sign out of Nuvio Cloud? Local history stays on this machine.")) return;
     setBusy("out");
     setError(null);
     setNote(null);
@@ -132,7 +131,7 @@ export function NuvioSync() {
   return (
     <>
       {error ? (
-        <p className="form-error" role="alert">
+        <p className="form-error" role="alert" id="nuvio-signin-error">
           {error}
         </p>
       ) : null}
@@ -144,47 +143,60 @@ export function NuvioSync() {
             Use the email and password of your Nuvio account. Everything Nuvio already knows about your
             watching lands here on the first sync, and anything you watch here goes back.
           </p>
-          <div className="field-grid">
-            <label className="field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                autoComplete="username"
-                spellCheck={false}
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Never stored on this machine"
-                autoComplete="off"
-              />
-            </label>
-          </div>
-          <div className="field-row">
-            <Button
-              variant="primary"
-              icon="key"
-              onClick={() => void submit(false)}
-              disabled={busy !== null || !email.trim() || !password}
-            >
-              {busy === "in" ? "Signing in…" : "Sign in"}
-            </Button>
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => void submit(true)}
-              disabled={busy !== null || !email.trim() || !password}
-            >
-              {busy === "up" ? "Creating…" : "Create an account"}
-            </button>
-          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (busy === null && email.trim() && password) void submit(false);
+            }}
+          >
+            <div className="field-grid">
+              <label className="field">
+                <span>Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  spellCheck={false}
+                  required
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "nuvio-signin-error" : undefined}
+                />
+              </label>
+              <label className="field">
+                <span>Password</span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Never stored on this machine"
+                  autoComplete="off"
+                  required
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "nuvio-signin-error" : undefined}
+                />
+              </label>
+            </div>
+            <div className="field-row">
+              <Button
+                type="submit"
+                variant="primary"
+                icon="key"
+                disabled={busy !== null || !email.trim() || !password}
+              >
+                {busy === "in" ? "Signing in…" : "Sign in"}
+              </Button>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => void submit(true)}
+                disabled={busy !== null || !email.trim() || !password}
+              >
+                {busy === "up" ? "Creating…" : "Create an account"}
+              </button>
+            </div>
+          </form>
           <p className="settings-note">
             <Icon name="info" size={14} />
             <span>

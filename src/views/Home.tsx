@@ -5,7 +5,7 @@ import { useApp } from "../lib/store";
 import type { HomeFeed, MetaPreview, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
-import { progressPercent, seasonLabel } from "../lib/format";
+import { progressPercent, seasonLabel, cssImage, errorMessage } from "../lib/format";
 
 const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
@@ -13,12 +13,32 @@ let feedSig = "";
 
 /** Next episode after a finished one, or null when the show is over. The sig is
  *  the title's newest mark, so a fresh mark re-resolves its next up. */
-const nextUpCache = new Map<string, { sig: string; entry: ProgressItem | null }>();
+const nextUpCache = new Map<
+  string,
+  { sig: string; gen: number; metaId: string; entry: ProgressItem | null }
+>();
+const NEXT_UP_CACHE_MAX = 120;
+const NEXT_UP_BATCH = 6;
+// One generation per effect run, so a slower older run cannot overwrite the
+// answer a fresher one already cached.
+let nextUpGen = 0;
+const nextUpInFlight = new Set<string>();
 
-function cachedNextUp(sigOf: (metaId: string) => string): Map<string, ProgressItem> {
-  const map = new Map<string, ProgressItem>();
-  for (const [key, { sig, entry }] of nextUpCache) {
-    if (entry && sig === sigOf(entry.metaId)) map.set(key, entry);
+/** The cache is a session memo, not a history: the oldest titles drop first. */
+function pruneNextUp(): void {
+  for (const key of nextUpCache.keys()) {
+    if (nextUpCache.size <= NEXT_UP_CACHE_MAX) break;
+    nextUpCache.delete(key);
+  }
+}
+
+/** A null entry means the lookup finished and the show has no next episode. */
+function cachedNextUp(
+  sigOf: (metaId: string) => string,
+): Map<string, ProgressItem | null> {
+  const map = new Map<string, ProgressItem | null>();
+  for (const [key, { sig, metaId, entry }] of nextUpCache) {
+    if (sig === sigOf(metaId)) map.set(key, entry);
   }
   return map;
 }
@@ -104,7 +124,9 @@ export function HomeView() {
     return map;
   }, [watched]);
   const sigOf = useCallback((metaId: string) => markSig.get(metaId) ?? "", [markSig]);
-  const [nextUp, setNextUp] = useState<Map<string, ProgressItem>>(() => cachedNextUp(sigOf));
+  const [nextUp, setNextUp] = useState<Map<string, ProgressItem | null>>(() =>
+    cachedNextUp(sigOf),
+  );
 
   useEffect(() => {
     if (attempt === 0 && fresh) {
@@ -121,7 +143,7 @@ export function HomeView() {
         setFeed(result);
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(errorMessage(e));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -131,10 +153,10 @@ export function HomeView() {
     };
   }, [addonSignature, attempt]);
 
-  const featured = useMemo(
-    () => pickFeatured(feed?.rows?.[0]?.items ?? []),
-    [feed],
-  );
+  const featured = useMemo(() => {
+    const top = feed?.rows?.[0]?.items;
+    return pickFeatured(Array.isArray(top) ? top : []);
+  }, [feed]);
   const hero = featured[slide] ?? featured[0] ?? null;
   const nextBackdrop = featured[(slide + 1) % featured.length]?.background;
 
@@ -171,6 +193,14 @@ export function HomeView() {
 
   // Continue watching off live store state, so a mark or a clear lands without
   // reloading the whole feed.
+  const metaById = useMemo(() => {
+    const map = new Map<string, MetaPreview>();
+    for (const row of feedRows) {
+      for (const item of row.items) map.set(item.id, item);
+    }
+    return map;
+  }, [feedRows]);
+
   const continuing = useMemo(() => {
     const rows: { entry: ProgressItem; next: boolean }[] = [];
     for (const row of latestRows) {
@@ -180,9 +210,16 @@ export function HomeView() {
         rows.push({ entry: row, next: false });
         continue;
       }
+      // A finished movie belongs in Watched, not here.
       if (row.type !== "series") continue;
       const next = nextUp.get(row.key);
-      if (next) rows.push({ entry: next, next: true });
+      // Unresolved keeps the finished episode so the show never flickers off
+      // the row; resolved to nothing means the show is over, so it goes.
+      if (next === undefined) {
+        rows.push({ entry: row, next: false });
+      } else if (next) {
+        rows.push({ entry: next, next: true });
+      }
     }
     return rows.slice(0, 30);
   }, [latestRows, watchedKeys, nextUp]);
@@ -191,19 +228,28 @@ export function HomeView() {
   // progress row. Cache per episode so a refresh never refetches a known title,
   // keyed by the title's marks so a new mark re-resolves the card.
   useEffect(() => {
-    const pending = latestRows.filter(
-      (row) =>
-        row.type === "series" &&
-        (watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90) &&
-        nextUpCache.get(row.key)?.sig !== sigOf(row.metaId),
-    );
+    pruneNextUp();
+    const pending = latestRows.filter((row) => {
+      if (row.type !== "series") return false;
+      const finished =
+        watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90;
+      if (!finished) return false;
+      const sig = sigOf(row.metaId);
+      if (nextUpCache.get(row.key)?.sig === sig) return false;
+      // A lookup already running for this exact mark must not be duplicated on
+      // every progress tick.
+      return !nextUpInFlight.has(`${row.key}|${sig}`);
+    });
     if (pending.length === 0) {
       setNextUp(cachedNextUp(sigOf));
       return;
     }
-    let alive = true;
-    void Promise.allSettled(
-      pending.map(async (row) => {
+    const gen = ++nextUpGen;
+    const resolve = async (row: ProgressItem) => {
+      const sig = sigOf(row.metaId);
+      const flight = `${row.key}|${sig}`;
+      nextUpInFlight.add(flight);
+      try {
         const details = await api.details(row.metaId, row.type);
         const queue = [...details.videos].sort(
           (a, b) =>
@@ -228,8 +274,12 @@ export function HomeView() {
         });
         const season = video?.season ?? null;
         const episode = video ? (video.episode ?? video.number ?? null) : null;
+        // A run that started before a newer one has the older answer.
+        if (gen < (nextUpCache.get(row.key)?.gen ?? -1)) return;
         nextUpCache.set(row.key, {
-          sig: sigOf(row.metaId),
+          sig,
+          gen,
+          metaId: row.metaId,
           entry:
             video && season != null && episode != null
               ? {
@@ -248,14 +298,20 @@ export function HomeView() {
                 }
               : null,
         });
-      }),
-    ).then(() => {
-      if (!alive) return;
-      setNextUp(cachedNextUp(sigOf));
-    });
-    return () => {
-      alive = false;
+      } catch {
+        // Leave it uncached so a later run retries; the finished episode stays
+        // on the row in the meantime.
+      } finally {
+        nextUpInFlight.delete(flight);
+      }
     };
+    void (async () => {
+      // Bounded: a long history must not fire one details call per title.
+      for (let i = 0; i < pending.length; i += NEXT_UP_BATCH) {
+        await Promise.allSettled(pending.slice(i, i + NEXT_UP_BATCH).map(resolve));
+        setNextUp(cachedNextUp(sigOf));
+      }
+    })();
   }, [latestRows, watchedKeys, sigOf]);
 
   // One map for the card progress bars, so a row of cards costs no scans.
@@ -287,7 +343,9 @@ export function HomeView() {
               key={`${row.id}-${item.id}-${item.type}`}
               item={item}
               entry={resumeProgress.get(item.id)}
-              onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              onOpen={() =>
+                navigate({ name: "details", id: item.id, type: item.type, preview: item })
+              }
               onPlay={() => void playItem(item)}
             />
           ))}
@@ -309,6 +367,7 @@ export function HomeView() {
               name={entry.name}
               poster={entry.poster}
               background={entry.background}
+              meta={metaById.get(entry.metaId)}
               subtitle={
                 entry.type === "series"
                   ? `${seasonLabel(entry.season, entry.episode)}${
@@ -318,22 +377,20 @@ export function HomeView() {
               }
               position={entry.position}
               duration={entry.duration}
-              onOpen={() => void resumeEntry(entry)}
+              onDetails={() => navigate({ name: "details", id: entry.metaId, type: entry.type })}
+              onPlay={() => void resumeEntry(entry)}
             />
           ))}
         </Row>
       ),
-    [continuing, resumeEntry],
+    [continuing, resumeEntry, metaById, navigate],
   );
 
+  const ambient = cssImage(hero?.background);
   return (
     <div className="home">
-      {hero?.background ? (
-        <div
-          className="ambient"
-          aria-hidden="true"
-          style={{ backgroundImage: `url("${hero.background}")` }}
-        />
+      {ambient ? (
+        <div className="ambient" aria-hidden="true" style={{ backgroundImage: ambient }} />
       ) : null}
 
       {loading && !feed ? <HomeSkeleton /> : null}
@@ -341,7 +398,7 @@ export function HomeView() {
       {hero ? (
         <Hero
           item={hero}
-          onOpen={() => navigate({ name: "details", id: hero.id, type: hero.type })}
+          onOpen={() => navigate({ name: "details", id: hero.id, type: hero.type, preview: hero })}
           onPlay={() => void playItem(hero)}
           onLibrary={() => void toggleLibrary(hero)}
           inLibrary={inLibrary(hero.id)}

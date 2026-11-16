@@ -4,8 +4,8 @@
 //! few hundred rows at most, so a single WAL-mode connection behind a mutex is
 //! both simpler and faster than a pool.
 
-use crate::secret;
 use crate::playback_log;
+use crate::secret::{self, SecretError};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -112,10 +112,10 @@ CREATE INDEX IF NOT EXISTS idx_progress_meta_updated ON progress(meta_id, update
 const MIGRATIONS: &[&str] = &[V1, V2];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
+    crate::owner_only(path);
     let conn = Connection::open(path)?;
     conn.execute_batch(PRAGMAS)?;
     migrate(&conn)?;
-    encrypt_legacy_settings(&conn)?;
     prune_progress(&conn)?;
     Ok(conn)
 }
@@ -131,26 +131,6 @@ fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
             AND NOT (duration > 0 AND position >= duration * ?2)",
         params![now() - YEAR_MS, FINISHED_AT],
     )?;
-    Ok(())
-}
-
-/// Rows written before DPAPI protection existed are plaintext. Upgrade them on
-/// open so an existing profile does not wait for each setting to be saved again.
-fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT key, value FROM settings WHERE substr(value, 1, 5) <> 'enc1:'")?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(stmt);
-    for (key, value) in rows {
-        conn.execute(
-            "UPDATE settings SET value = ?2 WHERE key = ?1",
-            params![key, secret::encode(&value)],
-        )?;
-    }
     Ok(())
 }
 
@@ -423,7 +403,9 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
                 episode_title, position, duration, updated_at
          FROM (
            SELECT progress.*,
-                  ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY updated_at DESC) AS rn
+                  ROW_NUMBER() OVER (
+             PARTITION BY meta_id ORDER BY updated_at DESC, season DESC, episode DESC, key DESC
+           ) AS rn
            FROM progress
            WHERE duration > 0
          )
@@ -440,7 +422,7 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
              JOIN progress p ON p.key = w.key
              WHERE w.watched = 1 AND w.updated_at > p.updated_at
            )
-         ORDER BY updated_at DESC
+         ORDER BY updated_at DESC, season DESC, episode DESC, key DESC
          LIMIT 30",
     )?;
     let rows = stmt.query_map(params![FINISHED_AT], ProgressItem::from_row)?;
@@ -474,7 +456,7 @@ pub fn save_playback(conn: &Connection, p: &ProgressItem, watched: bool) -> rusq
         // A whole-show mark from the card menu has to go too: it carries the
         // meta id as its key, so the per-episode delete in write_progress
         // never reaches it.
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![p.meta_id])?;
+        unwatch(&tx, &p.meta_id, &p.meta_id)?;
     }
     write_progress(&tx, p)?;
     tx.commit()
@@ -487,6 +469,8 @@ fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     } else {
         p.position
     };
+    // A caller that stamped the row keeps its stamp; the ticker passes its own.
+    let updated_at = if p.updated_at > 0 { p.updated_at } else { now() };
     conn.execute(
         "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
                                episode, episode_title, position, duration, updated_at)
@@ -507,14 +491,14 @@ fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
             p.episode_title,
             position,
             p.duration,
-            now()
+            updated_at
         ],
     )?;
     // A position short of the end means the title is being watched again, so a
-    // finished mark from an earlier run no longer applies. Without this it stays
-    // out of Continue watching for good.
+    // finished mark from an earlier run no longer applies. A tombstone keeps
+    // that decision through a later sync.
     if p.duration > 0.0 && position < p.duration * FINISHED_AT {
-        conn.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
+        unwatch(conn, &p.key, &p.meta_id)?;
     }
     Ok(())
 }
@@ -570,6 +554,61 @@ pub fn set_progress_meta(
     Ok(())
 }
 
+/// One title can arrive under two ids: the IMDb one addons stream and the TMDB
+/// one a list row carried. Fold the stale id's rows onto the real one.
+pub fn adopt_meta(conn: &Connection, stale: &str, real: &str) -> rusqlite::Result<()> {
+    if stale == real || !stale.starts_with("tmdb:") || !real.starts_with("tt") {
+        return Ok(());
+    }
+    // Nothing to fold in the common case, so skip the write transaction.
+    let present: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM progress WHERE meta_id = ?1)
+             OR EXISTS (SELECT 1 FROM watched WHERE meta_id = ?1)
+             OR EXISTS (SELECT 1 FROM library WHERE id = ?1)",
+        params![stale],
+        |row| row.get(0),
+    )?;
+    if !present {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
+                               episode, episode_title, position, duration, updated_at)
+         SELECT ?2 || substr(key, length(?1) + 1), ?2, media_type, name, poster, background,
+                season, episode, episode_title, position, duration, updated_at
+         FROM progress WHERE meta_id = ?1
+         ON CONFLICT(key) DO UPDATE SET
+           meta_id = ?2, media_type = excluded.media_type, name = excluded.name,
+           poster = excluded.poster, background = excluded.background, season = excluded.season,
+           episode = excluded.episode, episode_title = excluded.episode_title,
+           position = excluded.position, duration = excluded.duration,
+           updated_at = excluded.updated_at
+         -- A tie goes to the real playhead, not the zero-duration placeholder.
+         WHERE excluded.updated_at > progress.updated_at
+            OR (excluded.updated_at = progress.updated_at
+                AND excluded.duration > progress.duration)",
+        params![stale, real],
+    )?;
+    tx.execute("DELETE FROM progress WHERE meta_id = ?1", params![stale])?;
+    tx.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at)
+         SELECT ?2 || substr(key, length(?1) + 1), ?2, watched, updated_at
+         FROM watched WHERE meta_id = ?1
+         ON CONFLICT(key) DO UPDATE SET
+           meta_id = ?2, watched = excluded.watched, updated_at = excluded.updated_at
+         -- A tie goes to the mark; a tombstone only blocks an older remote one.
+         WHERE excluded.updated_at > watched.updated_at
+            OR (excluded.updated_at = watched.updated_at
+                AND excluded.watched > watched.watched)",
+        params![stale, real],
+    )?;
+    tx.execute("DELETE FROM watched WHERE meta_id = ?1", params![stale])?;
+    tx.execute("UPDATE OR IGNORE library SET id = ?2 WHERE id = ?1", params![stale, real])?;
+    tx.execute("DELETE FROM library WHERE id = ?1", params![stale])?;
+    tx.commit()
+}
+
 /// Library rows that arrived from the account with nothing but an id.
 pub fn library_missing_meta(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(
@@ -612,15 +651,32 @@ pub fn set_watched(
     watched: bool,
 ) -> rusqlite::Result<()> {
     if watched {
-        mark_watched(conn, key, meta_id)?;
-    } else {
-        // Watched also counts progress finished at FINISHED_AT, so the playhead
-        // has to go with the mark or the title stays in Watched.
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
-        tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+        mark_watched(&tx, key, meta_id)?;
+        tx.commit()?;
+    } else {
+        // The mark goes either way; the playhead only when it is what made the
+        // title count as watched, so unmarking keeps the resume point.
+        let tx = conn.unchecked_transaction()?;
+        unwatch(&tx, key, meta_id)?;
+        tx.execute(
+            "DELETE FROM progress WHERE key = ?1
+               AND duration > 0 AND position >= duration * ?2",
+            params![key, FINISHED_AT],
+        )?;
         tx.commit()?;
     }
+    Ok(())
+}
+
+/// Clearing a mark leaves a tombstone rather than a hole, so an older remote
+/// mark cannot resurrect the title on the next sync.
+fn unwatch(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 0, ?3)
+         ON CONFLICT(key) DO UPDATE SET watched = 0, updated_at = ?3",
+        params![key, meta_id, now()],
+    )?;
     Ok(())
 }
 
@@ -644,11 +700,39 @@ pub fn all_watched_keys(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     rows.collect()
 }
 
+/// `metaId`, or `metaId:season:episode` for an episode. Ids may contain colons.
+fn episode_of(key: &str) -> (Option<i64>, Option<i64>) {
+    let parts: Vec<&str> = key.rsplitn(3, ':').collect();
+    if parts.len() == 3
+        && let (Ok(episode), Ok(season)) = (parts[0].parse(), parts[1].parse())
+    {
+        return (Some(season), Some(episode));
+    }
+    (None, None)
+}
+
 fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
+         ON CONFLICT(key) DO UPDATE SET meta_id = ?2, watched = 1, updated_at = ?3",
         params![key, meta_id, now()],
+    )?;
+    // A mark with no playhead still needs a row to borrow a name and art from,
+    // and to be repaired later. Zero duration keeps it out of every list.
+    let (season, episode) = episode_of(key);
+    conn.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, season, episode,
+                               position, duration, updated_at)
+         VALUES (?1, ?2, ?3, ?2, ?4, ?5, 0, 0, ?6)
+         ON CONFLICT(key) DO NOTHING",
+        params![
+            key,
+            meta_id,
+            if season.is_some() { "series" } else { "movie" },
+            season,
+            episode,
+            now()
+        ],
     )?;
     Ok(())
 }
@@ -682,7 +766,8 @@ pub struct WatchedItem {
 pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem>> {
     let mut stmt = conn.prepare(
         "WITH marks AS (
-           SELECT w.key, w.meta_id, w.updated_at AS at FROM watched w
+           SELECT w.key, w.meta_id, w.updated_at AS at, p.season, p.episode FROM watched w
+           LEFT JOIN progress p ON p.key = w.key
            WHERE w.watched = 1
              -- Playback after a mark means the title is being watched again,
              -- so the completed entry has to go.
@@ -694,13 +779,16 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
                  AND p.updated_at > w.updated_at
              )
            UNION ALL
-           SELECT key, meta_id, updated_at FROM progress
+           SELECT key, meta_id, updated_at, season, episode FROM progress
            WHERE duration > 0 AND position >= duration * ?1
          ),
          newest AS (
            SELECT key, meta_id, at FROM (
              SELECT key, meta_id, at,
-                    ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY at DESC, key DESC) AS rn
+                    ROW_NUMBER() OVER (
+                      PARTITION BY meta_id
+                      ORDER BY at DESC, season DESC, episode DESC, key DESC
+                    ) AS rn
              FROM marks
            ) WHERE rn = 1
          )
@@ -769,39 +857,95 @@ pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::
 // Settings
 // ---------------------------------------------------------------------------
 
-pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
-    let raw: Option<String> = conn
+pub fn read_kv(conn: &Connection, key: &str) -> Result<Option<Value>, SecretError> {
+    let Some(raw) = read_row(conn, key)? else {
+        return Ok(None);
+    };
+    let json = if secret::is_protected(&raw) {
+        secret::load(key)?
+    } else if secret::is_legacy(&raw) {
+        secret::decode_legacy(&raw)?
+    } else {
+        raw
+    };
+    parse(key, json)
+}
+
+/// Credentials: the row holds a marker and the value lives in the protected
+/// store. Legacy rows are moved over on first read.
+pub fn read_secret_kv(conn: &Connection, key: &str) -> Result<Option<Value>, SecretError> {
+    let Some(raw) = read_row(conn, key)? else {
+        return Ok(None);
+    };
+    if secret::is_protected(&raw) {
+        return parse(key, secret::load(key)?);
+    }
+    let plain = if secret::is_legacy(&raw) {
+        secret::decode_legacy(&raw)?
+    } else {
+        raw
+    };
+    secret::store(key, &plain)?;
+    conn.execute(
+        "UPDATE settings SET value = ?2 WHERE key = ?1",
+        params![key, secret::marker()],
+    )?;
+    parse(key, plain)
+}
+
+fn read_row(conn: &Connection, key: &str) -> Result<Option<String>, SecretError> {
+    Ok(conn
         .query_row(
             "SELECT value FROM settings WHERE key = ?1",
             params![key],
             |r| r.get(0),
         )
-        .optional()?;
-    Ok(raw
-        .and_then(|s| secret::decode(&s))
-        .and_then(|s| serde_json::from_str(&s).ok()))
+        .optional()?)
 }
 
-pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> rusqlite::Result<()> {
+fn parse(key: &str, json: String) -> Result<Option<Value>, SecretError> {
+    serde_json::from_str(&json)
+        .map(Some)
+        .map_err(|error| SecretError::Decode(format!("{key}: {error}")))
+}
+
+pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> Result<(), SecretError> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = ?2",
-        params![key, secret::encode(&value.to_string())],
+        params![key, value.to_string()],
     )?;
     Ok(())
 }
 
-pub fn delete_kv(conn: &Connection, key: &str) -> rusqlite::Result<()> {
+pub fn write_secret_kv(conn: &Connection, key: &str, value: &Value) -> Result<(), SecretError> {
+    secret::store(key, &value.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, secret::marker()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_kv(conn: &Connection, key: &str) -> Result<(), SecretError> {
     conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
     Ok(())
 }
 
-pub fn read_settings(conn: &Connection) -> rusqlite::Result<Value> {
-    Ok(read_kv(conn, "app")?.unwrap_or(Value::Object(Default::default())))
+pub fn delete_secret_kv(conn: &Connection, key: &str) -> Result<(), SecretError> {
+    delete_kv(conn, key)?;
+    secret::remove(key)
 }
 
-pub fn write_settings(conn: &Connection, value: &Value) -> rusqlite::Result<()> {
-    write_kv(conn, "app", value)
+/// `Ok(None)` is a fresh install; an error means the row exists but its value
+/// could not be recovered, which the caller must not overwrite.
+pub fn read_settings(conn: &Connection) -> Result<Option<Value>, SecretError> {
+    read_secret_kv(conn, "app")
+}
+
+pub fn write_settings(conn: &Connection, value: &Value) -> Result<(), SecretError> {
+    write_secret_kv(conn, "app", value)
 }
 
 #[cfg(test)]

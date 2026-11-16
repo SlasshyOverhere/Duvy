@@ -84,6 +84,11 @@
   --glass-substrate-grain: var(--glass-grain), var(--glass-substrate);
 }
 
+:root[data-accent="ember"] {
+  --accent: #f0a53a;
+  --accent-ink: #1f1205;
+}
+
 :root[data-accent="violet"] {
   --accent: #b3a4f0;
   --accent-ink: #150f24;
@@ -283,6 +288,18 @@ select {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+
+/* A fixture backend must never pass for the real one. */
+.preview-bar {
+  flex: none;
+  margin: 0;
+  padding: 7px var(--pad);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 /* One definition for every window button, header and player alike. */
@@ -525,12 +542,6 @@ select {
 
 .dock-pill.is-hidden {
   opacity: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dock-pill {
-    transition: none;
-  }
 }
 
 .dock-label {
@@ -867,21 +878,6 @@ button.pill:hover {
   width: 100%;
 }
 
-.btn-square {
-  width: 52px;
-  height: 52px;
-  padding: 0;
-  border-color: var(--glass-edge);
-  background: var(--glass-fill-soft);
-  box-shadow: inset 0 1px 0 var(--glass-edge-soft);
-  color: var(--text);
-}
-
-.btn-square:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .icon-btn {
   display: inline-grid;
   place-items: center;
@@ -996,10 +992,6 @@ button.pill:hover {
   padding: 0;
   border-color: transparent;
   color: var(--text);
-}
-
-.rating-value {
-  font-variant-numeric: tabular-nums;
 }
 
 .imdb-mark {
@@ -1160,8 +1152,8 @@ button.pill:hover {
   gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
-  /* Inline padding keeps hover/focus outlines from being clipped at the row ends. */
-  padding: 4px 4px 16px;
+  /* Top padding clears the hover lift and the focus ring above the first row. */
+  padding: 8px 4px 16px;
   margin-inline: -4px;
   scroll-padding-inline: 4px;
   scroll-snap-type: x proximity;
@@ -1248,7 +1240,7 @@ button.pill:hover {
 }
 
 /* Absolute, so a tall source image can never stretch the frame past its ratio. */
-.poster-frame img {
+.poster-frame > img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1257,12 +1249,12 @@ button.pill:hover {
   transition: filter 0.3s var(--ease);
 }
 
-.poster-frame:hover img,
-.poster-frame:has(:focus-visible) img {
+.poster-frame:hover > img,
+.poster-frame:has(:focus-visible) > img {
   filter: brightness(0.5);
 }
 
-.poster-frame:active img {
+.poster-frame:active > img {
   filter: brightness(0.42);
 }
 
@@ -1324,6 +1316,15 @@ button.pill:hover {
   max-width: 100%;
 }
 
+/* min-height: 0 or the flex item's auto minimum wins over max-height and a
+   tall logo swells past the frame. */
+.poster-hover-logo {
+  max-width: 100%;
+  max-height: 42%;
+  min-height: 0;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.55));
+}
+
 .poster-hover-meta {
   font-size: 0.75rem;
   font-weight: 500;
@@ -1382,6 +1383,38 @@ button.pill:hover {
   gap: 10px;
   flex: 0 0 290px;
   width: 290px;
+}
+
+.continue-frame {
+  position: relative;
+}
+
+/* The menu button rides on the still and only shows while the card is live. */
+.continue-item .continue-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s var(--ease);
+}
+
+.continue-item:hover .continue-more,
+.continue-item:focus-within .continue-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.continue-item .continue-more:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.78);
+  box-shadow: none;
 }
 
 .continue-card {
@@ -1478,6 +1511,15 @@ button.pill:hover {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* A landscape frame is short, so the logo is capped by width too, or a wide
+   wordmark runs the whole card. */
+.continue-hover-logo {
+  max-width: 64%;
+  max-height: 34%;
+  min-height: 0;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.55));
 }
 
 .continue-hover-sub {
@@ -1941,6 +1983,11 @@ button.pill:hover {
   background: var(--glass-wash), var(--glass-fill-soft);
 }
 
+/* Rows are semantic only: the grid still lays out the days directly. */
+.calendar-week {
+  display: contents;
+}
+
 .calendar-weekday {
   padding: 8px 10px;
   font-size: 11px;
@@ -2113,9 +2160,7 @@ button.pill:hover {
    Details
    --------------------------------------------------------------------------- */
 
-/* Hallmark / screen: title detail / system: app tokens (Instrument Sans,
-   amber accent, black paper) / one grid: art, shelf, credits and cast share
-   the shell gutter. */
+/* One grid: art, shelf, credits and cast share the shell gutter. */
 
 .detail-page {
   --detail-gap: clamp(20px, 2.2vw, 36px);
@@ -2275,10 +2320,8 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* Play is icon-only, so it holds a 44px circle in the same row. */
+/* Play carries its label, so it sizes to the text like the rest of the row. */
 .detail-actions .btn.btn-primary {
-  width: 44px;
-  padding: 0;
   font-weight: 600;
   color: #0a0a0a;
   background: #ffffff;
@@ -2291,14 +2334,86 @@ button.pill:hover {
   background: rgba(255, 255, 255, 0.82);
 }
 
-.detail-actions .btn.btn-primary svg {
-  width: 20px;
-  height: 20px;
+/* The round secondaries wear the play pill's shell, a step back from white. */
+.detail-actions .icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.9);
+  background: var(--glass-wash), var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow:
+    inset 0 1px 0 var(--glass-spec),
+    inset 0 -1px 0 var(--glass-dispersion),
+    var(--glass-shadow);
 }
 
-/* Credits stay attached to the actions, under them in the copy column. */
+.detail-actions .icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background-color: var(--glass-fill-hover);
+  box-shadow:
+    inset 0 1px 0 var(--glass-spec),
+    inset 0 -1px 0 var(--glass-dispersion),
+    var(--glass-shadow);
+}
+
+/* A saved title fills its circle the way the play pill fills. */
+.detail-actions .icon-btn.is-active {
+  color: #0a0a0a;
+  background: #ffffff;
+}
+
+.detail-actions .icon-btn.is-active:hover:not(:disabled) {
+  color: #0a0a0a;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+/* The secondaries wait behind the dots and unfold, the way Nuvio reveals them. */
+.detail-actions-extra {
+  display: flex;
+  gap: 8px;
+  width: 0;
+  margin-left: -8px;
+  padding-block: 2px;
+  margin-block: -2px;
+  overflow: hidden;
+  transition: width 0.24s var(--ease), margin-left 0.24s var(--ease);
+}
+
+.detail-actions-extra .icon-btn {
+  flex: none;
+  opacity: 0;
+  transform: scale(0.86);
+  transition:
+    opacity 0.24s var(--ease),
+    transform 0.24s var(--ease),
+    color 0.15s var(--ease),
+    background-color 0.15s var(--ease);
+}
+
+/* Two 44px circles and their gap: 44 + 8 + 44. */
+.detail-actions.is-open .detail-actions-extra {
+  width: calc(44px * 2 + 8px);
+  margin-left: 0;
+}
+
+.detail-actions.is-open .detail-actions-extra .icon-btn {
+  opacity: 1;
+  transform: none;
+}
+
+/* The dots tip over and fill while the row is open. */
+.detail-actions-toggle svg {
+  transition: transform 0.24s var(--ease);
+}
+
+.detail-actions.is-open .detail-actions-toggle svg {
+  transform: rotate(90deg);
+}
+
+/* Credits stay attached to the actions, directly under them. */
 .detail-credits {
-  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -2369,30 +2484,224 @@ button.pill:hover {
   gap: 8px;
 }
 
-.episode-list {
+/* Season art replaces the chips when TMDB has it. */
+.season-rail {
+  display: flex;
+  gap: 12px;
+  margin: 0 -6px 18px;
+  padding: 2px 6px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.season-rail::-webkit-scrollbar {
+  height: 0;
+}
+
+.season-card {
+  flex: 0 0 auto;
+  width: 118px;
   display: flex;
   flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-poster {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+  display: grid;
+  place-items: center;
+}
+
+.season-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.season-fallback {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.season-name {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--faint);
+}
+
+.season-card.is-active .season-poster {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.season-card.is-active .season-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.network-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 28px;
+}
+
+.network {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.network img {
+  height: 26px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  /* One quiet treatment: any brand colour would fight the dark surface. */
+  filter: brightness(0) invert(1);
+  opacity: 0.85;
+}
+
+.trailer-card {
+  flex: 0 0 auto;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trailer-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+}
+
+.trailer-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.trailer-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.trailer-card:hover .trailer-play {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.trailer-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trailer-year {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.detail-table {
+  margin: 0;
+  max-width: 760px;
+}
+
+.detail-table > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--glass-edge-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.detail-table > div:first-child {
+  border-top: 1px solid var(--glass-edge-soft);
+}
+
+.detail-table dt {
+  color: var(--faint);
+}
+
+.detail-table dd {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* One season at a time, laid out as Nuvio's horizontal episode rail. */
+.episode-list {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-inline: -4px;
+  padding: 4px 4px 8px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  cursor: grab;
+}
+
+.episode-list::-webkit-scrollbar {
+  height: 0;
 }
 
 .episode {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  width: 100%;
-  padding: 16px 8px 16px 0;
-  border-bottom: 1px solid var(--glass-edge-soft);
-  background: var(--glass-fill-soft);
-  transition: background-color 0.15s var(--ease);
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(268px, 30vw, 420px);
+  aspect-ratio: 420 / 256;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  scroll-snap-align: start;
 }
 
 .episode-open {
-  display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
   width: 100%;
-  padding: 0;
+  height: 100%;
+  padding: 16px;
   border: 0;
   background: none;
   color: inherit;
@@ -2400,17 +2709,34 @@ button.pill:hover {
   font: inherit;
 }
 
+/* The art fills the card and the scrim carries the copy, as in Nuvio. */
+.episode-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 34%,
+    rgba(0, 0, 0, 0.44) 58%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+  pointer-events: none;
+}
+
 .episode-watch {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
   width: 30px;
   height: 30px;
   display: grid;
   place-items: center;
-  margin-top: 2px;
   border-radius: 50%;
-  border: 1px solid var(--glass-edge);
-  background: transparent;
-  color: var(--faint);
-  opacity: 0.45;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(0, 0, 0, 0.46);
+  color: var(--text);
+  opacity: 0.55;
   transition:
     opacity 0.14s var(--ease),
     background-color 0.14s var(--ease),
@@ -2429,22 +2755,12 @@ button.pill:hover {
   opacity: 1;
 }
 
-.episode:hover {
-  background-color: var(--glass-fill-hover);
-}
-
-.episode:active {
-  background-color: var(--glass-fill-active);
-}
-
 .episode-thumb {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-sm);
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
   overflow: hidden;
   background: var(--surface-2);
-  outline: 1px solid var(--glass-edge-soft);
-  outline-offset: -1px;
   display: block;
 }
 
@@ -2456,8 +2772,9 @@ button.pill:hover {
 
 .episode-play {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
   width: 30px;
   height: 30px;
   display: grid;
@@ -2476,11 +2793,12 @@ button.pill:hover {
 }
 
 .episode-body {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  padding-top: 2px;
 }
 
 .episode-top {
@@ -2493,26 +2811,30 @@ button.pill:hover {
 .episode-num {
   font-size: 11px;
   font-weight: 600;
-  color: var(--faint);
+  color: color-mix(in srgb, var(--text) 72%, transparent);
 }
 
 .episode-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
   color: var(--text);
-  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .episode-seen {
-  font-size: 10.5px;
-  color: var(--faint);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 76%, transparent);
   margin-left: auto;
 }
 
 .episode-overview {
   font-size: 12.5px;
-  color: var(--faint);
-  line-height: 1.55;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 84%, transparent);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -2521,14 +2843,15 @@ button.pill:hover {
 
 .episode-progress {
   height: 3px;
-  background: rgba(255, 255, 255, 0.12);
-  max-width: 240px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.24);
   margin-top: 2px;
 }
 
 .episode-progress span {
   display: block;
   height: 100%;
+  border-radius: 2px;
   background: var(--accent);
 }
 
@@ -2536,29 +2859,51 @@ button.pill:hover {
   margin-bottom: 16px;
 }
 
+/* Nuvio's cast is a rail of circular faces, not a grid of portraits. */
 .cast-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 156px));
-  gap: clamp(14px, 1.5vw, 20px);
+  display: flex;
+  gap: clamp(14px, 1.6vw, 20px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-inline: -4px;
+  padding: 4px 4px 8px;
+  scrollbar-width: none;
+  cursor: grab;
+}
+
+.cast-grid::-webkit-scrollbar {
+  height: 0;
+}
+
+/* A drag is a scroll, not a click, so the cursor says so while it happens. */
+.episode-list.is-dragging,
+.cast-grid.is-dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
+  user-select: none;
 }
 
 .cast-card {
+  flex: 0 0 auto;
+  width: 112px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+  text-align: center;
 }
 
 .cast-photo {
-  aspect-ratio: 2 / 3;
-  border-radius: var(--radius-sm);
+  width: 100px;
+  aspect-ratio: 1;
+  border-radius: 50%;
   overflow: hidden;
   background: var(--surface-2);
   outline: 1px solid var(--glass-edge-soft);
   outline-offset: -1px;
   display: grid;
   place-items: center;
-  margin-bottom: 8px;
 }
 
 .cast-photo img {
@@ -2574,21 +2919,153 @@ button.pill:hover {
 }
 
 .cast-name {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text);
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cast-role {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--faint);
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  max-width: 100%;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A face with a TMDB id is a link to that person. */
+.cast-card.is-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.cast-card.is-link:hover .cast-photo {
+  outline-color: var(--line-strong);
+}
+
+/* ---------------------------------------------------------------------------
+   Person page
+   --------------------------------------------------------------------------- */
+
+.person-page {
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+/* Facts on the left, credits on the right, the way Nuvio splits the page. */
+.person-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: clamp(28px, 3vw, 52px);
+  align-items: start;
+}
+
+.person-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.person-portrait {
+  width: min(100%, 190px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+  display: grid;
+  place-items: center;
+}
+
+.person-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-portrait span {
+  font-size: 3rem;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-sidebar h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 2.6vw, 2.4rem);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.person-role {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.person-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin: 0;
+}
+
+.person-facts dt {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-facts dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.person-bio h2 {
+  margin: 0 0 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-bio p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.person-content {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 3vw, 40px);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .person-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .person-sidebar {
+    gap: 14px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -2759,34 +3236,6 @@ button.pill:hover {
   display: none;
 }
 
-/* A step arrow in its own column, not an overlay: it pages the row the same
-   way a drag does, and dims when that edge has nothing left to reveal. */
-.filter-step {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.filter-step:hover:not(:disabled) {
-  background: var(--glass-fill-hover);
-  color: var(--text);
-}
-
-.filter-step:disabled {
-  opacity: 0.28;
-  cursor: default;
-}
-
-.filter-step.is-left svg {
-  transform: rotate(180deg);
-}
-
 .drawer-filters .chip {
   flex: 0 0 auto;
   height: 36px;
@@ -2817,16 +3266,6 @@ button.pill:hover {
   background: #ffffff;
   box-shadow: none;
   color: #111111;
-}
-
-.drawer-filters .chip-icon {
-  width: 34px;
-  padding: 0;
-  justify-content: center;
-}
-
-.chip-icon.is-loading svg {
-  animation: spin 0.9s linear infinite;
 }
 
 .drawer-scrapers {
@@ -3142,10 +3581,6 @@ button.pill:hover {
    Settings
    --------------------------------------------------------------------------- */
 
-.settings-head {
-  margin-bottom: 30px;
-}
-
 .settings-page {
   max-width: 1180px;
   margin-inline: auto;
@@ -3206,12 +3641,6 @@ button.pill:hover {
   opacity: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .settings-nav-marker {
-    transition: none;
-  }
-}
-
 .settings-search {
   display: flex;
   align-items: center;
@@ -3230,6 +3659,7 @@ button.pill:hover {
 .settings-search:focus-within {
   color: var(--muted);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .settings-search svg {
@@ -3267,7 +3697,7 @@ button.pill:hover {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .settings-nav-group:first-of-type .settings-nav-label {
@@ -3689,22 +4119,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: 2px;
 }
 
-.settings-check {
-  align-self: stretch;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.settings-check input {
-  margin: 2px 0 0;
-  accent-color: var(--accent);
-}
-
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -3881,13 +4295,6 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.settings-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
 .update-notes {
@@ -4498,13 +4905,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-bottom: 8px;
 }
 
-.pv-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .pv-hint {
   font-size: 11.5px;
   color: rgba(255, 255, 255, 0.62);
@@ -4567,7 +4967,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .view-loading {
   height: 2px;
-  margin: 122px 0 0;
+  margin: calc(var(--nav-h) + 34px) 0 0;
   background: linear-gradient(
     90deg,
     transparent,
@@ -4641,11 +5041,6 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* Row arrows are always mounted, so they can fade rather than pop in. */
-.row-arrows .icon-btn.is-hidden {
-  opacity: 0;
-}
-
 .btn:active:not(:disabled),
 .icon-btn:active:not(:disabled) {
   filter: brightness(0.94);
@@ -4669,7 +5064,6 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .drawer-close:active,
-.filter-step:active:not(:disabled),
 .toast button:active {
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
@@ -5282,12 +5676,6 @@ input[type="range"]::-webkit-slider-thumb {
     padding-top: clamp(180px, 28vh, 260px);
   }
 
-  .detail-body {
-    grid-template-columns: clamp(120px, 19vw, 152px) minmax(0, 1fr);
-    gap: 0 20px;
-    padding-block: 10px 22px;
-  }
-
   .detail-title {
     font-size: clamp(1.6rem, 4vw, 2rem);
   }
@@ -5373,24 +5761,13 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* The poster becomes a cover above the copy instead of a squeezed column. */
+/* The narrowest detail hero: less art height, credits tucked under the copy. */
 @media (max-width: 560px) {
   .detail-hero {
     padding-top: 190px;
   }
 
-  .detail-body {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-
-  .detail-poster {
-    width: 110px;
-    margin-top: -46px;
-  }
-
   .detail-credits {
-    grid-column: 1;
     margin-top: 0;
   }
 
@@ -5907,8 +6284,8 @@ input[type="range"]::-webkit-slider-thumb {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .drawer,
   .toast,
-  .hero-actions .btn-square,
   .detail-actions .btn,
+  .detail-actions .icon-btn,
   .ob-preview {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -5946,7 +6323,7 @@ input[type="range"]::-webkit-slider-thumb {
 .footer-note {
   max-width: 60ch;
   margin: 0;
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(255, 255, 255, 0.56);
   font-size: 12px;
   line-height: 1.6;
 }

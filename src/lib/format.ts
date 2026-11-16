@@ -44,7 +44,7 @@ export function byFileSize(
 
 /** MiB rounded to one decimal, for update sizes and progress. */
 export function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
 
 /** "1h 12m left" style label from the seconds still to play. */
@@ -89,15 +89,25 @@ export function airOrder(video: {
   return [video.season ?? 1, video.episode ?? video.number ?? 0];
 }
 
-/** Everything from the first episode through `target`, for catch-up marking. */
+/** Everything from the first episode through `target`, for catch-up marking.
+ *  Specials are only marked when the target itself is one. */
 export function episodesUpTo<
   T extends { season?: number | null; episode?: number | null; number?: number | null },
 >(videos: T[], target: T): T[] {
   const [targetSeason, targetEpisode] = airOrder(target);
   return videos.filter((video) => {
     const [season, episode] = airOrder(video);
+    if (season === 0 && targetSeason !== 0) return false;
     return season < targetSeason || (season === targetSeason && episode <= targetEpisode);
   });
+}
+
+/** A CSS url() only for real image links, so addon art cannot break the rule. */
+export function cssImage(value?: string | null): string | undefined {
+  if (!value || !/^(https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|avif)[;,])/i.test(value)) {
+    return undefined;
+  }
+  return `url("${value.replace(/["\\]/g, "\\$&")}")`;
 }
 
 /** Stable tonal backdrop for artwork placeholders, derived from a title. */
@@ -110,6 +120,21 @@ export function placeholderGradient(seed: string): string {
   // missing poster never introduces a hue the shell did not choose.
   const lift = 14 + (hash % 7);
   return `linear-gradient(145deg, hsl(32 6% ${lift}%), hsl(32 8% ${lift - 7}%))`;
+}
+
+/** "101 min" reads as "1h 41m" once it passes an hour; unparseable text stays. */
+export function runtimeLabel(value?: string | null): string | null {
+  if (!value) return null;
+  const parts = value.matchAll(/(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/gi);
+  let minutes = 0;
+  for (const [, amount, unit] of parts) {
+    minutes += unit.toLowerCase().startsWith("h") ? Number(amount) * 60 : Number(amount);
+  }
+  if (minutes <= 0) return value;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
 export function scoreLabel(value?: string | null): string | null {

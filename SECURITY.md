@@ -10,6 +10,9 @@ Use GitHub's private vulnerability reporting: open the repository's **Security**
 **Report a vulnerability**. Do not open a public issue, and do not include exploit details in a
 pull request.
 
+If private reporting is unavailable to you, contact the maintainer on GitHub (`@SlasshyOverhere`)
+and ask for a private channel. Keep that first message free of exploit details.
+
 Include:
 
 - the app version and Windows version;
@@ -27,24 +30,23 @@ In scope:
 - the Rust backend and Tauri command surface;
 - the React UI and its handling of untrusted addon, metadata and subtitle data;
 - credential storage and the local database;
-- the update path;
-- the loopback torrent stream server.
+- the update path.
 
 Out of scope:
 
 - vulnerabilities in mpv, WebView2, Windows, or a third-party addon or service;
 - anything that requires the user to install a malicious addon or run untrusted code they chose
   to run;
-- reports that only demonstrate that P2P playback exposes the user's IP address; that is
-  documented behaviour and why P2P is opt-in;
 - missing hardening headers with no demonstrated impact.
 
 ## What the app already does
 
-- Credentials are encrypted with Windows DPAPI for the current user before they are stored.
+- Credentials live in Windows Credential Manager through the OS keyring; the database stores only
+  a marker, and rows from older builds are migrated on first read.
 - The WebView runs under a Content Security Policy.
 - Addon URLs are validated and response bodies are bounded.
-- The torrent HTTP endpoint binds to `127.0.0.1` on a random port.
+- Playback needs no local server: libmpv decodes in-process, and a stream comes from a configured
+  backend or a local file.
 - Update bundles are signature-verified before install.
 - Usage counts are anonymous and limited to launches and playback shape: media type, seconds
   watched, finished or not, library and addon counts, the host name of each backend request (never

@@ -24,15 +24,43 @@ pub struct HomeFeed {
     pub addon_errors: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CastMember {
     pub name: String,
     pub character: String,
     pub photo: Option<String>,
+    /// TMDB person id, so the face opens their own page.
+    pub person_id: Option<i64>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+/// One season of a show, with the art the season picker shows.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonSummary {
+    pub number: i64,
+    pub name: String,
+    pub poster: Option<String>,
+    pub episodes: i64,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TrailerLink {
+    pub name: String,
+    pub url: String,
+    pub thumbnail: Option<String>,
+    pub year: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Network {
+    pub name: String,
+    pub logo: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaDetails {
     pub id: String,
@@ -55,9 +83,37 @@ pub struct MetaDetails {
     pub writer: Vec<String>,
     pub country: Vec<String>,
     pub trailer: Option<String>,
+    pub trailers: Vec<TrailerLink>,
+    pub seasons: Vec<SeasonSummary>,
+    pub networks: Vec<Network>,
+    pub companies: Vec<Network>,
+    pub collection_name: Option<String>,
+    pub collection_items: Vec<MetaPreview>,
+    pub certification: Option<String>,
+    pub origin_country: Vec<String>,
+    pub original_language: Option<String>,
     pub imdb_id: Option<String>,
     pub tmdb_id: Option<i64>,
     pub source: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonDetails {
+    pub id: i64,
+    pub name: String,
+    pub photo: Option<String>,
+    pub department: Option<String>,
+    pub birthday: Option<String>,
+    pub deathday: Option<String>,
+    pub place_of_birth: Option<String>,
+    pub biography: Option<String>,
+    pub credits: usize,
+    /// First year they appear in a credit.
+    pub since: Option<String>,
+    pub popular: Vec<MetaPreview>,
+    pub latest: Vec<MetaPreview>,
+    pub upcoming: Vec<MetaPreview>,
 }
 
 #[derive(Serialize, Clone, Debug)]

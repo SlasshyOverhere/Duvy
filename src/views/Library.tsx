@@ -41,7 +41,10 @@ export function LibraryView() {
   const confirmRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const openerRef = useRef<HTMLButtonElement | null>(null);
+  // The opener is unmounted while the confirm sits in its place, so the button
+  // that comes back is a new node and has to be found again.
+  const removeRefs = useRef(new Map<string, HTMLButtonElement>());
+  const returnTo = useRef<string | null>(null);
 
   const counts = useMemo<Record<Filter, number>>(() => {
     const tally: Record<Filter, number> = { all: library.length, movie: 0, series: 0 };
@@ -64,9 +67,19 @@ export function LibraryView() {
   // Focus the confirmation so keyboard users land on the decision they opened,
   // then hand focus back to the control that opened it on cancel.
   useEffect(() => {
-    if (confirming) confirmRef.current?.focus();
-    else openerRef.current?.focus();
+    if (confirming) {
+      confirmRef.current?.focus();
+      return;
+    }
+    const id = returnTo.current;
+    returnTo.current = null;
+    if (id) removeRefs.current.get(id)?.focus();
   }, [confirming]);
+
+  const keep = (id: string) => {
+    returnTo.current = id;
+    setConfirming(null);
+  };
 
   const summary =
     booting && library.length === 0
@@ -79,7 +92,7 @@ export function LibraryView() {
     setConfirming(null);
     // The card is about to disappear: land focus on the grid, or the heading
     // when this was the last title in the active filter.
-    openerRef.current = null;
+    returnTo.current = null;
     if (items.length === 1) headingRef.current?.focus();
     else gridRef.current?.focus();
     void toggleLibrary({
@@ -94,18 +107,21 @@ export function LibraryView() {
   // Stable card props so PosterCard's memo survives unrelated re-renders.
   const cards = useMemo(
     () =>
-      items.map((item) => ({
-        item,
-        preview: {
+      items.map((item) => {
+        const preview = {
           id: item.id,
           type: item.type,
           name: item.name,
           poster: item.poster,
           background: item.background,
-        } as MetaPreview,
-        onOpen: () => navigate({ name: "details", id: item.id, type: item.type }),
-        onPlay: () => void playItem({ id: item.id, type: item.type, name: item.name }),
-      })),
+        } as MetaPreview;
+        return {
+          item,
+          preview,
+          onOpen: () => navigate({ name: "details", id: item.id, type: item.type, preview }),
+          onPlay: () => void playItem(preview),
+        };
+      }),
     [items, navigate, playItem],
   );
 
@@ -199,14 +215,14 @@ export function LibraryView() {
                     onKeyDown={(event) => {
                       if (event.key === "Escape") {
                         event.stopPropagation();
-                        setConfirming(null);
+                        keep(item.id);
                       }
                     }}
                   >
                     <Button variant="danger" full onClick={() => remove(item)}>
                       Remove
                     </Button>
-                    <Button variant="ghost" full onClick={() => setConfirming(null)}>
+                    <Button variant="ghost" full onClick={() => keep(item.id)}>
                       Keep
                     </Button>
                   </div>
@@ -215,10 +231,11 @@ export function LibraryView() {
                     type="button"
                     className="library-remove"
                     aria-label={`Remove ${item.name} from your library`}
-                    onClick={(event) => {
-                      openerRef.current = event.currentTarget;
-                      setConfirming(item.id);
+                    ref={(node) => {
+                      if (node) removeRefs.current.set(item.id, node);
+                      else removeRefs.current.delete(item.id);
                     }}
+                    onClick={() => setConfirming(item.id)}
                   >
                     <Icon name="x" size={14} />
                   </button>

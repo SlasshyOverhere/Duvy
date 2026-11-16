@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { TopBar } from "./components/Shell";
 import { ResizeEdges, WindowControls } from "./components/TitleBar";
+import { isBrowserPreview } from "./lib/bridge";
 import { StoreProvider, useApp } from "./lib/store";
 import { report } from "./lib/telemetry";
 import { CrashReporting } from "./components/Consent";
@@ -15,6 +16,7 @@ const Onboarding = lazy(() => import("./views/Onboarding").then((m) => ({ defaul
 const PlayerView = lazy(() => import("./views/Player").then((m) => ({ default: m.PlayerView })));
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
+const PersonView = lazy(() => import("./views/Person").then((m) => ({ default: m.PersonView })));
 const LibraryView = lazy(() => import("./views/Library").then((m) => ({ default: m.LibraryView })));
 const WatchedView = lazy(() => import("./views/Watched").then((m) => ({ default: m.WatchedView })));
 const SettingsView = lazy(() =>
@@ -179,10 +181,22 @@ function Screen() {
     );
   }
 
-  const viewKey = `${route.name}-${"id" in route ? `${route.id}-${route.type}` : ""}`;
+  const viewKey = `${route.name}-${
+    route.name === "details"
+      ? `${route.id}-${route.type}`
+      : route.name === "person"
+        ? route.id
+        : ""
+  }`;
 
   return (
     <div className="app">
+      {isBrowserPreview() ? (
+        <p className="preview-bar">
+          Preview backend: catalogs, sources and playback are fixtures. Install the desktop app
+          for real addons.
+        </p>
+      ) : null}
       <div className="shell">
         <div className="main">
           <TopBar />
@@ -194,7 +208,8 @@ function Screen() {
                 {route.name === "library" ? <LibraryView /> : null}
                 {route.name === "watched" ? <WatchedView /> : null}
                 {route.name === "settings" ? <SettingsView section={route.section} /> : null}
-                {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
+                {route.name === "details" ? <DetailsView id={route.id} type={route.type} preview={route.preview} /> : null}
+                {route.name === "person" ? <PersonView id={route.id} /> : null}
               </Suspense>
             </ErrorBoundary>
             <SiteFooter />

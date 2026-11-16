@@ -132,8 +132,12 @@ export function langLabel(lang?: string | null, fallback?: string | null): strin
 }
 
 export function readVideoMode(): VideoMode {
-  const stored = window.localStorage.getItem(VIDEO_MODE_KEY);
-  return VIDEO_MODES.some((mode) => mode.id === stored) ? (stored as VideoMode) : "fit";
+  try {
+    const stored = window.localStorage.getItem(VIDEO_MODE_KEY);
+    return VIDEO_MODES.some((mode) => mode.id === stored) ? (stored as VideoMode) : "fit";
+  } catch {
+    return "fit";
+  }
 }
 
 export function readVolume(): number {
@@ -183,7 +187,8 @@ export function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null):
   for (const sub of addons ?? []) {
     const lang = langLabel(sub.lang);
     add({
-      key: `a${sub.id}${sub.url}`,
+      // A separator no id or URL can contain, so two results cannot collide.
+      key: `a${sub.id}\u0000${sub.url}`,
       label: sub.lang ? langLabel(sub.lang) : "Subtitle",
       source: sub.addon,
       lang,
@@ -194,12 +199,14 @@ export function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null):
 }
 
 export function whole(value: unknown, min: number, max: number, fallback: number): number {
+  if (value == null || value === "") return fallback;
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, Math.round(number)));
 }
 
 export function tenths(value: unknown, fallback: number): number {
+  if (value == null || value === "") return fallback;
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(MAX_DELAY, Math.max(-MAX_DELAY, Math.round(number * 10) / 10));
@@ -212,8 +219,9 @@ export function mpvBackground(percent: number): string {
 }
 
 export function mpvColor(color: string, opacity: number): string {
-  const alpha = Math.round((Math.min(100, Math.max(0, opacity)) / 100) * 255);
-  const rgb = color.replace("#", "").slice(0, 6).padStart(6, "0");
+  const level = Number.isFinite(opacity) ? opacity : 100;
+  const alpha = Math.round((Math.min(100, Math.max(0, level)) / 100) * 255);
+  const rgb = /^#?([0-9a-f]{6})$/i.exec(color)?.[1] ?? "ffffff";
   return `#${alpha.toString(16).padStart(2, "0")}${rgb}`;
 }
 
@@ -282,5 +290,3 @@ export function useReturnFocus() {
     [],
   );
 }
-
-/** Floating panel anchored bottom-right, above the transport. */

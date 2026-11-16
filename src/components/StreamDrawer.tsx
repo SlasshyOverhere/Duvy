@@ -61,19 +61,28 @@ export function StreamDrawer({
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ down: false, moved: false, x: 0, left: 0 });
-  const [edges, setEdges] = useState({ left: false, right: false });
+  const drag = useRef({ down: false, moved: false, x: 0, left: 0, pointer: -1 });
 
   // Which edges still hide chips, so the row can say so and offer a step arrow.
+  // The classes are toggled on the node directly: keeping this in React state
+  // re-rendered the whole panel, stream cards included, on every scroll frame.
+  const measureFrame = useRef(0);
   const measure = useCallback(() => {
-    const node = filtersRef.current;
-    if (!node) return;
-    const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
-    const next = { left: node.scrollLeft > 1, right: rest > 1 };
-    setEdges((current) =>
-      current.left === next.left && current.right === next.right ? current : next,
-    );
+    if (measureFrame.current) return;
+    measureFrame.current = requestAnimationFrame(() => {
+      measureFrame.current = 0;
+      const node = filtersRef.current;
+      if (!node) return;
+      // No edge bookkeeping mid-drag: it is a layout read per frame and the
+      // fade is switched off anyway while the row is being dragged.
+      if (drag.current.down) return;
+      const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
+      node.classList.toggle("can-left", node.scrollLeft > 1);
+      node.classList.toggle("can-right", rest > 1);
+    });
   }, []);
+
+  useEffect(() => () => cancelAnimationFrame(measureFrame.current), []);
 
   useEffect(() => {
     measure();
@@ -82,30 +91,67 @@ export function StreamDrawer({
   }, [measure, open, groups]);
 
   // The filter row is wider than the panel and a mouse has no sideways wheel,
-  // so the row itself is draggable.
-  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+  // so the row itself is draggable. The pointer is tracked on window rather
+  // than the row: the row is only a chip tall, so a drag that drifted a pixel
+  // off it used to stop dead halfway through.
+  const onDragMove = useCallback((event: globalThis.PointerEvent) => {
     const node = filtersRef.current;
-    if (!node) return;
-    drag.current = { down: true, moved: false, x: event.clientX, left: node.scrollLeft };
-  };
-
-  const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const node = filtersRef.current;
-    if (!node || !drag.current.down) return;
-    if (event.buttons === 0) {
-      drag.current.down = false;
+    if (!node || !drag.current.down || event.pointerId !== drag.current.pointer) return;
+    const dx = event.clientX - drag.current.x;
+    if (!drag.current.moved) {
+      // A click drifts a few pixels; only a real drag may pan the row.
+      if (Math.abs(dx) < 4) return;
+      drag.current.moved = true;
+      // Re-anchor so the row does not jump by the dead-zone distance.
+      drag.current.x = event.clientX;
+      drag.current.left = node.scrollLeft;
+      // The edge fade is a mask over the scrolled content: left on, it makes
+      // the row re-rasterise on every frame of the drag. measure() restores it.
+      node.classList.remove("can-left", "can-right");
       return;
     }
-    const dx = event.clientX - drag.current.x;
-    // A click drifts a few pixels; only a real drag may pan the row.
-    if (!drag.current.moved && Math.abs(dx) < 8) return;
-    drag.current.moved = true;
-    node.scrollLeft = drag.current.left - dx;
+    node.scrollLeft = drag.current.left - (event.clientX - drag.current.x);
+  }, []);
+
+  const onDragUp = useCallback(
+    (event: globalThis.PointerEvent) => {
+      if (drag.current.pointer !== -1 && event.pointerId !== drag.current.pointer) return;
+      drag.current.down = false;
+      drag.current.pointer = -1;
+      window.removeEventListener("pointermove", onDragMove);
+      window.removeEventListener("pointerup", onDragUp);
+      window.removeEventListener("pointercancel", onDragUp);
+      measure();
+    },
+    [onDragMove, measure],
+  );
+
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (!node || event.button !== 0) return;
+    // Touch and pen already pan a scroller natively. Driving scrollLeft from
+    // pointermove on top of that fights the browser's own gesture, which reads
+    // as lag and stalling, so the manual drag is for the mouse only.
+    if (event.pointerType !== "mouse") return;
+    drag.current = {
+      down: true,
+      moved: false,
+      x: event.clientX,
+      left: node.scrollLeft,
+      pointer: event.pointerId,
+    };
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", onDragUp);
+    window.addEventListener("pointercancel", onDragUp);
   };
 
-  const endDrag = () => {
-    drag.current.down = false;
-  };
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", onDragMove);
+      window.removeEventListener("pointerup", onDragUp);
+      window.removeEventListener("pointercancel", onDragUp);
+    };
+  }, [onDragMove, onDragUp]);
 
   const chooseFilter = (next: string) => {
     if (drag.current.moved) {
@@ -282,6 +328,9 @@ export function StreamDrawer({
   // Skeletons stand in for the current view, not the whole set: a filter that
   // is still loading must not render as a blank panel either.
   const shown = visible.reduce((sum, group) => sum + group.streams.length, 0);
+  const chipKeys = groups
+    .filter((group) => group.streams.length > 0 || group.state === "loading")
+    .map((group) => group.key);
 
   if (!open) return null;
 
@@ -300,20 +349,37 @@ export function StreamDrawer({
           <button
             type="button"
             className={`drawer-refresh${pending > 0 ? " is-loading" : ""}`}
-            onClick={() => targets.forEach((target) => load(target.key))}
+            onClick={() => {
+              // A refresh starts a new run, so answers from the old one are stale.
+              runId.current += 1;
+              targets.forEach((target) => load(target.key));
+            }}
             aria-label="Refresh sources"
             title="Refresh sources"
           >
             <Icon name="refresh" size={16} />
           </button>
           <div
-            className={`drawer-filters${edges.left ? " can-left" : ""}${edges.right ? " can-right" : ""}`}
+            className="drawer-filters"
             ref={filtersRef}
             onPointerDown={startDrag}
-            onPointerMove={moveDrag}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
             onScroll={measure}
+            onKeyDown={(event) => {
+              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+              if (!step || !chipKeys.length) return;
+              event.preventDefault();
+              const at = chipKeys.indexOf(filter);
+              const next =
+                at < 0
+                  ? chipKeys[step > 0 ? 0 : chipKeys.length - 1]
+                  : chipKeys[(at + step + chipKeys.length) % chipKeys.length];
+              setFilter(next);
+              const chip = filtersRef.current?.querySelector<HTMLElement>(
+                `[data-chip="${CSS.escape(next)}"]`,
+              );
+              chip?.focus();
+              chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+            }}
             title="Drag sideways for more addons"
           >
             {groups
@@ -322,6 +388,7 @@ export function StreamDrawer({
                 <button
                   key={group.key}
                   type="button"
+                  data-chip={group.key}
                   className={`chip${filter === group.key ? " is-active" : ""}`}
                   aria-pressed={filter === group.key}
                   onClick={() => chooseFilter(group.key)}

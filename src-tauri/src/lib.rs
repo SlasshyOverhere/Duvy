@@ -15,6 +15,7 @@ mod nuvio_sync;
 mod parental;
 mod playback_log;
 mod player;
+mod redact;
 mod secret;
 mod servers;
 mod settings;
@@ -30,7 +31,7 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 pub struct AppState {
     pub db: db::Db,
@@ -44,6 +45,18 @@ pub struct AppState {
 mod command_tests;
 #[cfg(test)]
 mod db_tests;
+
+/// Irreversible actions ask first, in a native dialog no page script can press.
+pub fn confirm(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
+    app.dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Continue".to_string(),
+            "Cancel".to_string(),
+        ))
+        .blocking_show()
+}
 
 /// A panic ends the process, so the hook is the last thing that can say why:
 /// one line in the local journal, plus a report to the window while it lasts.
@@ -274,7 +287,8 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         RedrawWindow,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowPlacement,
+        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetClassLongPtrW, GetWindowLongPtrW,
+        GetWindowPlacement,
         IsIconic, IsWindow, IsZoomed, SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetClassLongPtrW,
         SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT,
@@ -282,7 +296,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
     };
 
-    static SAVED: Mutex<Option<(isize, isize, isize, WINDOWPLACEMENT)>> = Mutex::new(None);
+    static SAVED: Mutex<Option<(isize, isize, isize, usize, WINDOWPLACEMENT)>> = Mutex::new(None);
 
     let hwnd = host as HWND;
     unsafe {
@@ -291,9 +305,13 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         }
 
         if on {
-            // Entering twice must not overwrite the only real placement with
-            // the borderless one, or there is nothing left to restore.
-            if SAVED.lock().map(|guard| guard.is_some()).unwrap_or(false) {
+            // One guard for the whole check-and-set: two enters must not race
+            // into saving the borderless placement over the real one.
+            let mut saved = match SAVED.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if saved.is_some() {
                 return true;
             }
 
@@ -307,6 +325,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 return false;
             }
             let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let brush = GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND);
 
             let mut info: MONITORINFO = std::mem::zeroed();
             info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -315,9 +334,8 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 return false;
             }
 
-            if let Ok(mut saved) = SAVED.lock() {
-                *saved = Some((hwnd as isize, style, ex_style, placement));
-            }
+            *saved = Some((hwnd as isize, style, ex_style, brush, placement));
+            drop(saved);
 
             // Anything the webview does not cover is erased with the class
             // brush, which is white by default and stays white on screen.
@@ -398,14 +416,19 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             refit_webview(host);
             true
         } else {
-            let saved = SAVED.lock().ok().and_then(|mut guard| guard.take());
-            let Some((saved_hwnd, style, ex_style, placement)) = saved else {
+            let saved = match SAVED.lock() {
+                Ok(mut guard) => guard.take(),
+                Err(poisoned) => poisoned.into_inner().take(),
+            };
+            let Some((saved_hwnd, style, ex_style, brush, placement)) = saved else {
                 return false;
             };
             if IsWindow(saved_hwnd as HWND) == 0 {
                 return false;
             }
             let hwnd = saved_hwnd as HWND;
+            // The class brush belongs to the whole window class: put it back.
+            SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, brush as isize);
 
             SendMessageW(hwnd, WM_SETREDRAW, 0, 0);
             SetWindowLongPtrW(hwnd, GWL_STYLE, style);
@@ -480,6 +503,8 @@ pub(crate) fn player_is_live(app: &tauri::AppHandle) -> bool {
 pub struct PlayerSlot {
     core: Mutex<Option<player::Player>>,
     healed: AtomicBool,
+    /// An open in progress, so two IPC calls cannot spawn two cores.
+    opening: AtomicBool,
 }
 
 impl PlayerSlot {
@@ -487,7 +512,25 @@ impl PlayerSlot {
         Self {
             core: Mutex::new(None),
             healed: AtomicBool::new(false),
+            opening: AtomicBool::new(false),
         }
+    }
+
+    /// One open at a time: a second core would fight the first for the window.
+    pub fn begin_open(&self) -> Option<Opening<'_>> {
+        if self.opening.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        Some(Opening(&self.opening))
+    }
+}
+
+/// Clears the open-in-progress flag on every exit, an error included.
+pub struct Opening<'a>(&'a AtomicBool);
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -516,6 +559,29 @@ pub(crate) fn heal<T>(value: &mut Option<T>, healed: &AtomicBool, label: &str) {
         playback_log::mark(label);
     }
 }
+
+/// Owner-only permissions for files holding history or credentials.
+#[cfg(unix)]
+pub(crate) fn owner_only(path: &std::path::Path) {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(file) => {
+            let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+        }
+        Err(error) => eprintln!("[fs] cannot restrict {}: {error}", path.display()),
+    }
+}
+
+/// The files sit in the per-user app data directory, whose inherited ACL is
+/// already owner-only.
+#[cfg(not(unix))]
+pub(crate) fn owner_only(_path: &std::path::Path) {}
 
 /// Run SQLite work off the UI thread. Sync commands run on the main thread, so
 /// one contended write there would freeze the window for the whole busy_timeout;
@@ -554,30 +620,82 @@ pub fn note_request(url: &str) {
 /// One client for every outbound request: the same user agent Cinemeta expects,
 /// and timeouts short enough that a dead host cannot hold a screen hostage.
 pub fn http_client() -> reqwest::Client {
+    client_builder()
+        .redirect(redirect_policy())
+        .build()
+        .expect("the HTTP client should build")
+}
+
+fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .user_agent("Duvy/0.1 (+https://github.com/SlasshyOverhere/Duvy)")
         .timeout(Duration::from_secs(18))
         .connect_timeout(Duration::from_secs(8))
         .tcp_keepalive(Duration::from_secs(30))
         .pool_max_idle_per_host(16)
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            // Five hops is plenty for a CDN or a moved addon host.
-            if attempt.previous().len() >= 5 {
-                return attempt.error("too many redirects");
+}
+
+/// Addon traffic: the shared tuning plus a resolver that refuses names pointing
+/// at this machine, its network, or a metadata endpoint. Literal addresses skip
+/// the resolver, so `commands::validate_target` and `redirect_allowed` cover them.
+pub(crate) fn addon_client() -> reqwest::Client {
+    static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        client_builder()
+            .dns_resolver(GuardedResolver)
+            .redirect(redirect_policy())
+            .build()
+            .expect("the addon client should build")
+    });
+    CLIENT.clone()
+}
+
+struct GuardedResolver;
+
+impl reqwest::dns::Resolve for GuardedResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        // The names that always mean this machine: local addons live there.
+        let local_name = crate::addons::is_local_host(&host);
+        Box::pin(async move {
+            type BoxError = Box<dyn std::error::Error + Send + Sync>;
+            let addrs = tokio::task::spawn_blocking(move || {
+                use std::net::ToSocketAddrs;
+                (host.as_str(), 0u16)
+                    .to_socket_addrs()
+                    .map(|found| found.collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|e| Box::new(e) as BoxError)?
+            .map_err(|e| Box::new(e) as BoxError)?;
+            if addrs.is_empty() {
+                return Err(BoxError::from("that host resolved to nothing"));
             }
-            // Never let a redirect quietly drop TLS.
-            if attempt.url().scheme() == "http"
-                && attempt
-                    .previous()
-                    .last()
-                    .is_some_and(|url| url.scheme() == "https")
+            // One internal answer is enough to distrust the whole name.
+            if !local_name
+                && addrs
+                    .iter()
+                    .any(|addr| crate::addons::is_blocked_ip(addr.ip()))
             {
-                return attempt.error("refusing to redirect from https to http");
+                return Err(BoxError::from(
+                    "refusing to connect to an internal address",
+                ));
             }
-            attempt.follow()
-        }))
-        .build()
-        .expect("the HTTP client should build")
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        // Five hops is plenty for a CDN or a moved addon host.
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        match crate::addons::redirect_allowed(attempt.previous(), attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(reason) => attempt.error(reason),
+        }
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -676,6 +794,7 @@ pub fn run() {
             commands::catalog,
             commands::search,
             commands::meta_details,
+            commands::person_details,
             commands::cast_photos,
             commands::recommendations,
             commands::similar,
@@ -735,7 +854,10 @@ pub fn run() {
         match event {
             tauri::RunEvent::Exit => {
                 if let Some(state) = handle.try_state::<AppState>() {
-                    *player_slot(&state) = None;
+                    // Take it out first: the core's teardown runs on drop and
+                    // must not happen under the slot guard.
+                    let doomed = player_slot(&state).take();
+                    drop(doomed);
                 }
             }
             // mpv's render window is created after the web layer, so any event

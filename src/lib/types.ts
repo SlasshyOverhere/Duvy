@@ -25,10 +25,32 @@ export interface Video {
   rating?: string | null;
 }
 
-interface CastMember {
+export interface CastMember {
   name: string;
   character: string;
   photo?: string | null;
+  /** TMDB person id; a face with one opens its own page. */
+  personId?: number | null;
+}
+
+/** One season, with the art the season picker shows. */
+export interface SeasonSummary {
+  number: number;
+  name: string;
+  poster?: string | null;
+  episodes: number;
+}
+
+export interface TrailerLink {
+  name: string;
+  url: string;
+  thumbnail?: string | null;
+  year?: string | null;
+}
+
+export interface Network {
+  name: string;
+  logo?: string | null;
 }
 
 export interface Details {
@@ -51,15 +73,40 @@ export interface Details {
   writer: string[];
   country: string[];
   trailer?: string | null;
+  trailers: TrailerLink[];
+  seasons: SeasonSummary[];
+  networks: Network[];
+  companies: Network[];
+  collectionName?: string | null;
+  collectionItems: MetaPreview[];
+  certification?: string | null;
+  originCountry: string[];
+  originalLanguage?: string | null;
   imdbId?: string | null;
   tmdbId?: number | null;
   source: string;
 }
 
-/** One IMDb parents-guide category. Severity is one of severe/moderate/mild. */
+export interface PersonDetails {
+  id: number;
+  name: string;
+  photo?: string | null;
+  department?: string | null;
+  birthday?: string | null;
+  deathday?: string | null;
+  placeOfBirth?: string | null;
+  biography?: string | null;
+  credits: number;
+  since?: string | null;
+  popular: MetaPreview[];
+  latest: MetaPreview[];
+  upcoming: MetaPreview[];
+}
+
+/** One IMDb parents-guide category, worst first when listed. */
 export interface ParentalEntry {
   category: "nudity" | "violence" | "profanity" | "alcohol" | "frightening";
-  severity: string;
+  severity: "none" | "mild" | "moderate" | "severe";
 }
 
 export interface StreamOption {
@@ -131,11 +178,12 @@ export interface WatchedItem {
   watchedAt: number;
 }
 
-interface CatalogDef {
+export interface CatalogDef {
   type: string;
   id: string;
   name: string;
-  extra?: { name: string; isRequired?: boolean; options?: string[] }[];
+  extra: { name: string; isRequired: boolean; options: string[] | null }[];
+  genres: string[] | null;
 }
 
 export interface AddonInfo {
@@ -160,7 +208,7 @@ export interface LibraryItem {
   poster?: string | null;
   background?: string | null;
   addedAt: number;
-  meta?: MetaPreview | null;
+  meta: MetaPreview | null;
 }
 
 export interface Settings {
@@ -189,6 +237,8 @@ export interface Settings {
   traktScrobble: boolean;
   autoUpdateCheck: boolean;
   ignoredUpdateVersion: string;
+  /** The bundled metadata addons were installed once already. */
+  defaultsSeeded: boolean;
   onboarded: boolean;
   /** Crash reporting: null until the user is asked, off unless they agree. */
   telemetry: boolean | null;
@@ -313,32 +363,32 @@ export interface PlayerSnapshot {
   playing: boolean;
   paused: boolean;
   /** True once the first frame has been decoded. */
-  started?: boolean;
+  started: boolean;
   position: number;
   duration: number;
   /** Seconds fetched ahead of the playhead. */
-  buffered?: number;
+  buffered: number;
   /** mpv drained the cache and is waiting on the network. */
-  buffering?: boolean;
+  buffering: boolean;
   title: string;
   volume: number;
   muted: boolean;
   speed: number;
   ended: boolean;
   /** An eof well before the duration: the source dropped, not the credits. */
-  cutShort?: boolean;
+  cutShort: boolean;
   /** Set when mpv cannot open or continue the source. */
-  error?: string | null;
+  error: string | null;
   audioTracks: Track[];
   subTracks: Track[];
-  activeAudio?: number | null;
-  activeSub?: number | null;
-  chapters?: Chapter[];
+  activeAudio: number | null;
+  activeSub: number | null;
+  chapters: Chapter[];
   /** Resolution, shape and codec, once the video is initialised. */
-  media?: MediaInfo | null;
-  session?: PlaybackSession | null;
+  media: MediaInfo | null;
+  session: PlaybackSession | null;
   /** Identifies the mpv process; events from an older one are ignored. */
-  generation?: number;
+  generation: number;
 }
 
 export interface PlayRequest {

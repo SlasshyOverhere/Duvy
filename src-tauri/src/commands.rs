@@ -6,7 +6,8 @@ use crate::addons::{
 };
 use crate::db::{self, LibraryItem, ProgressItem, StoredAddon};
 use crate::models::{
-    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, ParentalWarning, SubtitleTrack,
+    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, ParentalWarning, PersonDetails,
+    SubtitleTrack,
 };
 use crate::player::{self, PlayRequest, Player, Snapshot};
 use crate::settings::Settings;
@@ -49,8 +50,8 @@ pub(crate) fn load_settings(state: &AppState) -> Settings {
     crate::settings::load_cached(state)
 }
 
-async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
-    fetch_json_within(client, url, None).await
+async fn fetch_json(url: &str) -> Result<Value, String> {
+    fetch_json_within(url, None).await
 }
 
 /// Far past any real addon reply, and enough to stop a hostile one from
@@ -62,7 +63,8 @@ fn is_http_url(value: &str) -> bool {
 }
 
 /// Reject targets the addon layer has no business reaching: non-HTTP schemes
-/// and the cloud metadata endpoints.
+/// and the cloud metadata endpoints. Names are checked again by the guarded
+/// resolver when the connection is made, and every redirect hop is re-checked.
 fn validate_target(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
     match parsed.scheme() {
@@ -83,13 +85,14 @@ fn validate_target(url: &str) -> Result<(), String> {
 /// A cap is still needed: one addon whose upstream never answers must not
 /// hold every other addon's results hostage.
 async fn fetch_json_within(
-    client: &reqwest::Client,
     url: &str,
     cap: Option<std::time::Duration>,
 ) -> Result<Value, String> {
     validate_target(url)?;
     crate::note_request(url);
-    let mut request = client.get(url).header("accept", "application/json");
+    let mut request = crate::addon_client()
+        .get(url)
+        .header("accept", "application/json");
     if let Some(cap) = cap {
         request = request.timeout(cap);
     }
@@ -164,6 +167,7 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
             name: crate::meta::clean(&name),
             character: String::new(),
             photo: None,
+            person_id: None,
         })
         .collect();
     let imdb_id = if preview.id.starts_with("tt") {
@@ -206,6 +210,15 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
             .into_iter()
             .collect(),
         trailer,
+        trailers: vec![],
+        seasons: vec![],
+        networks: vec![],
+        companies: vec![],
+        collection_name: None,
+        collection_items: vec![],
+        certification: None,
+        origin_country: vec![],
+        original_language: None,
         imdb_id,
         tmdb_id: None,
         source: source.to_string(),
@@ -231,7 +244,8 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     if base.genres.is_empty() {
         base.genres = rich.genres;
     }
-    if base.cast.is_empty() {
+    // TMDB's cast carries the person ids the addon rows lack, so it wins.
+    if !rich.cast.is_empty() {
         base.cast = rich.cast;
     }
     if base.director.is_empty() {
@@ -246,6 +260,31 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     if base.trailer.is_none() {
         base.trailer = rich.trailer;
     }
+    if base.trailers.is_empty() {
+        base.trailers = rich.trailers;
+    }
+    if base.seasons.is_empty() {
+        base.seasons = rich.seasons;
+    }
+    if base.networks.is_empty() {
+        base.networks = rich.networks;
+    }
+    if base.companies.is_empty() {
+        base.companies = rich.companies;
+    }
+    if base.collection_items.is_empty() {
+        base.collection_name = rich.collection_name;
+        base.collection_items = rich.collection_items;
+    }
+    if base.certification.is_none() {
+        base.certification = rich.certification;
+    }
+    if base.origin_country.is_empty() {
+        base.origin_country = rich.origin_country;
+    }
+    if base.original_language.is_none() {
+        base.original_language = rich.original_language;
+    }
     if base.tmdb_id.is_none() {
         base.tmdb_id = rich.tmdb_id;
     }
@@ -257,14 +296,33 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
 }
 
+/// A TMDB-only id and its IMDb twin are the same title, so one id owns the rows.
+fn adopt_imdb_id(state: &AppState, details: &MetaDetails) {
+    let real = match details.imdb_id.as_deref().filter(|id| id.starts_with("tt")) {
+        Some(imdb) => imdb,
+        None if details.id.starts_with("tt") => details.id.as_str(),
+        None => return,
+    };
+    let mut stale = vec![details.id.clone()];
+    if details.id.starts_with("tt")
+        && let Some(tmdb_id) = details.tmdb_id
+    {
+        // Older builds keyed a title by its TMDB id, in both spellings.
+        for kind in ["series", "tv", "movie"] {
+            stale.push(format!("tmdb:{kind}:{tmdb_id}"));
+        }
+    }
+    let conn = state.db.conn();
+    for old in &stale {
+        if let Err(error) = db::adopt_meta(&conn, old, real) {
+            crate::playback_log::mark(format!("could not fold {old} onto {real}: {error}"));
+        }
+    }
+}
+
 /// Metadata addons in list order, but bounded: nine of them in a row, each on
 /// the shared client timeout, is how a details page ends up waiting seconds.
-async fn addon_meta(
-    client: &reqwest::Client,
-    addons: &[StoredAddon],
-    id: &str,
-    media_type: &str,
-) -> Option<Meta> {
+async fn addon_meta(addons: &[StoredAddon], id: &str, media_type: &str) -> Option<Meta> {
     // Every eligible addon is asked at once; the lowest index wins, so the
     // addon order still decides the answer. The budget caps the whole walk.
     let mut set: JoinSet<(usize, Option<Meta>)> = JoinSet::new();
@@ -276,9 +334,8 @@ async fn addon_meta(
         .enumerate()
     {
         let url = addons::meta_url(&addon.url, media_type, id);
-        let client = client.clone();
         set.spawn(async move {
-            let Ok(value) = fetch_json_within(&client, &url, Some(META_REQUEST_CAP)).await else {
+            let Ok(value) = fetch_json_within(&url, Some(META_REQUEST_CAP)).await else {
                 return (index, None);
             };
             let Ok(response) = serde_json::from_value::<MetaResponse>(value) else {
@@ -294,12 +351,23 @@ async fn addon_meta(
     }
 
     let mut best: Option<(usize, Meta)> = None;
+    let mut done: Vec<usize> = Vec::new();
     let drain = async {
         while let Some(joined) = set.join_next().await {
-            if let Ok((index, Some(meta))) = joined
-                && best.as_ref().is_none_or(|(first, _)| index < *first)
+            if let Ok((index, meta)) = joined {
+                done.push(index);
+                if let Some(meta) = meta
+                    && best.as_ref().is_none_or(|(first, _)| index < *first)
+                {
+                    best = Some((index, meta));
+                }
+            }
+            // Every addon ranked ahead of the winner has answered, so a slow
+            // one behind it cannot change the page.
+            if let Some((first, _)) = &best
+                && (0..*first).all(|index| done.contains(&index))
             {
-                best = Some((index, meta));
+                break;
             }
         }
     };
@@ -424,8 +492,10 @@ fn store_addon(
     Ok(addon_info(stored))
 }
 
-async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, Manifest), String> {
-    let value = fetch_json(client, &format!("{base}/manifest.json")).await?;
+/// Shared with the Nuvio sync, which installs addons the account carries: the
+/// manifest fetch gets the same target check and body cap either way.
+pub(crate) async fn fetch_manifest(base: &str) -> Result<(Value, Manifest), String> {
+    let value = fetch_json(&format!("{base}/manifest.json")).await?;
     // Borrowed deserialize: the payload is returned to the caller, so cloning it
     // here would duplicate the whole manifest on every install.
     let manifest: Manifest = Manifest::deserialize(&value)
@@ -449,12 +519,20 @@ pub async fn seed_default_addons(handle: AppHandle) {
 
     let mut installed = 0usize;
     for base in DEFAULT_ADDONS {
-        match fetch_manifest(&state.http, base).await {
+        match fetch_manifest(base).await {
             Ok((value, manifest)) => match store_addon(&state, base, &manifest, &value) {
                 Ok(_) => installed += 1,
-                Err(e) => eprintln!("[startup] cannot store {base}: {e}"),
+                Err(e) => eprintln!(
+                    "[startup] cannot store {}: {}",
+                    crate::redact::url(base),
+                    crate::redact::text(&e)
+                ),
             },
-            Err(e) => eprintln!("[startup] cannot install {base}: {e}"),
+            Err(e) => eprintln!(
+                "[startup] cannot install {}: {}",
+                crate::redact::url(base),
+                crate::redact::text(&e)
+            ),
         }
     }
     if installed == 0 {
@@ -466,7 +544,10 @@ pub async fn seed_default_addons(handle: AppHandle) {
         let mut settings = Settings::load(&conn);
         settings.defaults_seeded = true;
         if let Err(e) = settings.save(&conn) {
-            eprintln!("[startup] cannot record default addons: {e}");
+            eprintln!(
+                "[startup] cannot record default addons: {}",
+                crate::redact::text(&e)
+            );
         }
     }
     crate::settings::invalidate(&state);
@@ -487,7 +568,7 @@ pub async fn addons_install(url: String, state: State<'_, AppState>) -> Result<A
     if base.is_empty() {
         return Err("Enter an addon URL".into());
     }
-    let (value, manifest) = fetch_manifest(&state.http, &base).await?;
+    let (value, manifest) = fetch_manifest(&base).await?;
     store_addon(&state, &base, &manifest, &value)
 }
 
@@ -499,7 +580,7 @@ pub async fn addons_refresh(url: String, state: State<'_, AppState>) -> Result<A
     if base.is_empty() {
         return Err("Enter an addon URL".into());
     }
-    let (value, manifest) = fetch_manifest(&state.http, &base)
+    let (value, manifest) = fetch_manifest(&base)
         .await
         .map_err(|e| format!("Refresh failed: {e}"))?;
     store_addon(&state, &base, &manifest, &value)
@@ -581,7 +662,6 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
         addon_name: String,
         media_type: String,
         catalog_id: String,
-        client: reqwest::Client,
         url: String,
         title: String,
         row_id: String,
@@ -616,7 +696,6 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
                 addon_name: addon.name.clone(),
                 media_type: catalog.media_type.clone(),
                 catalog_id: catalog.id.clone(),
-                client: state.http.clone(),
                 url: addons::catalog_url(
                     &addon.url,
                     &catalog.media_type,
@@ -637,7 +716,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut set: JoinSet<(usize, Task, Result<CatalogResponse, String>)> = JoinSet::new();
     for task in tasks {
         set.spawn(async move {
-            let result = fetch_json(&task.client, &task.url).await.and_then(|value| {
+            let result = fetch_json(&task.url).await.and_then(|value| {
                 serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
             });
             (task.order, task, result)
@@ -718,7 +797,6 @@ pub async fn catalog(
     catalog_id: String,
     query: Option<String>,
     skip: Option<u32>,
-    state: State<'_, AppState>,
 ) -> Result<CatalogResponse, String> {
     let mut extra = BTreeMap::new();
     if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
@@ -729,7 +807,7 @@ pub async fn catalog(
     }
     let base = addons::normalize_addon_url(&addon_url);
     let url = addons::catalog_url(&base, &media_type, &catalog_id, &extra);
-    let value = fetch_json(&state.http, &url).await?;
+    let value = fetch_json(&url).await?;
     serde_json::from_value(value).map_err(|e| format!("Unexpected catalog payload: {e}"))
 }
 
@@ -959,10 +1037,9 @@ pub async fn search(
             let mut extra = BTreeMap::new();
             extra.insert("search".to_string(), query.clone());
             let url = addons::catalog_url(&addon.url, &catalog.media_type, &catalog.id, &extra);
-            let client = state.http.clone();
             let name = addon.name.clone();
             set.spawn(async move {
-                let result = fetch_json(&client, &url).await.and_then(|value| {
+                let result = fetch_json(&url).await.and_then(|value| {
                     serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
                 });
                 (name, result)
@@ -1055,7 +1132,7 @@ pub async fn meta_details(
         // text, and a full addon walk costs more than the page is worth.
         if details.media_type == "series"
             && let Some(imdb) = details.imdb_id.clone()
-            && let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await
+            && let Some(meta) = addon_meta(&addons, &imdb, &details.media_type).await
         {
             let from_addon = meta_details_from_meta(meta, "addon");
             details.videos = from_addon.videos;
@@ -1072,6 +1149,7 @@ pub async fn meta_details(
         {
             details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
         }
+        adopt_imdb_id(&state, &details);
         return Ok(details);
     }
 
@@ -1081,7 +1159,17 @@ pub async fn meta_details(
         .iter()
         .any(|addon| addon.enabled && addon.addon_id == CINEMETA_ID);
 
-    let mut details = if let Some(meta) = addon_meta(&state.http, &addons, &id, &media_type).await {
+    // The TMDB record for an IMDb id is known up front, so it is looked up
+    // while the addons are still answering instead of after them.
+    let find = async {
+        if !tmdb::available(&key) || !id.starts_with("tt") {
+            return None;
+        }
+        tmdb::find_by_imdb(&state.http, &key, &id).await.ok().flatten()
+    };
+    let (addon, found) = tokio::join!(addon_meta(&addons, &id, &media_type), find);
+
+    let mut details = if let Some(meta) = addon {
         meta_details_from_meta(meta, "addon")
     } else if id.starts_with("tt") {
         let direct = if cinemeta_installed {
@@ -1096,17 +1184,13 @@ pub async fn meta_details(
             .flatten()
         };
         match direct {
-            Some(found) => found,
-            None if tmdb::available(&key) => {
-                let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
-                match found {
-                    Some((kind, tmdb_id)) => {
-                        tmdb::details(&state.http, &key, &kind, &tmdb_id).await?
-                    }
-                    None => return Err("No metadata source could resolve this title".into()),
+            Some(meta) => meta,
+            None => match found.as_ref() {
+                Some((kind, tmdb_id)) => {
+                    tmdb::details(&state.http, &key, kind, tmdb_id).await?
                 }
-            }
-            None => return Err("No metadata source could resolve this title".into()),
+                None => return Err("No metadata source could resolve this title".into()),
+            },
         }
     } else {
         return Err(
@@ -1123,8 +1207,12 @@ pub async fn meta_details(
         .or_else(|| id.starts_with("tt").then(|| id.clone()));
     let needs_videos = details.videos.is_empty() && details.media_type == "series";
     let needs_cast = details.cast.is_empty();
-    let needs_tmdb =
-        details.background.is_none() || details.cast.is_empty() || details.trailer.is_none();
+    // A cast without person ids cannot open a person page, so TMDB must run.
+    let needs_tmdb = details.background.is_none()
+        || details.cast.iter().all(|member| member.person_id.is_none())
+        || details.trailer.is_none()
+        || details.trailers.is_empty()
+        || (details.media_type == "series" && details.seasons.is_empty());
 
     let cinemeta = async {
         if !needs_videos && !needs_cast {
@@ -1137,9 +1225,8 @@ pub async fn meta_details(
         if !tmdb::available(&key) || !needs_tmdb {
             return None;
         }
-        let imdb = imdb.as_deref()?;
-        let (kind, tmdb_id) = tmdb::find_by_imdb(&state.http, &key, imdb).await.ok()??;
-        tmdb::details(&state.http, &key, &kind, &tmdb_id).await.ok()
+        let (kind, tmdb_id) = found.as_ref()?;
+        tmdb::details(&state.http, &key, kind, tmdb_id).await.ok()
     };
     let (cinemeta, rich) = tokio::join!(cinemeta, rich);
 
@@ -1153,7 +1240,36 @@ pub async fn meta_details(
         merge_details(&mut details, rich);
     }
 
+    adopt_imdb_id(&state, &details);
     Ok(details)
+}
+
+/// A cast face opens the person behind it.
+#[tauri::command]
+pub async fn person_details(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<PersonDetails, String> {
+    let settings = {
+        let conn = state.db.conn();
+        Settings::load(&conn)
+    };
+    let key = settings.tmdb_api_key.trim().to_string();
+    if !tmdb::available(&key) {
+        return Err("Person pages need TMDB. Add a TMDB API key in Settings → Integrations.".into());
+    }
+    if id <= 0 {
+        return Err("Malformed person id".into());
+    }
+    tmdb::person(&state.http, &key, id).await.map_err(|error| {
+        // The proxy answers 404 for a route it does not forward, which reads
+        // the same as a person TMDB does not know.
+        if error.contains("HTTP 404") {
+            "TMDB has no such person, or the TMDB proxy does not forward person pages (redeploy workers/tmdb-proxy.js).".into()
+        } else {
+            error
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1182,7 +1298,6 @@ pub async fn streams(
 
     struct Task {
         addon: String,
-        client: reqwest::Client,
         url: String,
     }
 
@@ -1200,7 +1315,6 @@ pub async fn streams(
         }
         tasks.push(Task {
             addon: addon.name.clone(),
-            client: state.http.clone(),
             url: addons::stream_url(&addon.url, &media_type, &request_id),
         });
     }
@@ -1213,7 +1327,6 @@ pub async fn streams(
     for task in tasks {
         set.spawn(async move {
             let result = fetch_json_within(
-                &task.client,
                 &task.url,
                 Some(std::time::Duration::from_secs(cap)),
             )
@@ -1305,10 +1418,9 @@ pub async fn subtitles(
             continue;
         }
         let url = addons::subtitle_url(&addon.url, &media_type, &request_id, &BTreeMap::new());
-        let client = state.http.clone();
         let name = addon.name.clone();
         set.spawn(async move {
-            let result = fetch_json(&client, &url).await.and_then(|value| {
+            let result = fetch_json(&url).await.and_then(|value| {
                 serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
             });
             (name, result)
@@ -1319,9 +1431,8 @@ pub async fn subtitles(
     {
         const OPENSUBTITLES: &str = "https://opensubtitles-v3.strem.io";
         let url = addons::subtitle_url(OPENSUBTITLES, &media_type, &request_id, &BTreeMap::new());
-        let client = state.http.clone();
         set.spawn(async move {
-            let result = fetch_json(&client, &url).await.and_then(|value| {
+            let result = fetch_json(&url).await.and_then(|value| {
                 serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
             });
             ("OpenSubtitles".to_string(), result)
@@ -1446,6 +1557,10 @@ pub async fn watched_set(
     watched: bool,
     app: AppHandle,
 ) -> Result<(), String> {
+    // A blank key would land as a nameless row nothing can ever clear.
+    if key.trim().is_empty() || meta_id.trim().is_empty() {
+        return Err("A mark needs a title and a key".into());
+    }
     crate::db_blocking(app, move |state| {
         let conn = state.db.conn();
         db::set_watched(&conn, &key, &meta_id, watched).map_err(|e| e.to_string())
@@ -1461,27 +1576,35 @@ pub async fn watched_set(
 // on the UI thread. Blocking there freezes the whole window.
 #[tauri::command]
 pub async fn player_open(
-    request: PlayRequest,
+    mut request: PlayRequest,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Snapshot, String> {
     if request.url.trim().is_empty() {
         return Err("Nothing to play".into());
     }
+    // The UI serializes opens; IPC does not, and two cores would fight for
+    // the window.
+    let Some(_opening) = state.player.begin_open() else {
+        return Err("The player is already opening".into());
+    };
+    // A media-server handle is resolved here, so its token never crosses IPC.
+    if crate::servers::is_stream_handle(&request.url) {
+        request.url = crate::servers::resolve_stream(&state, request.url.trim()).await?;
+    }
     if let Ok(dir) = app.path().app_data_dir() {
         crate::playback_log::init(&dir);
     }
-    // Only the host is logged: stream URLs carry tokens in their path.
-    let source = request
-        .url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .unwrap_or("local file");
-    crate::playback_log::begin(format!(
-        "play requested: {} [{source}]",
-        request.title.chars().take(64).collect::<String>()
-    ));
+    // Only the host is logged: stream URLs carry tokens and userinfo.
+    let source = crate::redact::origin(&request.url).unwrap_or_else(|| "local file".into());
+    // Control characters would let a title forge its own log line.
+    let title: String = request
+        .title
+        .chars()
+        .take(64)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    crate::playback_log::begin(format!("play requested: {title} [{source}]"));
     let settings = load_settings(&state);
     let host = crate::video_host(&app);
     // The slot is not held across the spawn: every other player command would
@@ -1691,6 +1814,13 @@ pub async fn nuvio_sign_in(
 
 #[tauri::command]
 pub async fn nuvio_sign_out(app: AppHandle) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Sign out of Nuvio",
+        "Duvy forgets the Nuvio session and stops syncing.",
+    ) {
+        return Err("Sign out cancelled".into());
+    }
     crate::db_blocking(app, crate::nuvio_sync::sign_out).await
 }
 
@@ -1742,6 +1872,13 @@ pub async fn stremio_sign_in(
 
 #[tauri::command]
 pub async fn stremio_sign_out(app: AppHandle) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Sign out of Stremio",
+        "Duvy forgets the Stremio session and stops syncing.",
+    ) {
+        return Err("Sign out cancelled".into());
+    }
     crate::db_blocking(app, crate::stremio_sync::sign_out).await
 }
 
@@ -1828,7 +1965,7 @@ mod reco_tests {
         let mut extra = BTreeMap::new();
         extra.insert("search".to_string(), "dune".to_string());
         let url = addons::catalog_url("https://v3-cinemeta.strem.io", "movie", "top", &extra);
-        let value = fetch_json(&crate::http_client(), &url)
+        let value = fetch_json(&url)
             .await
             .expect("Cinemeta answers its search catalog");
         let response: CatalogResponse =

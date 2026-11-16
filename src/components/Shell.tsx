@@ -12,7 +12,8 @@ const DOCK: { route: Route; label: string; icon: IconName }[] = [
 
 // A title page keeps Home lit, and watched history lives inside Library.
 function isActive(route: Route, target: Route) {
-  if (target.name === "home") return route.name === "home" || route.name === "details";
+  if (target.name === "home")
+    return route.name === "home" || route.name === "details" || route.name === "person";
   if (target.name === "library") return route.name === "library" || route.name === "watched";
   return route.name === target.name;
 }
@@ -66,7 +67,7 @@ export function TopBar() {
         target?.tagName === "SELECT" ||
         target?.isContentEditable;
       if (
-        (event.key === "/" && !typing) ||
+        (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) ||
         (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))
       ) {
         // Navigating again from search would stack an entry and drop the query.

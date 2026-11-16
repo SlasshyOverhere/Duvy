@@ -20,18 +20,23 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    # The updater signing key lives in this protected environment, so a release
+    # waits for a reviewer before it can sign anything.
+    environment: release
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           # A dispatch builds the default branch, never whatever ref was picked.
           ref: ${{ github.event_name == 'workflow_dispatch' && 'refs/heads/main' || github.ref }}
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       # Must match ci.yml: the cache key carries the rustc commit.
-      - uses: dtolnay/rust-toolchain@1.100.0
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0
+        with:
+          toolchain: 1.100.0
 
       # rust-cache hashes `rustup toolchain list`, so a toolchain left behind by
       # the runner image rotates the cache key. Keep exactly one.
@@ -43,7 +48,7 @@ jobs:
             if ($name -and $name -notlike '1.100.0*') { rustup toolchain uninstall $name }
           }
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri -> target
           # One key for every release, so the entry the last release saved is
@@ -110,7 +115,7 @@ jobs:
 
       # Builds both installers, signs the updater bundles, publishes the release
       # and uploads latest.json, which is what the app's update endpoint reads.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # A DSN is a public write-only ingest URL, not a secret. Set it as a

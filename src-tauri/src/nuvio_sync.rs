@@ -26,6 +26,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use url::Url;
 
 pub const DEFAULT_BASE: &str = "https://api.nuvio.tv";
 pub const DEFAULT_FALLBACK: &str = "https://api-two.nuvioapp.space";
@@ -33,6 +34,12 @@ pub const DEFAULT_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 
 const SESSION_KEY: &str = "nuvio";
 const UA: &str = "Duvy/0.1";
+// A sync installs at most this many addons; one fetch each, never unbounded.
+const MAX_ADDONS_PER_SYNC: usize = 50;
+
+/// One pull/merge/push at a time: two overlapping passes would push the same
+/// rows twice and merge each other's half-written state.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 // ---------------------------------------------------------------------------
 // Session + status
@@ -118,17 +125,30 @@ pub struct NuvioProfile {
 // Persistence
 // ---------------------------------------------------------------------------
 
+fn stored_session(conn: &Connection) -> Result<Option<Session>, String> {
+    let Some(value) = db::read_secret_kv(conn, SESSION_KEY).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|e| format!("the stored Nuvio session could not be read: {e}"))
+}
+
 pub fn load_session(conn: &Connection) -> Session {
-    db::read_kv(conn, SESSION_KEY)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+    match stored_session(conn) {
+        Ok(session) => session.unwrap_or_default(),
+        Err(error) => {
+            eprintln!("nuvio: {error}");
+            Session::default()
+        }
+    }
 }
 
 fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
+    // Refuse to write over a session row we could not read.
+    stored_session(conn)?;
     let value = serde_json::to_value(session).map_err(|e| e.to_string())?;
-    db::write_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
+    db::write_secret_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
 }
 
 /// Records that a sync finished without writing back the tokens this call
@@ -147,17 +167,43 @@ pub fn status(conn: &Connection, settings: &Settings) -> Status {
         email: s.email,
         profile: s.profile,
         last_sync: s.last_sync,
-        base_url: base_url(settings),
+        base_url: base_url(settings).unwrap_or_else(|_| settings.nuvio_base_url.trim().to_string()),
     }
 }
 
-fn base_url(settings: &Settings) -> String {
-    let custom = settings.nuvio_base_url.trim().trim_end_matches('/');
+/// The sync base, or why it is refused. Every request carries the account's
+/// apikey and often its bearer token, and sign-in carries the password, so a
+/// base is only trusted over https (or plain http on this machine).
+fn base_url(settings: &Settings) -> Result<String, String> {
+    let custom = settings.nuvio_base_url.trim();
     if custom.is_empty() {
-        DEFAULT_BASE.to_string()
-    } else {
-        custom.to_string()
+        return Ok(DEFAULT_BASE.to_string());
     }
+    let url = Url::parse(custom)
+        .map_err(|_| "The Nuvio server URL is not a valid URL.".to_string())?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("The Nuvio server URL must not carry a username or password.".into());
+    }
+    let host = url
+        .host_str()
+        .ok_or("The Nuvio server URL has no host.")?;
+    match url.scheme() {
+        "https" => {}
+        "http" if crate::addons::is_loopback_host(host) => {}
+        _ => {
+            return Err(
+                "The Nuvio server URL must use https. Plain http is only accepted for localhost."
+                    .into(),
+            );
+        }
+    }
+    if crate::addons::is_blocked_host(host) {
+        return Err("The Nuvio server URL points at an internal address.".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("The Nuvio server URL must not carry a query or fragment.".into());
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
 fn api_key(settings: &Settings) -> String {
@@ -175,6 +221,7 @@ fn api_key(settings: &Settings) -> String {
 
 fn error_from(status: u16, body: &str) -> String {
     let parsed: Option<Value> = serde_json::from_str(body).ok();
+    // Known keys only: a raw body can echo the request, bearer token included.
     let detail = parsed
         .as_ref()
         .and_then(|v| {
@@ -184,8 +231,13 @@ fn error_from(status: u16, body: &str) -> String {
                 .or_else(|| v.get("error"))
         })
         .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| body.chars().take(200).collect());
+        .map(|text| {
+            crate::redact::text(text)
+                .chars()
+                .take(200)
+                .collect::<String>()
+        })
+        .unwrap_or_else(|| "the server sent no message".to_string());
     match status {
         401 | 403 => format!("Nuvio rejected the credentials ({status}): {detail}"),
         404 => format!("Nuvio endpoint not found ({status}): {detail}"),
@@ -204,7 +256,7 @@ async fn request(
     body: Option<&Value>,
 ) -> Result<Value, String> {
     let key = api_key(settings);
-    let mut hosts = vec![base_url(settings)];
+    let mut hosts = vec![base_url(settings)?];
     // Only the official endpoint has a mirror. A self-hosted base must not have
     // the account's bearer token handed to Nuvio's hosts.
     if settings.nuvio_base_url.trim().is_empty() {
@@ -435,14 +487,16 @@ pub async fn sign_in(
     apply_session(&mut session, &value)?;
 
     let conn = state.db.conn();
+    // One transaction: a failure must not leave the old account's rows cleared.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     match (previous, current) {
         (Some(previous), Some(current)) if previous != current => {
             // These rows belong to the account that was signed in before.
-            db::clear_history(&conn).map_err(|e| e.to_string())?;
+            db::clear_history(&tx).map_err(|e| e.to_string())?;
             session.last_sync = 0;
         }
         (None, _)
-            if !db::touched_ids(&conn)
+            if !db::touched_ids(&tx)
                 .map_err(|e| e.to_string())?
                 .is_empty() =>
         {
@@ -450,7 +504,8 @@ pub async fn sign_in(
         }
         _ => {}
     }
-    save_session(&conn, &session)?;
+    save_session(&tx, &session)?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(status(&conn, &settings))
 }
 
@@ -465,13 +520,14 @@ pub fn sign_out(state: &AppState) -> Result<(), String> {
         session.last_sync = 0;
         save_session(&conn, &session)
     } else {
-        db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
+        db::delete_secret_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
     }
 }
 
 /// Switches the active profile. The current profile's history is pushed first,
 /// so a failed push aborts the switch and leaves local rows alone.
 pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
+    let _sync = SYNC.lock().await;
     let target = index.max(1);
     let (settings, mut session) = {
         let conn = state.db.conn();
@@ -504,9 +560,12 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     session.last_sync = db::now();
     {
         let conn = state.db.conn();
-        db::clear_history(&conn).map_err(|e| e.to_string())?;
-        merge_pulled(&conn, &pulled)?;
-        save_session(&conn, &session)?;
+        // One transaction: a failed merge must not leave the history cleared.
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        db::clear_history(&tx).map_err(|e| e.to_string())?;
+        merge_pulled(&tx, &pulled)?;
+        save_session(&tx, &session)?;
+        tx.commit().map_err(|e| e.to_string())?;
     }
     merge_addons(state, &pulled.addons).await?;
     enrich(state).await
@@ -553,9 +612,10 @@ fn content_type(value: &Value) -> String {
 }
 
 /// Local progress key for a remote entry: `metaId` for movies, `metaId:s:e`
-/// for episodes, so Duvy can resolve its own resume lookups.
+/// for episodes, so Duvy can resolve its own resume lookups. Season 0 is a
+/// real season (specials), so the episode number alone decides.
 fn local_key(content_id: &str, season: i64, episode: i64) -> String {
-    if season > 0 && episode > 0 {
+    if episode > 0 {
         format!("{content_id}:{season}:{episode}")
     } else {
         content_id.to_string()
@@ -563,6 +623,7 @@ fn local_key(content_id: &str, season: i64, episode: i64) -> String {
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let (settings, mut session) = {
         let conn = state.db.conn();
         (Settings::load(&conn), load_session(&conn))
@@ -580,9 +641,16 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
     // Best-effort: a read-only addons table must not cost the history push.
-    let addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
-        .await
-        .unwrap_or(0);
+    let addons_pushed = match push_addons(state, &settings, &token, pid, &pulled.addons).await {
+        Ok(pushed) => pushed,
+        Err(error) => {
+            eprintln!(
+                "nuvio: addons were not pushed: {}",
+                crate::redact::text(&error)
+            );
+            0
+        }
+    };
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -624,15 +692,22 @@ async fn pull(
     pid: i64,
 ) -> Result<Pulled, String> {
     let progress = async {
+        const LIMIT: usize = 1000;
         let value = rpc(
             http,
             settings,
             token,
             "sync_pull_watch_progress",
-            json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": 1000 }),
+            json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": LIMIT }),
         )
         .await?;
-        Ok::<_, String>(as_rows(value))
+        let rows = as_rows(value);
+        // The RPC takes no offset, so a full page is the most that can be read:
+        // say so instead of dropping the rest in silence.
+        if rows.len() >= LIMIT {
+            eprintln!("nuvio: watch progress filled the {LIMIT}-row page, older rows were not read");
+        }
+        Ok::<_, String>(rows)
     };
 
     let watched = async {
@@ -685,7 +760,10 @@ async fn pull(
         match get(http, settings, &addons_path(pid), token).await {
             Ok(value) => as_rows(value),
             Err(error) => {
-                eprintln!("nuvio: addon list unavailable: {error}");
+                eprintln!(
+                    "nuvio: addon list unavailable: {}",
+                    crate::redact::text(&error)
+                );
                 Vec::new()
             }
         }
@@ -727,37 +805,20 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
     };
     let mut known: std::collections::HashSet<String> = installed.into_iter().collect();
     let mut added = 0;
-    for row in rows {
+    // One manifest fetch per new row, so the count is bounded: a hostile list
+    // must not turn a sync into thousands of outbound requests.
+    for row in rows.iter().take(MAX_ADDONS_PER_SYNC) {
         let Some(url) = remote_addon_url(row) else {
             continue;
         };
         if !known.insert(url.clone()) {
             continue;
         }
-        let manifest_url = format!("{url}/manifest.json");
-        let value = match state
-            .http
-            .get(&manifest_url)
-            .header("accept", "application/json")
-            .send()
-            .await
-        {
-            Ok(response) if response.status().is_success() => {
-                match response.json::<Value>().await {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                }
-            }
-            _ => continue,
-        };
-        let Ok(manifest) =
-            <crate::addons::Manifest as serde::Deserialize>::deserialize(&value)
-        else {
+        // The same target check and body cap as a manual install.
+        let Ok((value, manifest)) = crate::commands::fetch_manifest(&url).await else {
+            eprintln!("nuvio: addon {url} could not be fetched, skipped");
             continue;
         };
-        if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
-            continue;
-        }
         let enabled = row.get("enabled").and_then(Value::as_bool).unwrap_or(true);
         let conn = state.db.conn();
         if db::upsert_addon(&conn, &url, &manifest.id, &manifest.name, &value).is_err() {
@@ -1135,6 +1196,8 @@ mod tests {
     fn keys_round_trip_to_nuvio_shape() {
         assert_eq!(local_key("tt1", 0, 0), "tt1");
         assert_eq!(local_key("tt1", 2, 5), "tt1:2:5");
+        // A season-0 special is an episode, not the whole title.
+        assert_eq!(local_key("tt1", 0, 3), "tt1:0:3");
     }
 
     #[test]
@@ -1163,5 +1226,32 @@ mod tests {
     fn error_text_is_extracted() {
         let msg = error_from(401, r#"{"message":"Invalid login credentials"}"#);
         assert!(msg.contains("Invalid login credentials"));
+    }
+
+    #[test]
+    fn sync_base_urls_are_https_or_local() {
+        let mut settings = Settings::default();
+        assert_eq!(base_url(&settings).unwrap(), DEFAULT_BASE);
+
+        settings.nuvio_base_url = "https://sync.example.com/".into();
+        assert_eq!(base_url(&settings).unwrap(), "https://sync.example.com");
+
+        settings.nuvio_base_url = "http://localhost:54321".into();
+        assert_eq!(base_url(&settings).unwrap(), "http://localhost:54321");
+
+        settings.nuvio_base_url = "http://127.0.0.1:54321".into();
+        assert!(base_url(&settings).is_ok());
+
+        for refused in [
+            "http://sync.example.com",
+            "http://192.168.1.10:8000",
+            "https://user:pass@sync.example.com",
+            "https://169.254.169.254",
+            "ftp://sync.example.com",
+            "not a url",
+        ] {
+            settings.nuvio_base_url = refused.into();
+            assert!(base_url(&settings).is_err(), "{refused} should be refused");
+        }
     }
 }

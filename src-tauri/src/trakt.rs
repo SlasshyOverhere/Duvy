@@ -22,6 +22,7 @@ const API: &str = "https://api.trakt.tv";
 const ACTIVATE: &str = "https://trakt.tv/activate";
 const REDIRECT: &str = "urn:ietf:wg:oauth:2.0:oob";
 const DAY_SECS: i64 = 86_400;
+const MAX_PAGES: i64 = 500;
 
 #[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -57,17 +58,17 @@ struct Store {
 
 fn load(state: &AppState) -> Result<Store, String> {
     let conn = state.db.conn();
-    Ok(db::read_kv(&conn, KV)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default())
+    let Some(value) = db::read_secret_kv(&conn, KV).map_err(|error| error.to_string())? else {
+        return Ok(Store::default());
+    };
+    serde_json::from_value(value)
+        .map_err(|error| format!("the stored Trakt session could not be read: {error}"))
 }
 
 fn save(state: &AppState, store: &Store) -> Result<(), String> {
     let value = serde_json::to_value(store).map_err(|e| e.to_string())?;
     let conn = state.db.conn();
-    db::write_kv(&conn, KV, &value).map_err(|e| e.to_string())
+    db::write_secret_kv(&conn, KV, &value).map_err(|e| e.to_string())
 }
 
 /// One refresh at a time: Trakt rotates the refresh token on use, so a second
@@ -76,8 +77,13 @@ static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Records that a sync finished without rewriting the tokens this call started
 /// with: another command may have rotated them while the sync ran.
-fn mark_synced(state: &AppState) -> Result<(), String> {
+async fn mark_synced(state: &AppState) -> Result<(), String> {
+    let _guard = REFRESH.lock().await;
     let mut store = load(state)?;
+    // A disconnect that landed mid-sync must not get a timestamp back.
+    if store.access_token.is_empty() {
+        return Ok(());
+    }
     store.last_sync = db::now();
     save(state, &store)
 }
@@ -236,7 +242,11 @@ async fn get_all(
             Value::Null => {}
             _ => return Err("Trakt returned a response the sync cannot read.".into()),
         }
-        if pages.is_none_or(|total| page >= total) || page >= 50 {
+        // A library past this many pages is not real; stop rather than loop.
+        if pages.is_none_or(|total| page >= total) || page >= MAX_PAGES {
+            if pages.is_some_and(|total| page < total) {
+                eprintln!("trakt: {path} stopped at {MAX_PAGES} pages, some rows were not read");
+            }
             break;
         }
         page += 1;
@@ -283,6 +293,11 @@ async fn ensure_token(state: &AppState, store: &mut Store) -> Result<String, Str
         return Ok(store.access_token.clone());
     }
     let _guard = REFRESH.lock().await;
+    refresh_token(state, store).await
+}
+
+/// Assumes the caller holds `REFRESH`.
+async fn refresh_token(state: &AppState, store: &mut Store) -> Result<String, String> {
     // Whoever held the lock may have refreshed already.
     *store = load(state)?;
     let now = db::now() / 1000;
@@ -335,27 +350,29 @@ pub async fn begin(
     client_id: Option<String>,
     client_secret: Option<String>,
 ) -> Result<TraktStatus, String> {
+    let _guard = REFRESH.lock().await;
     let mut store = load(&state)?;
     let id = client_id.unwrap_or_default().trim().to_string();
     let secret = client_secret.unwrap_or_default().trim().to_string();
-    if !id.is_empty() || !secret.is_empty() {
-        if id.is_empty() || secret.is_empty() {
-            return Err("Both the Trakt client id and client secret are required.".into());
-        }
-        apply_client(&mut store, id, secret);
-        // Keep the pasted pair even if the device-code request below fails.
-        save(&state, &store)?;
+    let pasted = !id.is_empty() || !secret.is_empty();
+    if pasted && (id.is_empty() || secret.is_empty()) {
+        return Err("Both the Trakt client id and client secret are required.".into());
     }
-    if store.client_id.is_empty() || store.client_secret.is_empty() {
+    let (id, secret) = if pasted {
+        (id, secret)
+    } else {
+        (store.client_id.clone(), store.client_secret.clone())
+    };
+    if id.is_empty() || secret.is_empty() {
         return Err("Paste the client id and secret of a free Trakt API app first.".into());
     }
 
-    let body = json!({ "client_id": store.client_id });
+    let body = json!({ "client_id": id });
     let (status, value) = call(
         &state.http,
         Method::POST,
         "/oauth/device/code",
-        &store.client_id,
+        &id,
         None,
         Some(&body),
     )
@@ -367,6 +384,8 @@ pub async fn begin(
     if device_code.is_empty() {
         return Err("Trakt did not return a device code.".into());
     }
+    // Only now drop the previous session: a failed request keeps it intact.
+    apply_client(&mut store, id, secret);
     store.device_code = device_code;
     store.user_code = text(&value, "user_code");
     store.verification_url = match text(&value, "verification_url") {
@@ -380,6 +399,7 @@ pub async fn begin(
 /// Polls the device flow once; resolves to a connected status.
 #[tauri::command]
 pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
+    let _guard = REFRESH.lock().await;
     let mut store = load(&state)?;
     if !store.access_token.is_empty() {
         return Ok(status_of(&store));
@@ -403,8 +423,8 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
     )
     .await?;
     match status {
-        // Still waiting for the user to approve the code.
-        400 => Ok(status_of(&store)),
+        // RFC 8628: `authorization_pending` and `slow_down` mean "keep polling".
+        400 | 429 if !device_refused(&value) => Ok(status_of(&store)),
         200..=299 => {
             apply_tokens(&mut store, &value, db::now() / 1000)?;
             store.device_code.clear();
@@ -426,7 +446,7 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
             save(&state, &store)?;
             Ok(status_of(&store))
         }
-        404 | 409 | 410 | 418 => {
+        400 | 404 | 409 | 410 | 418 => {
             store.device_code.clear();
             store.user_code.clear();
             store.verification_url.clear();
@@ -435,6 +455,7 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
                 404 => "Trakt did not recognise that code.".to_string(),
                 409 => "That code was already used. Start again.".to_string(),
                 410 => "The code expired. Start again.".to_string(),
+                400 => http_error(status, &value),
                 _ => "The Trakt approval was denied.".to_string(),
             })
         }
@@ -442,8 +463,24 @@ pub async fn poll(state: State<'_, AppState>) -> Result<TraktStatus, String> {
     }
 }
 
+/// A device-token answer that ends the flow instead of asking for another poll.
+fn device_refused(value: &Value) -> bool {
+    matches!(
+        text(value, "error").as_str(),
+        "access_denied" | "expired_token"
+    )
+}
+
 #[tauri::command]
-pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn disconnect(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Disconnect Trakt",
+        "Duvy forgets the Trakt token and stops syncing.",
+    ) {
+        return Err("Disconnect cancelled".into());
+    }
+    let _guard = REFRESH.lock().await;
     let mut store = load(&state)?;
     if !store.access_token.is_empty() {
         // Best effort: forgetting a token here does not invalidate it at Trakt.
@@ -717,9 +754,28 @@ fn parse_iso(raw: &str) -> Option<i64> {
     if base.len() != 19 {
         return None;
     }
+    let bytes = base.as_bytes();
+    // `YYYY-MM-DDTHH:MM:SS`; anything else would parse as a different instant.
+    if bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !matches!(bytes[10], b'T' | b't' | b' ')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
     let number = |from: usize, to: usize| base.get(from..to)?.parse::<i64>().ok();
     let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
     let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
+    if !(1900..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
     let secs = days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second;
     Some(secs * 1000 + millis)
 }
@@ -967,7 +1023,7 @@ pub async fn sync(state: State<'_, AppState>) -> Result<Value, String> {
         )?;
     }
 
-    mark_synced(&state)?;
+    mark_synced(&state).await?;
     Ok(json!({ "pulled": pulled, "pushed": pushed }))
 }
 
@@ -1112,6 +1168,37 @@ mod tests {
             Some(1_709_164_800_000)
         );
         assert_eq!(parse_iso("not a date"), None);
+    }
+
+    #[test]
+    fn timestamps_are_only_read_from_a_complete_iso_string() {
+        assert_eq!(
+            parse_iso("2024-03-09T12:34:56.000Z"),
+            parse_iso("2024-03-09T12:34:56Z")
+        );
+        assert!(parse_iso("2024-03-09 12:34:56").is_some());
+        for bad in [
+            "",
+            "2024-03-09",
+            "2024-13-09T12:34:56Z",
+            "2024-03-32T12:34:56Z",
+            "2024-03-09T24:00:00Z",
+            "2024-03-09T12:61:00Z",
+            "2024/03/09T12:34:56Z",
+            "2024-03-09T12:34:5xZ",
+            "not a date",
+        ] {
+            assert!(parse_iso(bad).is_none(), "{bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn device_poll_answers_are_told_apart() {
+        assert!(!device_refused(&json!({ "error": "authorization_pending" })));
+        assert!(!device_refused(&json!({ "error": "slow_down" })));
+        assert!(!device_refused(&json!({})));
+        assert!(device_refused(&json!({ "error": "access_denied" })));
+        assert!(device_refused(&json!({ "error": "expired_token" })));
     }
 
     #[test]

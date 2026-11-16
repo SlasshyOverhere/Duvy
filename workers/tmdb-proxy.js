@@ -2,7 +2,9 @@
 // Deploy: paste this into a Cloudflare Worker, set TMDB_TOKEN as a secret,
 // then copy the worker URL into PROXY in src-tauri/src/tmdb.rs.
 
-const ALLOWED = /^\/(movie|tv|search|find|trending)\//;
+// Person and collection pages are part of the details experience, so their
+// paths are allowed too.
+const ALLOWED = /^\/(movie|tv|search|find|trending|person|collection)\//;
 const MAX_AGE = 21600;
 
 export default {

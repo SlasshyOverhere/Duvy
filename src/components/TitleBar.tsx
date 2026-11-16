@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri } from "../lib/bridge";
+import { useApp } from "../lib/store";
 import { Icon } from "./ui";
 
 // Frameless windows lose the OS resize border, so each edge gets an invisible
@@ -54,10 +55,8 @@ export function ResizeEdges() {
  * `player` drops fullscreen, which the player already owns.
  */
 export function WindowControls({ variant = "app" }: { variant?: "app" | "player" }) {
+  const { fullscreen, setFullscreen } = useApp();
   const [maximized, setMaximized] = useState(false);
-  const [fullscreen, setFullscreen] = useState(
-    () => document.documentElement.dataset.fullscreen === "on",
-  );
   const shellControls = variant === "app";
 
   useEffect(() => {
@@ -87,9 +86,7 @@ export function WindowControls({ variant = "app" }: { variant?: "app" | "player"
       return;
     }
     setFullscreen(next);
-    if (next) document.documentElement.dataset.fullscreen = "on";
-    else delete document.documentElement.dataset.fullscreen;
-  }, [fullscreen]);
+  }, [fullscreen, setFullscreen]);
 
   useEffect(() => {
     if (!fullscreen || !shellControls) return;
