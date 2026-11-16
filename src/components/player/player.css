@@ -92,7 +92,7 @@
 .pv .pv-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3;
+  z-index: 7;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
@@ -352,7 +352,7 @@
   margin: 0 0 4px;
   font-size: 12.5px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.54);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .pv .pv-text-action {
@@ -510,7 +510,7 @@
   margin: 0 0 5px;
   font-size: 11px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.44);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .pv .pv-info-lead {
@@ -557,7 +557,7 @@
 
 .pv .pv-info dt {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* One line per value, ellipsised: the full string is in the tooltip. */
@@ -606,7 +606,7 @@
 .pv .pv-side-scrim {
   position: fixed;
   inset: 0;
-  z-index: 3;
+  z-index: 7;
   display: flex;
   justify-content: flex-end;
   background: rgba(0, 0, 0, 0.34);
@@ -773,8 +773,8 @@
 }
 
 .pv .pv-source-row.is-on {
-  border-color: rgba(240, 165, 58, 0.55);
-  background: rgba(240, 165, 58, 0.09);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 .pv .pv-source-main {
@@ -911,7 +911,7 @@
 .pv .pv-source-audio {
   margin-top: 2px;
   font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* ---- chapters ----------------------------------------------------------- */
@@ -1092,7 +1092,7 @@
 .pv .pv-locked-layer {
   position: fixed;
   inset: 0;
-  z-index: 3;
+  z-index: 7;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1970,8 +1970,8 @@
   text-align: left;
   cursor: pointer;
   animation: pv-now-in 0.26s var(--ease) both;
-  /* Settles both ways, so the card glides when the chrome comes and goes. */
-  transition: bottom 0.24s var(--ease);
+  /* Settles both ways on the compositor: translate, never bottom. */
+  transition: translate 0.24s var(--ease);
 }
 
 @keyframes pv-now-in {
@@ -2004,11 +2004,11 @@
 /* With the controls gone the card is the only thing left on the frame, so it
    settles to the edge instead of hovering over empty space. */
 .pv:not(.pv--awake) .pv-now {
-  bottom: 2.25rem;
+  translate: 0 96px;
 }
 
 .pv:not(.pv--awake) .pv-now--above {
-  bottom: 5.5rem;
+  translate: 0 102px;
 }
 
 .pv .pv-now-art {
@@ -2083,7 +2083,7 @@
   box-shadow: var(--pv-glass-shadow);
   overflow: hidden;
   animation: pv-upnext-in 0.5s var(--ease) both;
-  transition: bottom 0.24s var(--ease);
+  transition: translate 0.24s var(--ease);
 }
 
 /* Lands from below with a touch of scale, so it reads as an arrival. */
@@ -2100,7 +2100,7 @@
 
 /* The transport has left, so the card settles into the space it freed. */
 .pv:not(.pv--awake) .pv-upnext {
-  bottom: 2rem;
+  translate: 0 100px;
 }
 
 .pv .pv-upnext-art {
@@ -2327,7 +2327,7 @@
 }
 
 .pv .pv-skip:hover {
-  background: var(--pv-control-hover), var(--pv-panel);
+  background-color: color-mix(in srgb, var(--pv-panel), #ffffff 12%);
 }
 
 .pv--panel .pv-skip {
@@ -2360,6 +2360,10 @@
     width: min(26rem, calc(100% - 24px));
   }
 
+  .pv:not(.pv--awake) .pv-upnext {
+    translate: 0 84px;
+  }
+
   .pv .pv-skip {
     left: 12px;
     bottom: 116px;
@@ -2372,8 +2376,16 @@
     max-width: calc(100vw - 24px);
   }
 
+  .pv:not(.pv--awake) .pv-now {
+    translate: 0 80px;
+  }
+
   .pv .pv-now--above {
     bottom: 172px;
+  }
+
+  .pv:not(.pv--awake) .pv-now--above {
+    translate: 0 84px;
   }
 
   .pv .pv-now-art {
