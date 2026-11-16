@@ -641,11 +641,39 @@ pub fn all_watched_keys(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     rows.collect()
 }
 
+/// `metaId`, or `metaId:season:episode` for an episode. Ids may contain colons.
+fn episode_of(key: &str) -> (Option<i64>, Option<i64>) {
+    let parts: Vec<&str> = key.rsplitn(3, ':').collect();
+    if parts.len() == 3
+        && let (Ok(episode), Ok(season)) = (parts[0].parse(), parts[1].parse())
+    {
+        return (Some(season), Some(episode));
+    }
+    (None, None)
+}
+
 fn mark_watched(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 1, ?3)
-         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = ?3",
+         ON CONFLICT(key) DO UPDATE SET meta_id = ?2, watched = 1, updated_at = ?3",
         params![key, meta_id, now()],
+    )?;
+    // A mark with no playhead still needs a row to borrow a name and art from,
+    // and to be repaired later. Zero duration keeps it out of every list.
+    let (season, episode) = episode_of(key);
+    conn.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, season, episode,
+                               position, duration, updated_at)
+         VALUES (?1, ?2, ?3, ?2, ?4, ?5, 0, 0, ?6)
+         ON CONFLICT(key) DO NOTHING",
+        params![
+            key,
+            meta_id,
+            if season.is_some() { "series" } else { "movie" },
+            season,
+            episode,
+            now()
+        ],
     )?;
     Ok(())
 }
