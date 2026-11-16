@@ -552,24 +552,54 @@ pub fn version() -> Option<String> {
     mpv.get_property::<String>("mpv-version").ok()
 }
 
-/// Only remote HTTP(S), file sources and local paths may reach mpv.
+/// The extensions the two file pickers offer. Local playback goes no wider.
+const PLAYABLE_EXT: &[&str] = &[
+    "mkv", "mp4", "webm", "avi", "mov", "m4v", "ts", "srt", "ass", "ssa", "vtt", "sub",
+];
+
+/// Only remote HTTP(S) and local media files may reach mpv.
 pub fn validate_media_url(url: &str) -> Result<(), String> {
     let url = url.trim();
     if url.is_empty() {
         return Err("No media URL supplied".into());
     }
-    // The file pickers return a bare path, which has no scheme.
-    if std::path::Path::new(url).is_absolute() {
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
         return Ok(());
     }
-    let scheme = url
-        .split_once(':')
-        .map(|(scheme, _)| scheme.to_ascii_lowercase())
-        .unwrap_or_default();
-    if matches!(scheme.as_str(), "http" | "https" | "file") {
-        return Ok(());
+    // The pickers return a bare path; a file URL is decoded to the same thing.
+    let path = if lower.starts_with("file:") {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.to_file_path().ok())
+            .ok_or("Only http, https and local media files can be played")?
+    } else {
+        std::path::PathBuf::from(url)
+    };
+    validate_local_path(&path)
+}
+
+/// Rejects network shares, device namespaces and anything that is not media.
+fn validate_local_path(path: &std::path::Path) -> Result<(), String> {
+    let text = path.to_string_lossy();
+    if text.starts_with(r"\\") || text.starts_with("//") {
+        return Err("Network and device paths cannot be played".into());
     }
-    Err("Only http, https and file sources can be played".into())
+    if !path.is_absolute() {
+        return Err("Only http, https and local media files can be played".into());
+    }
+    let ext = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !PLAYABLE_EXT.contains(&ext.as_str()) {
+        return Err("Only media files can be played".into());
+    }
+    if !path.is_file() {
+        return Err("That file cannot be read".into());
+    }
+    Ok(())
 }
 
 /// English is the fallback only when the user configured no language.
@@ -1546,16 +1576,49 @@ mod tests {
     #[test]
     fn media_urls_must_be_http_https_or_file() {
         assert!(validate_media_url("https://cdn.example/movie.mkv").is_ok());
-        assert!(validate_media_url(" file:///C:/movie.mkv ").is_ok());
+        assert!(validate_media_url("http://cdn.example/movie.mkv").is_ok());
         assert!(validate_media_url("magnet:?xt=urn:btih:abc").is_err());
         assert!(validate_media_url("   ").is_err());
+        assert!(validate_media_url("movie.mkv").is_err());
     }
 
-    #[cfg(windows)]
+    /// A real file with the extension a picker would return.
+    fn temp_file(ext: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("duvy-media-{nanos}.{ext}"));
+        std::fs::write(&path, b"x").unwrap();
+        path
+    }
+
     #[test]
-    fn a_bare_path_from_the_file_picker_is_playable() {
-        assert!(validate_media_url(r"C:\Movies\movie.mkv").is_ok());
-        assert!(validate_media_url(r"C:\Movies\subs.srt").is_ok());
+    fn a_path_a_picker_returns_is_playable() {
+        for ext in ["mkv", "mp4", "srt"] {
+            let path = temp_file(ext);
+            assert!(validate_media_url(&path.to_string_lossy()).is_ok(), "{ext}");
+            let url = url::Url::from_file_path(&path).unwrap().to_string();
+            assert!(validate_media_url(&url).is_ok(), "{ext} as file URL");
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn paths_outside_the_picker_filters_are_rejected() {
+        let path = temp_file("txt");
+        assert!(validate_media_url(&path.to_string_lossy()).is_err());
+        let _ = std::fs::remove_file(path);
+        assert!(validate_media_url(r"C:\Windows\System32\drivers\etc\hosts").is_err());
+        assert!(validate_media_url(r"C:\Movies\missing.mkv").is_err());
+    }
+
+    #[test]
+    fn network_and_device_paths_are_rejected() {
+        assert!(validate_media_url(r"\\server\share\movie.mkv").is_err());
+        assert!(validate_media_url("//server/share/movie.mkv").is_err());
+        assert!(validate_media_url(r"\\?\C:\movie.mkv").is_err());
+        assert!(validate_media_url("file://server/share/movie.mkv").is_err());
     }
 
     #[test]
