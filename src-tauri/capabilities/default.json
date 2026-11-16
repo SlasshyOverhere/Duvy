@@ -11,8 +11,10 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "core:window:allow-start-resize-dragging",
-    "opener:allow-open-url",
-    "opener:allow-default-urls",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+    },
     "dialog:allow-open"
   ]
 }
