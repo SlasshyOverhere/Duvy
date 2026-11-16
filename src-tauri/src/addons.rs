@@ -8,6 +8,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::net::IpAddr;
+use url::Url;
 
 // ---------------------------------------------------------------------------
 // Protocol models
@@ -271,43 +273,115 @@ pub struct MetaResponse {
 // URL helpers
 // ---------------------------------------------------------------------------
 
-/// The cloud metadata endpoints, which no addon has any business reaching.
-/// Loopback and LAN hosts stay allowed: addons are user-configured and often
+/// Trailing dots and brackets are the same host: `169.254.169.254.` resolves too.
+fn host_key(host: &str) -> String {
+    host.trim_matches(['[', ']'])
+        .trim_end_matches('.')
+        .to_ascii_lowercase()
+}
+
+/// IPv4-mapped IPv6 reaches the same place, so classify the mapped form.
+fn unmap(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        IpAddr::V4(_) => ip,
+    }
+}
+
+/// Link-local, unspecified, multicast, broadcast: no addon has business there.
+fn hazardous_ip(ip: IpAddr) -> bool {
+    match unmap(ip) {
+        IpAddr::V4(v4) => {
+            v4.is_link_local() || v4.is_unspecified() || v4.is_multicast() || v4.is_broadcast()
+        }
+        IpAddr::V6(v6) => {
+            v6.is_unspecified()
+                || v6.is_multicast()
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// Loopback, RFC1918 and IPv6 unique-local: reachable only from a URL the user
+/// typed, never from a name or a redirect.
+fn local_ip(ip: IpAddr) -> bool {
+    match unmap(ip) {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
+        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+/// The resolver's guard: a name may not answer with any of these.
+pub(crate) fn is_blocked_ip(ip: IpAddr) -> bool {
+    hazardous_ip(ip) || local_ip(ip)
+}
+
+/// The cloud metadata endpoints plus addresses that are never legitimate.
+/// Loopback and LAN literals stay allowed: addons are user-configured and often
 /// run on the same machine or network.
 pub(crate) fn is_blocked_host(host: &str) -> bool {
-    let lower = host.trim_matches(['[', ']']).to_ascii_lowercase();
-    if lower == "metadata.google.internal" {
-        return true;
+    let host = host_key(host);
+    host == "metadata.google.internal" || host.parse::<IpAddr>().is_ok_and(hazardous_ip)
+}
+
+/// Loopback and LAN, by literal address or by the names that always mean them.
+pub(crate) fn is_local_host(host: &str) -> bool {
+    let host = host_key(host);
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.parse::<IpAddr>().is_ok_and(local_ip)
+}
+
+/// Every redirect hop gets what the first URL got. A hop may not introduce a
+/// new machine-local host, and may never reach a metadata address.
+pub(crate) fn redirect_allowed(previous: &[Url], next: &Url) -> Result<(), &'static str> {
+    if !matches!(next.scheme(), "http" | "https") {
+        return Err("refusing to redirect to a non-HTTP scheme");
     }
-    match lower.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(v4)) => v4.is_link_local() || v4.is_unspecified(),
-        Ok(std::net::IpAddr::V6(v6)) => {
-            v6.is_unspecified()
-                || v6
-                    .to_ipv4_mapped()
-                    .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
-        }
-        Err(_) => false,
+    if next.scheme() == "http" && previous.last().is_some_and(|url| url.scheme() == "https") {
+        return Err("refusing to redirect from https to http");
     }
+    let Some(host) = next.host_str() else {
+        return Err("that redirect has no host");
+    };
+    if is_blocked_host(host) {
+        return Err("refusing to redirect to an internal address");
+    }
+    // Same-host hops stay: a local addon redirecting itself is not a pivot.
+    let same_host = previous.last().and_then(Url::host_str) == Some(host);
+    if is_local_host(host) && !same_host {
+        return Err("refusing to redirect onto a local address");
+    }
+    Ok(())
 }
 
 /// Normalise anything a user may paste into an addon base URL.
 pub fn normalize_addon_url(input: &str) -> String {
-    let mut raw = input.trim().to_string();
+    let raw = input.trim();
     if raw.is_empty() {
-        return raw;
+        return String::new();
     }
-    if let Some(rest) = raw.strip_prefix("stremio://") {
-        raw = format!("https://{rest}");
+    // `stremio://host/...` is the protocol's own spelling of an https addon.
+    let raw = match raw.split_once("://") {
+        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("stremio") => format!("https://{rest}"),
+        Some(_) => raw.to_string(),
+        None => format!("https://{raw}"),
+    };
+    let Ok(mut url) = Url::parse(&raw) else {
+        return String::new();
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return String::new();
     }
-    if !raw.starts_with("http://") && !raw.starts_with("https://") {
-        raw = format!("https://{raw}");
+    // The manifest is appended later, so it never belongs in the base.
+    let mut path = url.path().trim_end_matches('/').to_string();
+    if let Some(stripped) = path.strip_suffix("/manifest.json") {
+        path.truncate(stripped.len());
     }
-    let mut trimmed = raw.trim_end_matches('/').to_string();
-    if trimmed.ends_with("/manifest.json") {
-        trimmed.truncate(trimmed.len() - "/manifest.json".len());
-    }
-    trimmed.trim_end_matches('/').to_string()
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    url.as_str().trim_end_matches('/').to_string()
 }
 
 /// Percent-encode a query value the way the addon protocol expects.
@@ -479,5 +553,67 @@ mod tests {
             catalog_url("https://x", "series", "top/extra?x=1", &BTreeMap::new()),
             "https://x/catalog/series/top%2Fextra%3Fx%3D1.json"
         );
+    }
+
+    #[test]
+    fn metadata_and_link_local_addresses_are_blocked() {
+        for host in [
+            "169.254.169.254",
+            "169.254.169.254.",
+            "[::ffff:169.254.169.254]",
+            "metadata.google.internal",
+            "fe80::1",
+            "0.0.0.0",
+        ] {
+            assert!(is_blocked_host(host), "{host} should be blocked");
+        }
+        assert!(!is_blocked_host("v3-cinemeta.strem.io"));
+        assert!(!is_blocked_host("192.168.1.10"));
+    }
+
+    #[test]
+    fn resolved_private_addresses_are_blocked() {
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.10",
+            "169.254.169.254",
+            "::1",
+            "fd00::1",
+            "fe80::1",
+        ] {
+            assert!(
+                is_blocked_ip(ip.parse().expect("ip")),
+                "{ip} should be blocked"
+            );
+        }
+        assert!(!is_blocked_ip("93.184.216.34".parse().expect("ip")));
+    }
+
+    #[test]
+    fn redirects_may_not_pivot_onto_the_local_network() {
+        let origin = Url::parse("https://addon.example/stream").expect("url");
+        let ok = Url::parse("https://cdn.example/stream").expect("url");
+        assert!(redirect_allowed(&[origin.clone()], &ok).is_ok());
+
+        let metadata = Url::parse("http://169.254.169.254/latest/meta-data").expect("url");
+        assert!(redirect_allowed(&[origin.clone()], &metadata).is_err());
+
+        let local = Url::parse("http://127.0.0.1:8080/").expect("url");
+        assert!(redirect_allowed(&[origin.clone()], &local).is_err());
+
+        let downgrade = Url::parse("http://addon.example/stream").expect("url");
+        assert!(redirect_allowed(&[origin], &downgrade).is_err());
+    }
+
+    #[test]
+    fn addon_urls_keep_their_scheme_and_drop_the_manifest() {
+        assert_eq!(
+            normalize_addon_url("HTTPS://Example.COM/Addon/manifest.json"),
+            "https://example.com/Addon"
+        );
+        assert_eq!(normalize_addon_url("https://example.com/a?b=1#c"), "https://example.com/a");
+        assert_eq!(normalize_addon_url("javascript:alert(1)"), "");
+        assert_eq!(normalize_addon_url("file:///etc/passwd"), "");
     }
 }

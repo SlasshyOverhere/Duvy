@@ -49,8 +49,8 @@ pub(crate) fn load_settings(state: &AppState) -> Settings {
     crate::settings::load_cached(state)
 }
 
-async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
-    fetch_json_within(client, url, None).await
+async fn fetch_json(url: &str) -> Result<Value, String> {
+    fetch_json_within(url, None).await
 }
 
 /// Far past any real addon reply, and enough to stop a hostile one from
@@ -62,7 +62,8 @@ fn is_http_url(value: &str) -> bool {
 }
 
 /// Reject targets the addon layer has no business reaching: non-HTTP schemes
-/// and the cloud metadata endpoints.
+/// and the cloud metadata endpoints. Names are checked again by the guarded
+/// resolver when the connection is made, and every redirect hop is re-checked.
 fn validate_target(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
     match parsed.scheme() {
@@ -83,13 +84,14 @@ fn validate_target(url: &str) -> Result<(), String> {
 /// A cap is still needed: one addon whose upstream never answers must not
 /// hold every other addon's results hostage.
 async fn fetch_json_within(
-    client: &reqwest::Client,
     url: &str,
     cap: Option<std::time::Duration>,
 ) -> Result<Value, String> {
     validate_target(url)?;
     crate::note_request(url);
-    let mut request = client.get(url).header("accept", "application/json");
+    let mut request = crate::addon_client()
+        .get(url)
+        .header("accept", "application/json");
     if let Some(cap) = cap {
         request = request.timeout(cap);
     }
@@ -259,12 +261,7 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
 
 /// Metadata addons in list order, but bounded: nine of them in a row, each on
 /// the shared client timeout, is how a details page ends up waiting seconds.
-async fn addon_meta(
-    client: &reqwest::Client,
-    addons: &[StoredAddon],
-    id: &str,
-    media_type: &str,
-) -> Option<Meta> {
+async fn addon_meta(addons: &[StoredAddon], id: &str, media_type: &str) -> Option<Meta> {
     // Every eligible addon is asked at once; the lowest index wins, so the
     // addon order still decides the answer. The budget caps the whole walk.
     let mut set: JoinSet<(usize, Option<Meta>)> = JoinSet::new();
@@ -276,9 +273,8 @@ async fn addon_meta(
         .enumerate()
     {
         let url = addons::meta_url(&addon.url, media_type, id);
-        let client = client.clone();
         set.spawn(async move {
-            let Ok(value) = fetch_json_within(&client, &url, Some(META_REQUEST_CAP)).await else {
+            let Ok(value) = fetch_json_within(&url, Some(META_REQUEST_CAP)).await else {
                 return (index, None);
             };
             let Ok(response) = serde_json::from_value::<MetaResponse>(value) else {
@@ -424,8 +420,10 @@ fn store_addon(
     Ok(addon_info(stored))
 }
 
-async fn fetch_manifest(client: &reqwest::Client, base: &str) -> Result<(Value, Manifest), String> {
-    let value = fetch_json(client, &format!("{base}/manifest.json")).await?;
+/// Shared with the Nuvio sync, which installs addons the account carries: the
+/// manifest fetch gets the same target check and body cap either way.
+pub(crate) async fn fetch_manifest(base: &str) -> Result<(Value, Manifest), String> {
+    let value = fetch_json(&format!("{base}/manifest.json")).await?;
     // Borrowed deserialize: the payload is returned to the caller, so cloning it
     // here would duplicate the whole manifest on every install.
     let manifest: Manifest = Manifest::deserialize(&value)
@@ -449,7 +447,7 @@ pub async fn seed_default_addons(handle: AppHandle) {
 
     let mut installed = 0usize;
     for base in DEFAULT_ADDONS {
-        match fetch_manifest(&state.http, base).await {
+        match fetch_manifest(base).await {
             Ok((value, manifest)) => match store_addon(&state, base, &manifest, &value) {
                 Ok(_) => installed += 1,
                 Err(e) => eprintln!(
@@ -498,7 +496,7 @@ pub async fn addons_install(url: String, state: State<'_, AppState>) -> Result<A
     if base.is_empty() {
         return Err("Enter an addon URL".into());
     }
-    let (value, manifest) = fetch_manifest(&state.http, &base).await?;
+    let (value, manifest) = fetch_manifest(&base).await?;
     store_addon(&state, &base, &manifest, &value)
 }
 
@@ -510,7 +508,7 @@ pub async fn addons_refresh(url: String, state: State<'_, AppState>) -> Result<A
     if base.is_empty() {
         return Err("Enter an addon URL".into());
     }
-    let (value, manifest) = fetch_manifest(&state.http, &base)
+    let (value, manifest) = fetch_manifest(&base)
         .await
         .map_err(|e| format!("Refresh failed: {e}"))?;
     store_addon(&state, &base, &manifest, &value)
@@ -592,7 +590,6 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
         addon_name: String,
         media_type: String,
         catalog_id: String,
-        client: reqwest::Client,
         url: String,
         title: String,
         row_id: String,
@@ -627,7 +624,6 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
                 addon_name: addon.name.clone(),
                 media_type: catalog.media_type.clone(),
                 catalog_id: catalog.id.clone(),
-                client: state.http.clone(),
                 url: addons::catalog_url(
                     &addon.url,
                     &catalog.media_type,
@@ -648,7 +644,7 @@ pub async fn home_feed(state: State<'_, AppState>) -> Result<HomeFeed, String> {
     let mut set: JoinSet<(usize, Task, Result<CatalogResponse, String>)> = JoinSet::new();
     for task in tasks {
         set.spawn(async move {
-            let result = fetch_json(&task.client, &task.url).await.and_then(|value| {
+            let result = fetch_json(&task.url).await.and_then(|value| {
                 serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
             });
             (task.order, task, result)
@@ -729,7 +725,6 @@ pub async fn catalog(
     catalog_id: String,
     query: Option<String>,
     skip: Option<u32>,
-    state: State<'_, AppState>,
 ) -> Result<CatalogResponse, String> {
     let mut extra = BTreeMap::new();
     if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
@@ -740,7 +735,7 @@ pub async fn catalog(
     }
     let base = addons::normalize_addon_url(&addon_url);
     let url = addons::catalog_url(&base, &media_type, &catalog_id, &extra);
-    let value = fetch_json(&state.http, &url).await?;
+    let value = fetch_json(&url).await?;
     serde_json::from_value(value).map_err(|e| format!("Unexpected catalog payload: {e}"))
 }
 
@@ -970,10 +965,9 @@ pub async fn search(
             let mut extra = BTreeMap::new();
             extra.insert("search".to_string(), query.clone());
             let url = addons::catalog_url(&addon.url, &catalog.media_type, &catalog.id, &extra);
-            let client = state.http.clone();
             let name = addon.name.clone();
             set.spawn(async move {
-                let result = fetch_json(&client, &url).await.and_then(|value| {
+                let result = fetch_json(&url).await.and_then(|value| {
                     serde_json::from_value::<CatalogResponse>(value).map_err(|e| e.to_string())
                 });
                 (name, result)
@@ -1066,7 +1060,7 @@ pub async fn meta_details(
         // text, and a full addon walk costs more than the page is worth.
         if details.media_type == "series"
             && let Some(imdb) = details.imdb_id.clone()
-            && let Some(meta) = addon_meta(&state.http, &addons, &imdb, &details.media_type).await
+            && let Some(meta) = addon_meta(&addons, &imdb, &details.media_type).await
         {
             let from_addon = meta_details_from_meta(meta, "addon");
             details.videos = from_addon.videos;
@@ -1092,7 +1086,7 @@ pub async fn meta_details(
         .iter()
         .any(|addon| addon.enabled && addon.addon_id == CINEMETA_ID);
 
-    let mut details = if let Some(meta) = addon_meta(&state.http, &addons, &id, &media_type).await {
+    let mut details = if let Some(meta) = addon_meta(&addons, &id, &media_type).await {
         meta_details_from_meta(meta, "addon")
     } else if id.starts_with("tt") {
         let direct = if cinemeta_installed {
@@ -1193,7 +1187,6 @@ pub async fn streams(
 
     struct Task {
         addon: String,
-        client: reqwest::Client,
         url: String,
     }
 
@@ -1211,7 +1204,6 @@ pub async fn streams(
         }
         tasks.push(Task {
             addon: addon.name.clone(),
-            client: state.http.clone(),
             url: addons::stream_url(&addon.url, &media_type, &request_id),
         });
     }
@@ -1224,7 +1216,6 @@ pub async fn streams(
     for task in tasks {
         set.spawn(async move {
             let result = fetch_json_within(
-                &task.client,
                 &task.url,
                 Some(std::time::Duration::from_secs(cap)),
             )
@@ -1316,10 +1307,9 @@ pub async fn subtitles(
             continue;
         }
         let url = addons::subtitle_url(&addon.url, &media_type, &request_id, &BTreeMap::new());
-        let client = state.http.clone();
         let name = addon.name.clone();
         set.spawn(async move {
-            let result = fetch_json(&client, &url).await.and_then(|value| {
+            let result = fetch_json(&url).await.and_then(|value| {
                 serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
             });
             (name, result)
@@ -1330,9 +1320,8 @@ pub async fn subtitles(
     {
         const OPENSUBTITLES: &str = "https://opensubtitles-v3.strem.io";
         let url = addons::subtitle_url(OPENSUBTITLES, &media_type, &request_id, &BTreeMap::new());
-        let client = state.http.clone();
         set.spawn(async move {
-            let result = fetch_json(&client, &url).await.and_then(|value| {
+            let result = fetch_json(&url).await.and_then(|value| {
                 serde_json::from_value::<SubtitleResponse>(value).map_err(|e| e.to_string())
             });
             ("OpenSubtitles".to_string(), result)
@@ -1838,7 +1827,7 @@ mod reco_tests {
         let mut extra = BTreeMap::new();
         extra.insert("search".to_string(), "dune".to_string());
         let url = addons::catalog_url("https://v3-cinemeta.strem.io", "movie", "top", &extra);
-        let value = fetch_json(&crate::http_client(), &url)
+        let value = fetch_json(&url)
             .await
             .expect("Cinemeta answers its search catalog");
         let response: CatalogResponse =

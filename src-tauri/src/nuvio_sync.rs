@@ -33,6 +33,8 @@ pub const DEFAULT_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 
 const SESSION_KEY: &str = "nuvio";
 const UA: &str = "Duvy/0.1";
+// A sync installs at most this many addons; one fetch each, never unbounded.
+const MAX_ADDONS_PER_SYNC: usize = 50;
 
 // ---------------------------------------------------------------------------
 // Session + status
@@ -736,37 +738,19 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
     };
     let mut known: std::collections::HashSet<String> = installed.into_iter().collect();
     let mut added = 0;
-    for row in rows {
+    // One manifest fetch per new row, so the count is bounded: a hostile list
+    // must not turn a sync into thousands of outbound requests.
+    for row in rows.iter().take(MAX_ADDONS_PER_SYNC) {
         let Some(url) = remote_addon_url(row) else {
             continue;
         };
         if !known.insert(url.clone()) {
             continue;
         }
-        let manifest_url = format!("{url}/manifest.json");
-        let value = match state
-            .http
-            .get(&manifest_url)
-            .header("accept", "application/json")
-            .send()
-            .await
-        {
-            Ok(response) if response.status().is_success() => {
-                match response.json::<Value>().await {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                }
-            }
-            _ => continue,
-        };
-        let Ok(manifest) =
-            <crate::addons::Manifest as serde::Deserialize>::deserialize(&value)
-        else {
+        // The same target check and body cap as a manual install.
+        let Ok((value, manifest)) = crate::commands::fetch_manifest(&url).await else {
             continue;
         };
-        if manifest.id.trim().is_empty() || manifest.name.trim().is_empty() {
-            continue;
-        }
         let enabled = row.get("enabled").and_then(Value::as_bool).unwrap_or(true);
         let conn = state.db.conn();
         if db::upsert_addon(&conn, &url, &manifest.id, &manifest.name, &value).is_err() {

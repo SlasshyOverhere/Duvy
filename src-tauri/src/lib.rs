@@ -578,30 +578,82 @@ pub fn note_request(url: &str) {
 /// One client for every outbound request: the same user agent Cinemeta expects,
 /// and timeouts short enough that a dead host cannot hold a screen hostage.
 pub fn http_client() -> reqwest::Client {
+    client_builder()
+        .redirect(redirect_policy())
+        .build()
+        .expect("the HTTP client should build")
+}
+
+fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .user_agent("Duvy/0.1 (+https://github.com/SlasshyOverhere/Duvy)")
         .timeout(Duration::from_secs(18))
         .connect_timeout(Duration::from_secs(8))
         .tcp_keepalive(Duration::from_secs(30))
         .pool_max_idle_per_host(16)
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            // Five hops is plenty for a CDN or a moved addon host.
-            if attempt.previous().len() >= 5 {
-                return attempt.error("too many redirects");
+}
+
+/// Addon traffic: the shared tuning plus a resolver that refuses names pointing
+/// at this machine, its network, or a metadata endpoint. Literal addresses skip
+/// the resolver, so `commands::validate_target` and `redirect_allowed` cover them.
+pub(crate) fn addon_client() -> reqwest::Client {
+    static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        client_builder()
+            .dns_resolver(GuardedResolver)
+            .redirect(redirect_policy())
+            .build()
+            .expect("the addon client should build")
+    });
+    CLIENT.clone()
+}
+
+struct GuardedResolver;
+
+impl reqwest::dns::Resolve for GuardedResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        // The names that always mean this machine: local addons live there.
+        let local_name = crate::addons::is_local_host(&host);
+        Box::pin(async move {
+            type BoxError = Box<dyn std::error::Error + Send + Sync>;
+            let addrs = tokio::task::spawn_blocking(move || {
+                use std::net::ToSocketAddrs;
+                (host.as_str(), 0u16)
+                    .to_socket_addrs()
+                    .map(|found| found.collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|e| Box::new(e) as BoxError)?
+            .map_err(|e| Box::new(e) as BoxError)?;
+            if addrs.is_empty() {
+                return Err(BoxError::from("that host resolved to nothing"));
             }
-            // Never let a redirect quietly drop TLS.
-            if attempt.url().scheme() == "http"
-                && attempt
-                    .previous()
-                    .last()
-                    .is_some_and(|url| url.scheme() == "https")
+            // One internal answer is enough to distrust the whole name.
+            if !local_name
+                && addrs
+                    .iter()
+                    .any(|addr| crate::addons::is_blocked_ip(addr.ip()))
             {
-                return attempt.error("refusing to redirect from https to http");
+                return Err(BoxError::from(
+                    "refusing to connect to an internal address",
+                ));
             }
-            attempt.follow()
-        }))
-        .build()
-        .expect("the HTTP client should build")
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        // Five hops is plenty for a CDN or a moved addon host.
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        match crate::addons::redirect_allowed(attempt.previous(), attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(reason) => attempt.error(reason),
+        }
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
