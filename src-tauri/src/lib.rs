@@ -794,6 +794,7 @@ pub fn run() {
             commands::catalog,
             commands::search,
             commands::meta_details,
+            commands::person_details,
             commands::cast_photos,
             commands::recommendations,
             commands::similar,

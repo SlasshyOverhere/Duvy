@@ -6,7 +6,8 @@ use crate::addons::{
 };
 use crate::db::{self, LibraryItem, ProgressItem, StoredAddon};
 use crate::models::{
-    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, ParentalWarning, SubtitleTrack,
+    AddonInfo, AppInfo, CastMember, HomeFeed, HomeRow, MetaDetails, ParentalWarning, PersonDetails,
+    SubtitleTrack,
 };
 use crate::player::{self, PlayRequest, Player, Snapshot};
 use crate::settings::Settings;
@@ -166,6 +167,7 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
             name: crate::meta::clean(&name),
             character: String::new(),
             photo: None,
+            person_id: None,
         })
         .collect();
     let imdb_id = if preview.id.starts_with("tt") {
@@ -208,6 +210,12 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
             .into_iter()
             .collect(),
         trailer,
+        trailers: vec![],
+        seasons: vec![],
+        networks: vec![],
+        certification: None,
+        origin_country: vec![],
+        original_language: None,
         imdb_id,
         tmdb_id: None,
         source: source.to_string(),
@@ -247,6 +255,24 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
     if base.trailer.is_none() {
         base.trailer = rich.trailer;
+    }
+    if base.trailers.is_empty() {
+        base.trailers = rich.trailers;
+    }
+    if base.seasons.is_empty() {
+        base.seasons = rich.seasons;
+    }
+    if base.networks.is_empty() {
+        base.networks = rich.networks;
+    }
+    if base.certification.is_none() {
+        base.certification = rich.certification;
+    }
+    if base.origin_country.is_empty() {
+        base.origin_country = rich.origin_country;
+    }
+    if base.original_language.is_none() {
+        base.original_language = rich.original_language;
     }
     if base.tmdb_id.is_none() {
         base.tmdb_id = rich.tmdb_id;
@@ -1153,8 +1179,11 @@ pub async fn meta_details(
         .or_else(|| id.starts_with("tt").then(|| id.clone()));
     let needs_videos = details.videos.is_empty() && details.media_type == "series";
     let needs_cast = details.cast.is_empty();
-    let needs_tmdb =
-        details.background.is_none() || details.cast.is_empty() || details.trailer.is_none();
+    let needs_tmdb = details.background.is_none()
+        || details.cast.is_empty()
+        || details.trailer.is_none()
+        || details.trailers.is_empty()
+        || (details.media_type == "series" && details.seasons.is_empty());
 
     let cinemeta = async {
         if !needs_videos && !needs_cast {
@@ -1185,6 +1214,26 @@ pub async fn meta_details(
 
     adopt_imdb_id(&state, &details);
     Ok(details)
+}
+
+/// A cast face opens the person behind it.
+#[tauri::command]
+pub async fn person_details(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<PersonDetails, String> {
+    let settings = {
+        let conn = state.db.conn();
+        Settings::load(&conn)
+    };
+    let key = settings.tmdb_api_key.trim().to_string();
+    if !tmdb::available(&key) {
+        return Err("Person pages need TMDB. Add a TMDB API key in Settings → Integrations.".into());
+    }
+    if id <= 0 {
+        return Err("Malformed person id".into());
+    }
+    tmdb::person(&state.http, &key, id).await
 }
 
 // ---------------------------------------------------------------------------

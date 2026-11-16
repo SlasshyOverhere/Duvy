@@ -2,7 +2,9 @@
 //! The shared proxy makes it work without a key; a user key takes over instead.
 
 use crate::addons::MetaPreview;
-use crate::models::{CastMember, HomeRow, MetaDetails};
+use crate::models::{
+    CastMember, HomeRow, MetaDetails, Network, PersonDetails, SeasonSummary, TrailerLink,
+};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -628,6 +630,282 @@ pub async fn search(
     Ok(items)
 }
 
+/// Every YouTube video, in TMDB's own order, as something the rail can open.
+fn trailer_links(value: &Value) -> Vec<TrailerLink> {
+    value
+        .get("videos")
+        .and_then(|v| v.get("results"))
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter(|video| video.get("site").and_then(Value::as_str) == Some("YouTube"))
+                .filter_map(|video| {
+                    let key = video.get("key").and_then(Value::as_str)?;
+                    Some(TrailerLink {
+                        name: video
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Trailer")
+                            .to_string(),
+                        url: format!("https://www.youtube.com/watch?v={key}"),
+                        thumbnail: Some(format!("https://img.youtube.com/vi/{key}/hqdefault.jpg")),
+                        year: video
+                            .get("published_at")
+                            .and_then(Value::as_str)
+                            .and_then(|s| s.get(..4))
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn seasons_of(value: &Value) -> Vec<SeasonSummary> {
+    value
+        .get("seasons")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|season| {
+                    Some(SeasonSummary {
+                        number: season.get("season_number").and_then(Value::as_i64)?,
+                        name: season
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Season")
+                            .to_string(),
+                        poster: season
+                            .get("poster_path")
+                            .and_then(Value::as_str)
+                            .map(poster_url),
+                        episodes: season
+                            .get("episode_count")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn networks_of(value: &Value) -> Vec<Network> {
+    value
+        .get("networks")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|network| {
+                    Some(Network {
+                        name: network.get("name").and_then(Value::as_str)?.to_string(),
+                        logo: network
+                            .get("logo_path")
+                            .and_then(Value::as_str)
+                            .map(|p| format!("{IMG}/w185{p}")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// US rating first, then whatever country TMDB has. Shows carry it per country
+/// in `content_ratings`, movies inside each country's `release_dates`.
+fn certification(value: &Value) -> Option<String> {
+    let ratings = value
+        .get("content_ratings")
+        .and_then(|v| v.get("results"))
+        .and_then(Value::as_array);
+    if let Some(ratings) = ratings {
+        let pick = ratings
+            .iter()
+            .find(|r| r.get("iso_3166_1").and_then(Value::as_str) == Some("US"))
+            .or_else(|| ratings.first());
+        if let Some(rating) = pick
+            .and_then(|r| r.get("rating"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(rating.to_string());
+        }
+    }
+    value
+        .get("release_dates")
+        .and_then(|v| v.get("results"))
+        .and_then(Value::as_array)
+        .and_then(|list| {
+            let country = list
+                .iter()
+                .find(|r| r.get("iso_3166_1").and_then(Value::as_str) == Some("US"))
+                .or_else(|| list.first())?;
+            country
+                .get("release_dates")?
+                .as_array()?
+                .iter()
+                .find_map(|entry| {
+                    entry
+                        .get("certification")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                })
+        })
+}
+
+/// Named countries when TMDB sends them, ISO codes otherwise.
+fn country_names(value: &Value) -> Vec<String> {
+    let names: Vec<String> = value
+        .get("production_countries")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if !names.is_empty() {
+        return names;
+    }
+    value
+        .get("origin_country")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|c| c.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Today as `YYYY-MM-DD`, so credit dates compare as plain strings.
+fn today() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() / 86_400)
+        .unwrap_or(0) as i64;
+    iso_date(days)
+}
+
+/// Days since the epoch to `YYYY-MM-DD` (civil-from-days).
+fn iso_date(days: i64) -> String {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// A person page: who they are, plus their credits split three ways.
+pub async fn person(
+    client: &reqwest::Client,
+    key: &str,
+    person_id: i64,
+) -> Result<PersonDetails, String> {
+    let value = get(
+        client,
+        key,
+        &format!("/person/{person_id}"),
+        &[
+            ("append_to_response", "combined_credits,external_ids"),
+            ("language", "en-US"),
+        ],
+    )
+    .await?;
+
+    // Popularity ranks one rail; the release date splits the other two.
+    let mut credits: Vec<(f64, String, MetaPreview)> = value
+        .get("combined_credits")
+        .and_then(|c| c.get("cast"))
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|credit| {
+                    let preview = preview_from_item(credit)?;
+                    let popularity = credit
+                        .get("popularity")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0);
+                    let date = credit
+                        .get("release_date")
+                        .or_else(|| credit.get("first_air_date"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    Some((popularity, date, preview))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    credits.sort_by(|a, b| a.2.id.cmp(&b.2.id));
+    credits.dedup_by(|a, b| a.2.id == b.2.id);
+    credits.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+    let today = today();
+    let mut latest: Vec<(String, MetaPreview)> = credits
+        .iter()
+        .filter(|(_, date, _)| !date.is_empty() && *date <= today)
+        .map(|(_, date, preview)| (date.clone(), preview.clone()))
+        .collect();
+    latest.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut upcoming: Vec<(String, MetaPreview)> = credits
+        .iter()
+        .filter(|(_, date, _)| *date > today)
+        .map(|(_, date, preview)| (date.clone(), preview.clone()))
+        .collect();
+    upcoming.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let since = credits
+        .iter()
+        .filter_map(|(_, date, _)| date.get(..4))
+        .min()
+        .map(str::to_string);
+
+    Ok(PersonDetails {
+        id: person_id,
+        name: value
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Unknown")
+            .to_string(),
+        photo: value
+            .get("profile_path")
+            .and_then(Value::as_str)
+            .map(|p| format!("{IMG}/w500{p}")),
+        department: value
+            .get("known_for_department")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        birthday: value
+            .get("birthday")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        deathday: value
+            .get("deathday")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        place_of_birth: value
+            .get("place_of_birth")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        biography: value
+            .get("biography")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        credits: credits.len(),
+        since,
+        popular: credits.iter().take(20).map(|(_, _, p)| p.clone()).collect(),
+        latest: latest.into_iter().take(20).map(|(_, p)| p).collect(),
+        upcoming: upcoming.into_iter().take(20).map(|(_, p)| p).collect(),
+    })
+}
+
 /// Resolve a TMDB id into a full detail record.
 pub async fn details(
     client: &reqwest::Client,
@@ -636,14 +914,18 @@ pub async fn details(
     tmdb_id: &str,
 ) -> Result<MetaDetails, String> {
     let kind = tmdb_kind(media_type);
+    // Ratings live under `content_ratings` for shows and inside each country's
+    // `release_dates` for films; asking for both wastes a payload.
+    let append = if kind == "tv" {
+        "credits,videos,external_ids,content_ratings"
+    } else {
+        "credits,videos,external_ids,release_dates"
+    };
     let value = get(
         client,
         key,
         &format!("/{kind}/{tmdb_id}"),
-        &[
-            ("append_to_response", "credits,videos,external_ids"),
-            ("language", "en-US"),
-        ],
+        &[("append_to_response", append), ("language", "en-US")],
     )
     .await?;
 
@@ -703,11 +985,33 @@ pub async fn details(
                             .get("profile_path")
                             .and_then(|v| v.as_str())
                             .map(|p| format!("{IMG}/w185{p}")),
+                        person_id: person.get("id").and_then(Value::as_i64),
                     })
                 })
                 .collect()
         })
         .unwrap_or_default();
+
+    // Crew jobs worth naming on the page, one entry per person.
+    let crew = |jobs: &[&str]| -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        if let Some(arr) = value
+            .get("credits")
+            .and_then(|c| c.get("crew"))
+            .and_then(Value::as_array)
+        {
+            for person in arr {
+                let job = person.get("job").and_then(Value::as_str).unwrap_or("");
+                let Some(name) = person.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                if jobs.contains(&job) && !names.iter().any(|n| n == name) {
+                    names.push(name.to_string());
+                }
+            }
+        }
+        names
+    };
 
     let trailer = value
         .get("videos")
@@ -763,10 +1067,19 @@ pub async fn details(
             .map(|s| s.to_string()),
         videos: vec![],
         cast,
-        director: vec![],
-        writer: vec![],
-        country: vec![],
+        director: crew(&["Director"]),
+        writer: crew(&["Writer", "Screenplay", "Story"]),
+        country: country_names(&value),
         trailer,
+        trailers: trailer_links(&value),
+        seasons: seasons_of(&value),
+        networks: networks_of(&value),
+        certification: certification(&value),
+        origin_country: country_names(&value),
+        original_language: value
+            .get("original_language")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         imdb_id,
         tmdb_id: tmdb_id.parse().ok(),
         source: "tmdb".into(),
@@ -825,6 +1138,13 @@ mod catalog_tests {
             catalog_url("movie/top/genre=Action"),
             format!("{base}/movie/top/genre=Action.json")
         );
+    }
+
+    #[test]
+    fn epoch_days_land_on_the_right_date() {
+        assert_eq!(iso_date(0), "1970-01-01");
+        assert_eq!(iso_date(11_016), "2000-02-29");
+        assert_eq!(iso_date(20_000), "2024-10-04");
     }
 
     #[test]

@@ -138,6 +138,7 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Loo
                         name: text(Some(person))?,
                         character: String::new(),
                         photo: None,
+                        person_id: None,
                     })
                 })
                 .take(14)
@@ -211,6 +212,12 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Loo
         writer,
         country,
         trailer,
+        trailers: vec![],
+        seasons: vec![],
+        networks: vec![],
+        certification: None,
+        origin_country: vec![],
+        original_language: None,
         imdb_id: Some(imdb.to_string()),
         tmdb_id: None,
         source: "cinemeta".into(),

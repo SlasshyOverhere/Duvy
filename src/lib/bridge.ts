@@ -16,18 +16,22 @@ import type {
   NuvioStatus,
   NuvioSyncReport,
   ParentalEntry,
+  PersonDetails,
   PlayRequest,
   PlayerSnapshot,
   ProgressItem,
+  SeasonSummary,
   Settings,
   StreamOption,
   StremioStatus,
   StremioSyncReport,
   SubtitleTrack,
+  TrailerLink,
   TraktStatus,
   UpdateInfo,
   Video,
   WatchedItem,
+  Network,
 } from "./types";
 
 /** Fixtures are dev-only: a release build always talks to Rust. */
@@ -199,11 +203,65 @@ function readDetails(value: unknown): Details {
         name: text(member.name),
         character: text(member.character),
         photo: textOrNull(member.photo),
+        personId: numOrNull(member.personId),
       });
     }),
     director: strings(details.director),
     writer: strings(details.writer),
     country: strings(details.country),
+    trailers: arr(details.trailers)
+      .map((entry) => {
+        const trailer = dict(entry);
+        return shaped<TrailerLink>(trailer, {
+          name: text(trailer.name),
+          url: text(trailer.url),
+          thumbnail: textOrNull(trailer.thumbnail),
+          year: textOrNull(trailer.year),
+        });
+      })
+      .filter((trailer) => trailer.url),
+    seasons: arr(details.seasons)
+      .map((entry) => {
+        const season = dict(entry);
+        return shaped<SeasonSummary>(season, {
+          number: num(season.number),
+          name: text(season.name),
+          poster: textOrNull(season.poster),
+          episodes: num(season.episodes),
+        });
+      })
+      .filter((season) => season.number >= 0),
+    networks: arr(details.networks)
+      .map((entry) => {
+        const network = dict(entry);
+        return shaped<Network>(network, {
+          name: text(network.name),
+          logo: textOrNull(network.logo),
+        });
+      })
+      .filter((network) => network.name),
+    certification: textOrNull(details.certification),
+    originCountry: strings(details.originCountry),
+    originalLanguage: textOrNull(details.originalLanguage),
+  });
+}
+
+function readPerson(value: unknown): PersonDetails {
+  const person = dict(value);
+  return shaped<PersonDetails>(person, {
+    id: num(person.id),
+    name: text(person.name),
+    photo: textOrNull(person.photo),
+    department: textOrNull(person.department),
+    birthday: textOrNull(person.birthday),
+    deathday: textOrNull(person.deathday),
+    placeOfBirth: textOrNull(person.placeOfBirth),
+    biography: textOrNull(person.biography),
+    credits: num(person.credits),
+    since: textOrNull(person.since),
+    popular: readMetas(person.popular),
+    latest: readMetas(person.latest),
+    upcoming: readMetas(person.upcoming),
   });
 }
 
@@ -278,6 +336,7 @@ const readers: Record<string, (value: unknown) => unknown> = {
   search: readMetas,
   similar: readMetas,
   meta_details: readDetails,
+  person_details: readPerson,
   streams: readStreams,
   subtitles: readSubtitles,
   library_list: readLibrary,
@@ -383,6 +442,7 @@ export const api = {
   },
   castPhotos: (names: string[], title: string) =>
     call<Record<string, string>>("cast_photos", { names, title }),
+  person: (id: number) => call<PersonDetails>("person_details", { id }),
   similar: (mediaType: string, genre: string, exclude: string) =>
     call<MetaPreview[]>("similar", { mediaType, genre, exclude }),
   streams: (args: {

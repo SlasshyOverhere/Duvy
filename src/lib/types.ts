@@ -29,6 +29,28 @@ export interface CastMember {
   name: string;
   character: string;
   photo?: string | null;
+  /** TMDB person id; a face with one opens its own page. */
+  personId?: number | null;
+}
+
+/** One season, with the art the season picker shows. */
+export interface SeasonSummary {
+  number: number;
+  name: string;
+  poster?: string | null;
+  episodes: number;
+}
+
+export interface TrailerLink {
+  name: string;
+  url: string;
+  thumbnail?: string | null;
+  year?: string | null;
+}
+
+export interface Network {
+  name: string;
+  logo?: string | null;
 }
 
 export interface Details {
@@ -51,9 +73,31 @@ export interface Details {
   writer: string[];
   country: string[];
   trailer?: string | null;
+  trailers: TrailerLink[];
+  seasons: SeasonSummary[];
+  networks: Network[];
+  certification?: string | null;
+  originCountry: string[];
+  originalLanguage?: string | null;
   imdbId?: string | null;
   tmdbId?: number | null;
   source: string;
+}
+
+export interface PersonDetails {
+  id: number;
+  name: string;
+  photo?: string | null;
+  department?: string | null;
+  birthday?: string | null;
+  deathday?: string | null;
+  placeOfBirth?: string | null;
+  biography?: string | null;
+  credits: number;
+  since?: string | null;
+  popular: MetaPreview[];
+  latest: MetaPreview[];
+  upcoming: MetaPreview[];
 }
 
 /** One IMDb parents-guide category, worst first when listed. */
