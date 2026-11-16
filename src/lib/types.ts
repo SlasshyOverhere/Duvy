@@ -76,6 +76,9 @@ export interface Details {
   trailers: TrailerLink[];
   seasons: SeasonSummary[];
   networks: Network[];
+  companies: Network[];
+  collectionName?: string | null;
+  collectionItems: MetaPreview[];
   certification?: string | null;
   originCountry: string[];
   originalLanguage?: string | null;

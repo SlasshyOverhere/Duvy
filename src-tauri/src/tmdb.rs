@@ -691,8 +691,16 @@ fn seasons_of(value: &Value) -> Vec<SeasonSummary> {
 }
 
 fn networks_of(value: &Value) -> Vec<Network> {
+    logos_of(value, "networks")
+}
+
+fn companies_of(value: &Value) -> Vec<Network> {
+    logos_of(value, "production_companies")
+}
+
+fn logos_of(value: &Value, key: &str) -> Vec<Network> {
     value
-        .get("networks")
+        .get(key)
         .and_then(Value::as_array)
         .map(|list| {
             list.iter()
@@ -708,6 +716,40 @@ fn networks_of(value: &Value) -> Vec<Network> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// TMDB groups a franchise under one collection; its parts are the sequels.
+async fn collection_of(
+    client: &reqwest::Client,
+    key: &str,
+    value: &Value,
+) -> (Option<String>, Vec<MetaPreview>) {
+    let Some(collection) = value.get("belongs_to_collection") else {
+        return (None, vec![]);
+    };
+    let name = collection
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let Some(id) = collection.get("id").and_then(Value::as_i64) else {
+        return (name, vec![]);
+    };
+    let Ok(parts) = get(
+        client,
+        key,
+        &format!("/collection/{id}"),
+        &[("language", "en-US")],
+    )
+    .await
+    else {
+        return (name, vec![]);
+    };
+    let items = parts
+        .get("parts")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(preview_from_item).collect())
+        .unwrap_or_default();
+    (name, items)
 }
 
 /// US rating first, then whatever country TMDB has. Shows carry it per country
@@ -1128,6 +1170,9 @@ pub async fn details(
         trailers: trailer_links(&value),
         seasons: seasons_of(&value),
         networks: networks_of(&value),
+        companies: companies_of(&value),
+        collection_name: None,
+        collection_items: vec![],
         certification: certification(&value),
         origin_country: country_names(&value),
         original_language: value
@@ -1138,9 +1183,14 @@ pub async fn details(
         tmdb_id: tmdb_id.parse().ok(),
         source: "tmdb".into(),
     };
-    if details.logo.is_none() {
-        details.logo = logo_for(client, key, kind, tmdb_id).await;
-    }
+    // The logo and the franchise rail are both extras; one round trip each.
+    let (logo, (collection_name, collection_items)) = tokio::join!(
+        logo_for(client, key, kind, tmdb_id),
+        collection_of(client, key, &value)
+    );
+    details.logo = details.logo.or(logo);
+    details.collection_name = collection_name;
+    details.collection_items = collection_items;
     Ok(details)
 }
 

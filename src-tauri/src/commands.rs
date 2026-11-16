@@ -213,6 +213,9 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
         trailers: vec![],
         seasons: vec![],
         networks: vec![],
+        companies: vec![],
+        collection_name: None,
+        collection_items: vec![],
         certification: None,
         origin_country: vec![],
         original_language: None,
@@ -265,6 +268,13 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
     if base.networks.is_empty() {
         base.networks = rich.networks;
+    }
+    if base.companies.is_empty() {
+        base.companies = rich.companies;
+    }
+    if base.collection_items.is_empty() {
+        base.collection_name = rich.collection_name;
+        base.collection_items = rich.collection_items;
     }
     if base.certification.is_none() {
         base.certification = rich.certification;

@@ -497,6 +497,17 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     ] as Array<[string, string]>
   ).filter(([, value]) => value);
 
+  // A show belongs to its network; a film to its studio. Either falls back.
+  const isSeries = details.type === "series";
+  const studios = isSeries
+    ? (details.networks ?? []).length
+      ? details.networks ?? []
+      : details.companies ?? []
+    : (details.companies ?? []).length
+      ? details.companies ?? []
+      : details.networks ?? [];
+  const collection = details.collectionItems ?? [];
+
   return (
     <div className="page detail-page">
       <section
@@ -665,16 +676,16 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         </section>
       ) : null}
 
-      {(details.networks ?? []).length ? (
+      {studios.length ? (
         <section className="detail-shell detail-section production-section">
-          <h2>Network</h2>
+          <h2>{isSeries ? "Network" : "Production"}</h2>
           <div className="network-row">
-            {(details.networks ?? []).map((network) => (
-              <span className="network" key={network.name}>
-                {network.logo ? (
-                  <img src={network.logo} alt={network.name} loading="lazy" />
+            {studios.slice(0, 6).map((studio) => (
+              <span className="network" key={studio.name}>
+                {studio.logo ? (
+                  <img src={studio.logo} alt={studio.name} loading="lazy" />
                 ) : (
-                  network.name
+                  studio.name
                 )}
               </span>
             ))}
@@ -770,6 +781,20 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               </div>
             ))}
           </dl>
+        </section>
+      ) : null}
+
+      {collection.length ? (
+        <section className="detail-shell detail-section collection-section">
+          <Row title={details.collectionName ?? "Collection"}>
+            {collection.map((item) => (
+              <PosterCard
+                key={item.id}
+                item={item}
+                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              />
+            ))}
+          </Row>
         </section>
       ) : null}
 
