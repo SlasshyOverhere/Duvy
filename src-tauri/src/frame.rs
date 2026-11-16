@@ -175,7 +175,7 @@ async fn decode(source: &str, at: f64, dir: &Path) -> Result<String, String> {
 fn grab(source: &str, at: f64, dir: &Path) -> Result<String, String> {
     let outdir = dir.display().to_string();
     let start = format!("{at:.3}");
-    let mut mpv = libmpv2::Mpv::with_initializer(|init| {
+    let mpv = libmpv2::Mpv::with_initializer(|init| {
         init.set_option("config", "no")?;
         init.set_option("load-scripts", "no")?;
         init.set_option("input-default-bindings", "no")?;

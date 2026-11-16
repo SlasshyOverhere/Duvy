@@ -722,9 +722,8 @@ impl Player {
         crate::playback_log::mark("libmpv initialised");
 
         let mpv = Arc::new(mpv);
-        // A second handle for the event loop: `wait_event` needs `&mut`, while
-        // commands and property reads come in on the shared one. No client
-        // name: libmpv2 5 builds a dangling `CString` when one is given.
+        // A second handle for the event loop; commands and property reads come
+        // in on the shared one. No client name: libmpv2 leaks the `CString`.
         let events = mpv
             .create_client(None)
             .map_err(|error| format!("Could not attach the player's events: {error}"))?;
@@ -995,11 +994,11 @@ impl Drop for Player {
     }
 }
 
-/// The event thread owns the handle it waits on: `wait_event` needs `&mut`,
-/// while commands and property reads use the shared one.
+/// The event thread owns the handle it waits on, while commands and property
+/// reads use the shared one.
 fn spawn_events(
     app: AppHandle,
-    mut events: Mpv,
+    events: Mpv,
     snapshot: Arc<Mutex<Snapshot>>,
     stop: Arc<AtomicBool>,
     mpv: Arc<Mpv>,
