@@ -731,8 +731,10 @@ fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
     )
     .expect("play");
     // A mark left behind by an earlier completion, older than this position.
+    // OR REPLACE because the write above already left a tombstone there.
     conn.execute(
-        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES ('tt9', 'tt9', 1, 1)",
+        "INSERT OR REPLACE INTO watched (key, meta_id, watched, updated_at)
+         VALUES ('tt9', 'tt9', 1, 1)",
         [],
     )
     .unwrap();

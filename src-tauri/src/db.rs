@@ -454,7 +454,7 @@ pub fn save_playback(conn: &Connection, p: &ProgressItem, watched: bool) -> rusq
         // A whole-show mark from the card menu has to go too: it carries the
         // meta id as its key, so the per-episode delete in write_progress
         // never reaches it.
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![p.meta_id])?;
+        unwatch(&tx, &p.meta_id, &p.meta_id)?;
     }
     write_progress(&tx, p)?;
     tx.commit()
@@ -487,14 +487,14 @@ fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
             p.episode_title,
             position,
             p.duration,
-            now()
+            updated_at
         ],
     )?;
     // A position short of the end means the title is being watched again, so a
-    // finished mark from an earlier run no longer applies. Without this it stays
-    // out of Continue watching for good.
+    // finished mark from an earlier run no longer applies. A tombstone keeps
+    // that decision through a later sync.
     if p.duration > 0.0 && position < p.duration * FINISHED_AT {
-        conn.execute("DELETE FROM watched WHERE key = ?1", params![p.key])?;
+        unwatch(conn, &p.key, &p.meta_id)?;
     }
     Ok(())
 }
@@ -592,15 +592,32 @@ pub fn set_watched(
     watched: bool,
 ) -> rusqlite::Result<()> {
     if watched {
-        mark_watched(conn, key, meta_id)?;
-    } else {
-        // Watched also counts progress finished at FINISHED_AT, so the playhead
-        // has to go with the mark or the title stays in Watched.
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
-        tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
+        mark_watched(&tx, key, meta_id)?;
+        tx.commit()?;
+    } else {
+        // The mark goes either way; the playhead only when it is what made the
+        // title count as watched, so unmarking keeps the resume point.
+        let tx = conn.unchecked_transaction()?;
+        unwatch(&tx, key, meta_id)?;
+        tx.execute(
+            "DELETE FROM progress WHERE key = ?1
+               AND duration > 0 AND position >= duration * ?2",
+            params![key, FINISHED_AT],
+        )?;
         tx.commit()?;
     }
+    Ok(())
+}
+
+/// Clearing a mark leaves a tombstone rather than a hole, so an older remote
+/// mark cannot resurrect the title on the next sync.
+fn unwatch(conn: &Connection, key: &str, meta_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, 0, ?3)
+         ON CONFLICT(key) DO UPDATE SET watched = 0, updated_at = ?3",
+        params![key, meta_id, now()],
+    )?;
     Ok(())
 }
 
