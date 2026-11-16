@@ -1536,7 +1536,7 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
         duration: snap.duration,
         updated_at: db::now(),
     };
-    let watched = snap.position / snap.duration >= 0.92;
+    let watched = snap.position / snap.duration >= db::FINISHED_AT;
     let _ = db::save_playback(&conn, &item, watched);
 }
 
