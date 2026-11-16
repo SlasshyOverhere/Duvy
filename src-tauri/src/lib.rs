@@ -287,7 +287,8 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         RedrawWindow,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowPlacement,
+        GCLP_HBRBACKGROUND, GWL_EXSTYLE, GWL_STYLE, GetClassLongPtrW, GetWindowLongPtrW,
+        GetWindowPlacement,
         IsIconic, IsWindow, IsZoomed, SW_RESTORE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOOWNERZORDER, SWP_NOREDRAW, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetClassLongPtrW,
         SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, WINDOWPLACEMENT,
@@ -295,7 +296,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
     };
 
-    static SAVED: Mutex<Option<(isize, isize, isize, WINDOWPLACEMENT)>> = Mutex::new(None);
+    static SAVED: Mutex<Option<(isize, isize, isize, usize, WINDOWPLACEMENT)>> = Mutex::new(None);
 
     let hwnd = host as HWND;
     unsafe {
@@ -304,9 +305,13 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         }
 
         if on {
-            // Entering twice must not overwrite the only real placement with
-            // the borderless one, or there is nothing left to restore.
-            if SAVED.lock().map(|guard| guard.is_some()).unwrap_or(false) {
+            // One guard for the whole check-and-set: two enters must not race
+            // into saving the borderless placement over the real one.
+            let mut saved = match SAVED.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if saved.is_some() {
                 return true;
             }
 
@@ -320,6 +325,7 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 return false;
             }
             let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let brush = GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND);
 
             let mut info: MONITORINFO = std::mem::zeroed();
             info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
@@ -328,9 +334,8 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 return false;
             }
 
-            if let Ok(mut saved) = SAVED.lock() {
-                *saved = Some((hwnd as isize, style, ex_style, placement));
-            }
+            *saved = Some((hwnd as isize, style, ex_style, brush, placement));
+            drop(saved);
 
             // Anything the webview does not cover is erased with the class
             // brush, which is white by default and stays white on screen.
@@ -411,14 +416,19 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
             refit_webview(host);
             true
         } else {
-            let saved = SAVED.lock().ok().and_then(|mut guard| guard.take());
-            let Some((saved_hwnd, style, ex_style, placement)) = saved else {
+            let saved = match SAVED.lock() {
+                Ok(mut guard) => guard.take(),
+                Err(poisoned) => poisoned.into_inner().take(),
+            };
+            let Some((saved_hwnd, style, ex_style, brush, placement)) = saved else {
                 return false;
             };
             if IsWindow(saved_hwnd as HWND) == 0 {
                 return false;
             }
             let hwnd = saved_hwnd as HWND;
+            // The class brush belongs to the whole window class: put it back.
+            SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, brush as isize);
 
             SendMessageW(hwnd, WM_SETREDRAW, 0, 0);
             SetWindowLongPtrW(hwnd, GWL_STYLE, style);
@@ -493,6 +503,8 @@ pub(crate) fn player_is_live(app: &tauri::AppHandle) -> bool {
 pub struct PlayerSlot {
     core: Mutex<Option<player::Player>>,
     healed: AtomicBool,
+    /// An open in progress, so two IPC calls cannot spawn two cores.
+    opening: AtomicBool,
 }
 
 impl PlayerSlot {
@@ -500,7 +512,25 @@ impl PlayerSlot {
         Self {
             core: Mutex::new(None),
             healed: AtomicBool::new(false),
+            opening: AtomicBool::new(false),
         }
+    }
+
+    /// One open at a time: a second core would fight the first for the window.
+    pub fn begin_open(&self) -> Option<Opening<'_>> {
+        if self.opening.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        Some(Opening(&self.opening))
+    }
+}
+
+/// Clears the open-in-progress flag on every exit, an error included.
+pub struct Opening<'a>(&'a AtomicBool);
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -823,7 +853,10 @@ pub fn run() {
         match event {
             tauri::RunEvent::Exit => {
                 if let Some(state) = handle.try_state::<AppState>() {
-                    *player_slot(&state) = None;
+                    // Take it out first: the core's teardown runs on drop and
+                    // must not happen under the slot guard.
+                    let doomed = player_slot(&state).take();
+                    drop(doomed);
                 }
             }
             // mpv's render window is created after the web layer, so any event

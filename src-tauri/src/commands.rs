@@ -1468,6 +1468,11 @@ pub async fn player_open(
     if request.url.trim().is_empty() {
         return Err("Nothing to play".into());
     }
+    // The UI serializes opens; IPC does not, and two cores would fight for
+    // the window.
+    let Some(_opening) = state.player.begin_open() else {
+        return Err("The player is already opening".into());
+    };
     if let Ok(dir) = app.path().app_data_dir() {
         crate::playback_log::init(&dir);
     }
