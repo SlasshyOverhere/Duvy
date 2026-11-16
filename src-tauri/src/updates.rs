@@ -32,11 +32,18 @@ struct Progress {
     total: Option<u64>,
 }
 
-/// How often a running app looks again after a successful check.
+/// Normal wait between checks; also the cap after a failed one.
 const RECHECK: Duration = Duration::from_secs(5 * 60);
 
 /// A check must answer (or fail) instead of hanging on a stalled host.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The check timeout cannot cover a package; a trickling host must still fail.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// The plugin buffers the whole package in memory before verifying it, so an
+/// oversized release is refused instead of installed.
+const MAX_DOWNLOAD_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Retry steps after a failed check, so one bad minute is not six hours blind.
 const RETRIES: [u64; 3] = [60, 300, 900];
@@ -66,6 +73,16 @@ fn retry_after(failures: u32) -> Duration {
 
 fn cached() -> Option<Update> {
     CHECKED.lock().ok().and_then(|slot| slot.clone())
+}
+
+/// Feeds spell the same version `1.2.3`, `v1.2.3` or padded; compare stripped.
+fn canonical(version: &str) -> &str {
+    let trimmed = version.trim();
+    trimmed.strip_prefix(['v', 'V']).unwrap_or(trimmed)
+}
+
+fn same_version(left: &str, right: &str) -> bool {
+    canonical(left) == canonical(right)
 }
 
 fn remember(update: Option<&Update>) {
@@ -105,12 +122,15 @@ fn store(app: &AppHandle, found: Option<&UpdateInfo>) {
         return;
     };
     let conn = state.db.conn();
-    let _ = match found {
+    let written = match found {
         Some(info) => serde_json::to_value(info)
             .map_err(|e| e.to_string())
             .and_then(|value| db::write_kv(&conn, CACHE_KEY, &value).map_err(|e| e.to_string())),
         None => db::delete_kv(&conn, CACHE_KEY).map_err(|e| e.to_string()),
     };
+    if let Err(e) = written {
+        eprintln!("[updates] cannot cache the check result: {e}");
+    }
 }
 
 fn settings(app: &AppHandle) -> Settings {
@@ -139,8 +159,8 @@ pub fn update_cached(app: AppHandle) -> Option<UpdateInfo> {
         return None;
     }
     let known = stored(&app)?;
-    if known.version == app.package_info().version.to_string()
-        || known.version == current.ignored_update_version
+    if same_version(&known.version, &app.package_info().version.to_string())
+        || same_version(&known.version, &current.ignored_update_version)
     {
         return None;
     }
@@ -149,10 +169,13 @@ pub fn update_cached(app: AppHandle) -> Option<UpdateInfo> {
 
 /// Download the package, reporting progress, and verify its signature.
 async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
+    // The plugin leaves the package request unbounded; only this field bounds it.
+    let mut update = update.clone();
+    update.timeout = Some(DOWNLOAD_TIMEOUT);
     let handle = app.clone();
     let mut downloaded = 0usize;
     let mut last = None::<Instant>;
-    update
+    let bytes = update
         .download(
             move |chunk, total| {
                 downloaded += chunk;
@@ -167,7 +190,11 @@ async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
             || {},
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
+        return Err(format!("Update package is larger than {MAX_DOWNLOAD_BYTES} bytes"));
+    }
+    Ok(bytes)
 }
 
 /// Download and install the newest release. On Windows the installer takes
@@ -192,8 +219,8 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
     update.install(bytes).map_err(|e| e.to_string())
 }
 
-/// Check on launch, then every 5 minutes while the app stays open. A failed check
-/// retries in a minute, then backs off, so one bad request is not a blank day.
+/// Check on launch, then on the normal interval while the app stays open. A failed
+/// check retries after 1, 5 then 15 minutes and settles back on the normal interval.
 ///
 /// A skipped version stays quiet in the background; a manual check still
 /// reports it.
@@ -208,7 +235,7 @@ pub fn watch(app: AppHandle) {
                     Ok(found) => {
                         failures = 0;
                         if let Some(found) = found
-                            && found.version != current.ignored_update_version
+                            && !same_version(&found.version, &current.ignored_update_version)
                         {
                             announce(&app, &found);
                         }
@@ -248,7 +275,7 @@ fn announce(app: &AppHandle, info: &UpdateInfo) {
 
 #[cfg(test)]
 mod tests {
-    use super::{RECHECK, retry_after};
+    use super::{RECHECK, retry_after, same_version};
     use std::time::Duration;
 
     #[test]
@@ -259,5 +286,14 @@ mod tests {
         // Past the ladder it settles on the normal interval, never beyond it.
         assert_eq!(retry_after(9), RECHECK);
         assert_eq!(retry_after(0), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn version_spellings_of_one_release_compare_equal() {
+        assert!(same_version("v1.2.3", "1.2.3"));
+        assert!(same_version(" 1.2.3 ", "1.2.3"));
+        assert!(same_version("V1.2.3", " v1.2.3 "));
+        assert!(!same_version("1.2.4", "1.2.3"));
+        assert!(!same_version("", "1.2.3"));
     }
 }
