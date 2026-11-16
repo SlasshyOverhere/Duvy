@@ -31,12 +31,15 @@ let wanted = false;
 /** Loads, then applies the current choice. Init runs once per session. */
 function start(release?: string): void {
   void loadSentry().then((Sentry) => {
+    if (!Sentry) return;
     if (!started) {
       started = true;
       Sentry.init({
         dsn: DSN,
         release,
         environment: "production",
+        // Init already carries the choice, so nothing is sent before it applies.
+        enabled: wanted,
         // Sampled, not every session: the free tier is metered.
         tracesSampleRate: 0.2,
         // A tenth of sessions, and always the one that broke.
