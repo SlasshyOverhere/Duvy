@@ -12,7 +12,11 @@ const INSTALL_KEY = "duvy:install";
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** A key is what turns counting on; dev builds tag their events and still send. */
-export const analyticsAvailable = Boolean(KEY && inTauri);
+export function analyticsAvailableFor(key: string, inTauri: boolean): boolean {
+  return Boolean(key.trim() && inTauri);
+}
+
+export const analyticsAvailable = analyticsAvailableFor(KEY, inTauri);
 const ENVIRONMENT = import.meta.env.PROD ? "production" : "development";
 
 type Props = Record<string, string | number | boolean>;

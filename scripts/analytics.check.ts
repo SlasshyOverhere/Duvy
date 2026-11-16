@@ -19,20 +19,38 @@ const store = new Map<string, string>();
   return Promise.resolve({ ok: true });
 };
 
-const { analyticsAvailable, applyAnalytics, track, trackRequests } = await import(
+const { analyticsAvailableFor, applyAnalytics, track, trackRequests } = await import(
   "../src/lib/analytics.ts"
 );
 
 const checks: Array<{ name: string; fn: () => string[] }> = [];
 const check = (name: string, fn: () => string[]) => checks.push({ name, fn });
 
-check("a release build with a key counts", () =>
-  analyticsAvailable ? [] : ["analytics are not available"],
-);
-
-check("an event carries what PostHog needs, and nothing that identifies the user", () => {
+/** Every check starts from an empty outbox and the same enabled release build. */
+const fresh = () => {
   sent.length = 0;
   applyAnalytics(true, "0.1.14");
+};
+
+check("a key and the Tauri shell both decide availability", () => {
+  const bad: string[] = [];
+  const cases: Array<[string, boolean, boolean]> = [
+    ["pk_live", true, true],
+    ["", true, false],
+    ["   ", true, false],
+    ["pk_live", false, false],
+  ];
+  for (const [key, shell, want] of cases) {
+    const got = analyticsAvailableFor(key, shell);
+    if (got !== want) {
+      bad.push(`analyticsAvailableFor(${JSON.stringify(key)}, ${shell}) = ${got}, want ${want}`);
+    }
+  }
+  return bad;
+});
+
+check("an event carries what PostHog needs, and nothing that identifies the user", () => {
+  fresh();
   track("playback_end", { media: "movie", seconds: 600, completed: true });
   const bad: string[] = [];
   const body = sent[0]?.body as Record<string, any> | undefined;
@@ -49,34 +67,52 @@ check("an event carries what PostHog needs, and nothing that identifies the user
   return bad;
 });
 
+check("an event cannot un-anonymise itself or rewrite the build", () => {
+  fresh();
+  track("app_open", { $process_person_profile: true, app_version: "9.9.9" });
+  const props = (sent[0]?.body.properties ?? {}) as Record<string, unknown>;
+  const bad: string[] = [];
+  if (!sent.length) return ["nothing was sent"];
+  if (props.$process_person_profile !== false) bad.push("a prop turned the person profile on");
+  if (props.app_version !== "0.1.14") bad.push(`a prop overrode the build version: ${props.app_version}`);
+  return bad;
+});
+
 check("the install id is stable across events", () => {
-  sent.length = 0;
+  fresh();
+  store.clear();
   track("app_open");
   track("playback_start");
   const bad: string[] = [];
   const ids = sent.map((item) => item.body.distinct_id);
   if (ids.length !== 2) return [`${ids.length} events sent, want 2`];
+  if (!ids[0]) bad.push("the install id is empty");
   if (ids[0] !== ids[1]) bad.push("the id changed between events");
   if (store.get("duvy:install") !== ids[0]) bad.push("the id was not persisted");
   return bad;
 });
 
-check("outbound traffic is one event per host", () => {
-  sent.length = 0;
-  applyAnalytics(true, "0.1.14");
+check("outbound traffic is one event per host, with its own count", () => {
+  fresh();
   trackRequests({ "v3-cinemeta.strem.io": 12, "duvy-tmdb.slasshy02.workers.dev": 3 });
   const bad: string[] = [];
   if (sent.length !== 2) return [`${sent.length} events, want one per host`];
-  const hosts = sent.map((item) => (item.body.properties as any).host);
-  if (!hosts.includes("v3-cinemeta.strem.io")) bad.push("the addon host was lost");
-  if (!hosts.includes("duvy-tmdb.slasshy02.workers.dev")) bad.push("the worker host was lost");
-  const count = (sent[0].body.properties as any).count;
-  if (count !== 12) bad.push(`count ${count}, want 12`);
+  const got = sent
+    .map((item) => {
+      const props = item.body.properties as Record<string, unknown>;
+      return `${String(props.host)}=${String(props.count)}`;
+    })
+    .sort();
+  const want = ["v3-cinemeta.strem.io=12", "duvy-tmdb.slasshy02.workers.dev=3"].sort();
+  if (got.join() !== want.join()) bad.push(`host counts [${got}], want [${want}]`);
+  if (sent.some((item) => item.body.event !== "net_requests")) {
+    bad.push("a host event is not tagged net_requests");
+  }
   return bad;
 });
 
 check("a host with no requests sends nothing", () => {
-  sent.length = 0;
+  fresh();
   trackRequests({ "example.com": 0 });
   return sent.length ? ["an empty host was sent"] : [];
 });
@@ -87,6 +123,18 @@ check("the switch stops everything", () => {
   track("app_open");
   trackRequests({ "v3-cinemeta.strem.io": 4 });
   return sent.length ? [`${sent.length} events escaped the off switch`] : [];
+});
+
+check("the switch is reversible", () => {
+  applyAnalytics(false);
+  sent.length = 0;
+  track("app_open");
+  const off = sent.length;
+  fresh();
+  track("app_open");
+  return off === 0 && sent.length === 1
+    ? []
+    : [`off sent ${off} events, back on sent ${sent.length}`];
 });
 
 let failed = 0;

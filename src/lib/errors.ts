@@ -17,9 +17,9 @@ const HOME_IN_TEXT = /[A-Za-z]:\\[^\\\s"']+\\[^\\\s"']+|\/(?:home|Users)\/[^/\s"
 const EMAIL_IN_TEXT = /[^\s@"'<>]+@[^\s@"'<>]+\.[A-Za-z]{2,}/g;
 
 /** Nothing useful ever hides past this; it only inflates the event. */
-const MAX_TEXT = 500;
+export const MAX_TEXT = 500;
 const MAX_DEPTH = 6;
-const MAX_ITEMS = 50;
+export const MAX_ITEMS = 50;
 
 /**
  * Drop the query string and fragment, which is where debrid, Trakt and
@@ -73,7 +73,12 @@ export function isNoise(message: string): boolean {
 
 /** One report per distinct failure, and a hard cap for the session. */
 const seen = new Set<string>();
-const MAX_REPORTS = 30;
+export const MAX_REPORTS = 30;
+
+/** Clears the session guard, so a check starts from a clean slate. */
+export function resetReportState(): void {
+  seen.clear();
+}
 
 const TRACE_LIMIT = 40;
 const trace: string[] = [];

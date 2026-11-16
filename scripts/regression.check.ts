@@ -1,7 +1,7 @@
 // Updater and player lifecycle regression guards.
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPayload, validUpdate } from "../src/lib/bridge.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -18,33 +18,75 @@ const drawer = read("src/components/StreamDrawer.tsx");
 const settingsView = read("src/views/Settings.tsx");
 const rustSettings = read("src-tauri/src/settings.rs");
 
-/** Slice a top-level Rust function: from `fn name` to the next `}` in column 0. */
+/** Slice a top-level Rust function by balancing braces past strings and comments. */
 function rustFn(src: string, name: string): string {
   const at = src.search(new RegExp(`(?:pub\\s+)?(?:async\\s+)?fn\\s+${name}\\b`));
   if (at < 0) return "";
-  const end = src.indexOf("\n}", at);
-  return end < 0 ? src.slice(at) : src.slice(at, end + 2);
+  const open = src.indexOf("{", at);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === "/" && src[i + 1] === "/") {
+      const end = src.indexOf("\n", i);
+      if (end < 0) break;
+      i = end;
+      continue;
+    }
+    if (ch === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2);
+      if (end < 0) break;
+      i = end + 1;
+      continue;
+    }
+    if (ch === '"') {
+      for (i += 1; i < src.length && src[i] !== '"'; i += 1) if (src[i] === "\\") i += 1;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}" && (depth -= 1) === 0) return src.slice(at, i + 1);
+  }
+  return src.slice(at);
 }
 
-const checks: Array<{ name: string; fn: () => string[] }> = [];
-const run = (name: string, fn: () => string[]) => checks.push({ name, fn });
+const checks: Array<{ name: string; fn: () => string[] | Promise<string[]> }> = [];
+const run = (name: string, fn: () => string[] | Promise<string[]>) => checks.push({ name, fn });
 
 run("untrusted payloads are read before they reach render", () => {
   const out: string[] = [];
   const feed = readPayload("home_feed", {
-    rows: [{ id: "top", title: "Top", items: [{ id: "tt1", type: "movie", name: "A" }, null] }],
-    addonErrors: "boom",
-  }) as { rows: Array<{ items: unknown[] }>; addonErrors: unknown };
+    rows: [
+      { id: "top", title: "Top", items: [{ id: "tt1", type: "movie", name: "A" }, null] },
+      { id: "", title: "no key", items: [{ id: "tt2", type: "movie", name: "B" }] },
+    ],
+    addonErrors: ["boom", 7, null],
+  }) as { rows: Array<{ id: string; items: unknown[] }>; addonErrors: unknown[] };
+  if (feed.rows.length !== 1) out.push(`a row without an id reached the home rows (${feed.rows.length} rows)`);
   if (feed.rows[0]?.items.length !== 1) out.push("a junk feed item reached the home rows");
-  if (!Array.isArray(feed.addonErrors)) out.push("a non-array addonErrors reached the notice");
-  const streams = readPayload("streams", [{ addon: "x", quality: null, infoHash: 7 }]) as Array<{
-    quality: string;
-    infoHash: unknown;
-  }>;
-  if (streams[0]?.quality !== "" || streams[0]?.infoHash !== null) {
-    out.push("a null quality or a numeric info hash was not normalized");
+  if (feed.addonErrors.join() !== "boom") {
+    out.push(`a non-string addonErrors reached the notice: ${JSON.stringify(feed.addonErrors)}`);
   }
-  if (validUpdate(null) !== null || validUpdate({ version: 4 }) !== null) {
+  // A payload of the wrong shape is emptied, never passed through as-is.
+  const empty = readPayload("home_feed", { rows: "nope", addonErrors: 5 }) as {
+    rows: unknown[];
+    addonErrors: unknown[];
+  };
+  if (empty.rows.length !== 0 || empty.addonErrors.length !== 0) {
+    out.push("a wrongly typed feed survived as-is");
+  }
+  const streams = readPayload("streams", [
+    { addon: "x", quality: null, infoHash: 7 },
+    null,
+    "junk",
+  ]) as Array<{ quality: string; infoHash: unknown }>;
+  if (streams.length !== 1 || streams[0].quality !== "" || streams[0].infoHash !== null) {
+    out.push("a null quality, a numeric info hash or a junk stream was not normalized");
+  }
+  if (
+    validUpdate(null) !== null ||
+    validUpdate({ version: 4 }) !== null ||
+    validUpdate({ version: "" }) !== null
+  ) {
     out.push("an update without a version string was accepted");
   }
   if (validUpdate({ version: "0.2.0" })?.version !== "0.2.0") {
@@ -54,18 +96,17 @@ run("untrusted payloads are read before they reach render", () => {
 });
 
 run("update check runs at launch", () => {
-  const out: string[] = [];
   const watch = rustFn(updates, "watch");
   if (!watch) return ["updates.rs: watch() not found"];
-  // Only a numeric sleep before the loop can delay the first check.
-  const first = [...watch.matchAll(/from_secs\((\d+)\)/g)].map((m) => Number(m[1]))[0];
-  if (first != null && first > 5) {
-    out.push(`watch() waits ${first}s before the first update check`);
-  }
+  const out: string[] = [];
+  const checkAt = watch.indexOf("update_check(");
+  const sleepAt = watch.indexOf("sleep(");
+  if (checkAt < 0) return ["updates.rs: watch() never checks for an update"];
+  if (sleepAt >= 0 && sleepAt < checkAt) out.push("watch() sleeps before the first update check");
   return out;
 });
 
-run("update check cannot hang", () => {
+run("sentinel: update check cannot hang", () => {
   const out: string[] = [];
   const fetch = rustFn(updates, "fetch");
   if (!fetch) return ["updates.rs: fetch() not found"];
@@ -78,7 +119,7 @@ run("update check cannot hang", () => {
   return out;
 });
 
-run("failed update check retries soon", () => {
+run("sentinel: failed update check retries soon", () => {
   const out: string[] = [];
   const watch = rustFn(updates, "watch");
   if (!watch.includes("retry_after(")) {
@@ -93,7 +134,7 @@ run("failed update check retries soon", () => {
   return out;
 });
 
-run("install reuses the checked release", () => {
+run("sentinel: install reuses the checked release", () => {
   const out: string[] = [];
   const install = rustFn(updates, "update_install");
   if (!install) return ["updates.rs: update_install() not found"];
@@ -109,7 +150,7 @@ run("install reuses the checked release", () => {
   return out;
 });
 
-run("download progress is throttled", () => {
+run("sentinel: download progress is throttled", () => {
   const download = rustFn(updates, "download");
   if (!download) return ["updates.rs: download() not found"];
   if (!/elapsed\(\)/.test(download)) {
@@ -118,7 +159,7 @@ run("download progress is throttled", () => {
   return [];
 });
 
-run("stop emits player:closed and awaits no torrent teardown", () => {
+run("sentinel: stop emits player:closed and awaits no torrent teardown", () => {
   const out: string[] = [];
   const stop = rustFn(commands, "player_stop");
   if (!stop) return ["commands.rs: player_stop() not found"];
@@ -127,7 +168,7 @@ run("stop emits player:closed and awaits no torrent teardown", () => {
   return out;
 });
 
-run("failed open closes the screen", () => {
+run("sentinel: failed open closes the screen", () => {
   const open = rustFn(commands, "player_open");
   if (!open) return ["commands.rs: player_open() not found"];
   if (!open.includes('emit("player:closed"')) {
@@ -136,7 +177,7 @@ run("failed open closes the screen", () => {
   return [];
 });
 
-run("closed player frees the player slot", () => {
+run("sentinel: closed player frees the player slot", () => {
   const teardown = rustFn(player, "close");
   if (!teardown) return ["player.rs: close() not found"];
   if (!teardown.includes("ptr_eq")) {
@@ -148,7 +189,7 @@ run("closed player frees the player slot", () => {
   return [];
 });
 
-run("end of stream keeps the player open", () => {
+run("sentinel: end of stream keeps the player open", () => {
   const end = rustFn(player, "end_stream");
   if (!end) return ["player.rs: end_stream() not found"];
   const closeAt = end.indexOf("close(app");
@@ -162,7 +203,7 @@ run("end of stream keeps the player open", () => {
   return [];
 });
 
-run("a dropped stream is not a finished film", () => {
+run("sentinel: a dropped stream is not a finished film", () => {
   const end = rustFn(player, "end_stream");
   if (!end) return ["player.rs: end_stream() not found"];
   // The Covenant reported eof at 2675s of 7383s and the screen said "Nothing
@@ -178,7 +219,7 @@ run("a dropped stream is not a finished film", () => {
   return [];
 });
 
-run("a dropped stream is retried, not declared over", () => {
+run("sentinel: a dropped stream is retried, not declared over", () => {
   const out: string[] = [];
   if (!/cutShort/.test(playerView)) {
     out.push("Player.tsx ignores cutShort, so a dropped stream shows the end card");
@@ -192,7 +233,7 @@ run("a dropped stream is retried, not declared over", () => {
   return out;
 });
 
-run("skip markers only offer a button", () => {
+run("sentinel: skip markers only offer a button", () => {
   const out: string[] = [];
   const front = read("src/components/player/skip.ts");
   if (!/export type SkipKind =[^\n]*"recap"[^\n]*"intro"[^\n]*"outro"/.test(front)) {
@@ -207,14 +248,14 @@ run("skip markers only offer a button", () => {
   return out;
 });
 
-run("player snapshots carry a generation", () => {
+run("sentinel: player snapshots carry a generation", () => {
   if (!/\bgeneration\b/.test(player)) {
     return ["player.rs: snapshots carry no generation, so stale ticks can win"];
   }
   return [];
 });
 
-run("store ignores stale player events", () => {
+run("sentinel: store ignores stale player events", () => {
   const out: string[] = [];
   if (!/playerGen/.test(store)) {
     return ["store.tsx: no generation guard on player events"];
@@ -225,7 +266,7 @@ run("store ignores stale player events", () => {
   return out;
 });
 
-run("playRequest reports a refused open", () => {
+run("sentinel: playRequest reports a refused open", () => {
   const guard = /if\s*\(opening\.current\)\s*\{[\s\S]{0,900}?return false;/.exec(store);
   if (!guard) return ["playRequest returns true when another open is already running"];
   // A second click within a moment is a double click; anything later is a
@@ -236,22 +277,43 @@ run("playRequest reports a refused open", () => {
   return [];
 });
 
-run("cancelled start cannot clear the next start", () => {
+run("sentinel: cancelled start cannot clear the next start", () => {
   if (!/pending\.current === chain/.test(store)) {
     return ["a finished start clears the pending guard of a newer one"];
   }
   return [];
 });
 
-run("subtitle size can go below the old floor", () => {
+run("subtitle size can go below the old floor", async () => {
   const out: string[] = [];
+  const hud = (await import(pathToFileURL(root + "src/components/player/hud.ts").href)) as unknown as {
+    readSubtitleStyle: () => { size: number };
+  };
+  const saved = new Map<string, string>();
+  (globalThis as unknown as { window: unknown }).window = {
+    localStorage: { getItem: (key: string) => saved.get(key) ?? null, setItem: () => {} },
+  };
+  const sizeFor = (size: number) => {
+    saved.set("duvy.subtitleStyle", JSON.stringify({ size }));
+    return hud.readSubtitleStyle().size;
+  };
+  const cases: Array<[number, number]> = [
+    [10, 10],
+    [2, 10],
+    [46, 46],
+    [200, 90],
+  ];
+  for (const [stored, want] of cases) {
+    const got = sizeFor(stored);
+    if (got !== want) out.push(`a stored size of ${stored} reads as ${got}, want ${want}`);
+  }
+  // Sentinels: the stepper's own clamp, and the range Rust accepts.
   const floors = [
     ...(playerView + playerHud).matchAll(/whole\((?:stored\.size|subStyle\.size [+-] 2),\s*(\d+),\s*(\d+)/g),
   ].map((match) => Number(match[1]));
   if (floors.length < 3) {
-    return ["Player.tsx: subtitle size clamp not found in read and stepper"];
-  }
-  if (floors.some((floor) => floor > 10)) {
+    out.push("Player.tsx: subtitle size clamp not found in read and stepper");
+  } else if (floors.some((floor) => floor > 10)) {
     out.push(`Player.tsx clamps subtitle size at ${Math.max(...floors)}, above the 10 the player accepts`);
   }
   if (!/10\.0\.\.=200\.0/.test(player)) {
@@ -260,7 +322,7 @@ run("subtitle size can go below the old floor", () => {
   return out;
 });
 
-run("continue watching compares exact episode keys", () => {
+run("sentinel: continue watching compares exact episode keys", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
   if (!/watchedKeys\.has\(row\.key\)/.test(home)) {
@@ -279,7 +341,7 @@ run("continue watching compares exact episode keys", () => {
   return out;
 });
 
-run("leaving at the credits counts the episode as watched", () => {
+run("sentinel: leaving at the credits counts the episode as watched", () => {
   const out: string[] = [];
   // The ticker's own final save used to land after kill's, putting the sub-92%
   // playhead back and dropping the mark the advance had just written.
@@ -299,7 +361,7 @@ run("leaving at the credits counts the episode as watched", () => {
   return out;
 });
 
-run("continue watching advances a finished episode", () => {
+run("sentinel: continue watching advances a finished episode", () => {
   const out: string[] = [];
   const home = read("src/views/Home.tsx");
   // A finished episode must resolve its next one, not vanish from the row, and
@@ -325,7 +387,7 @@ run("continue watching advances a finished episode", () => {
   return out;
 });
 
-run("auto-advance keeps the playing addon", () => {
+run("sentinel: auto-advance keeps the playing addon", () => {
   const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
   if (!pick) return ["store.tsx: pickSource() not found"];
   // Staying on the current addon must be decided before the quality fallback,
@@ -339,7 +401,7 @@ run("auto-advance keeps the playing addon", () => {
   return [];
 });
 
-run("a source the viewer left does not come back", () => {
+run("sentinel: a source the viewer left does not come back", () => {
   const out: string[] = [];
   const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
   const playingAt = pick.indexOf("fromAddon");
@@ -358,7 +420,7 @@ run("a source the viewer left does not come back", () => {
   return out;
 });
 
-run("a pack that broke an episode is not reopened next", () => {
+run("sentinel: a pack that broke an episode is not reopened next", () => {
   const out: string[] = [];
   const pick = /export function pickSource\([\s\S]*?\n}/.exec(store)?.[0] ?? "";
   // The season's pack memory is consulted after the exact episode memory.
@@ -386,7 +448,28 @@ run("a pack that broke an episode is not reopened next", () => {
   return out;
 });
 
-run("source list is ordered by file size", () => {
+run("sources sort biggest first, an unknown size sinks", async () => {
+  const { byFileSize } = (await import(pathToFileURL(root + "src/lib/format.ts").href)) as unknown as {
+    byFileSize: (a: { sizeBytes?: number | null }, b: { sizeBytes?: number | null }) => number;
+  };
+  const sorted = [
+    { id: "small", sizeBytes: 10 },
+    { id: "big", sizeBytes: 900 },
+    { id: "unknown", sizeBytes: null },
+    { id: "mid", sizeBytes: 500 },
+    { id: "missing" },
+  ]
+    .sort(byFileSize)
+    .map((source) => source.id);
+  const want = "big,mid,small,unknown,missing";
+  if (sorted.join() !== want) return [`byFileSize ordered [${sorted}], want [${want}]`];
+  if (byFileSize({ sizeBytes: 10 }, { sizeBytes: 10 }) !== 0) {
+    return ["byFileSize does not hold equal sizes in place"];
+  }
+  return [];
+});
+
+run("sentinel: source list is ordered by file size", () => {
   const out: string[] = [];
   if (!/sort\(byFileSize\)/.test(drawer)) out.push("StreamDrawer.tsx does not sort sources by size");
   if (!/sort\(byFileSize\)/.test(playerView)) out.push("Player.tsx source panel does not sort by size");
@@ -395,7 +478,7 @@ run("source list is ordered by file size", () => {
   return out;
 });
 
-run("a disabled addon is not used", () => {
+run("sentinel: a disabled addon is not used", () => {
   const out: string[] = [];
   const addonsView = read("src/views/Addons.tsx");
   // The switch has to be there and it has to say what it does.
@@ -428,7 +511,7 @@ let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];
   try {
-    detail = fn();
+    detail = await fn();
   } catch (error) {
     detail = [`threw: ${(error as Error).message}`];
   }

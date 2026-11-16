@@ -3,7 +3,11 @@ import {
   cleanText,
   fingerprintOf,
   isNoise,
+  MAX_ITEMS,
+  MAX_REPORTS,
+  MAX_TEXT,
   note,
+  resetReportState,
   scrubValue,
   shouldReport,
   traceTail,
@@ -80,15 +84,33 @@ check("secret keys are blanked at any depth", () => {
   return bad;
 });
 
-check("a huge payload is cut down", () => {
+check("a huge payload is cut at the caps", () => {
   const wide = Object.fromEntries(
     Array.from({ length: 200 }, (_, index) => [`k${index}`, "x".repeat(2000)]),
   );
   const out = scrubValue(wide) as Record<string, unknown>;
   const bad: string[] = [];
-  if (Object.keys(out).length > 50) bad.push(`${Object.keys(out).length} keys kept`);
+  const keys = Object.keys(out).length;
+  if (keys !== MAX_ITEMS) bad.push(`${keys} keys kept, want exactly ${MAX_ITEMS}`);
   const first = out.k0;
-  if (typeof first !== "string" || first.length > 500) bad.push(`long string kept (${String(first).length})`);
+  if (typeof first !== "string" || first.length !== MAX_TEXT) {
+    bad.push(`long string kept ${typeof first === "string" ? first.length : typeof first} chars, want ${MAX_TEXT}`);
+  }
+  const list = scrubValue(Array.from({ length: 200 }, (_, index) => index)) as unknown[];
+  if (list.length !== MAX_ITEMS) bad.push(`${list.length} list items kept, want exactly ${MAX_ITEMS}`);
+  // A nested object is cut at the depth cap rather than walked to the end.
+  let deep: Record<string, unknown> = { end: "x" };
+  for (let index = 0; index < 12; index += 1) deep = { down: deep };
+  if (!JSON.stringify(scrubValue(deep)).includes("[deep]")) bad.push("a deep object was walked to the end");
+  return bad;
+});
+
+check("a link that will not parse is blanked", () => {
+  const out = cleanText("see https://[bad]/stream?token=s3cret now");
+  const bad: string[] = [];
+  if (!out.includes("[url]")) bad.push(`an unparsable link was not blanked: ${out}`);
+  if (out.includes("s3cret")) bad.push(`token survived: ${out}`);
+  if (!out.includes("see ") || !out.includes(" now")) bad.push(`the surrounding text was lost: ${out}`);
   return bad;
 });
 
@@ -98,25 +120,47 @@ check("expected noise is dropped, real failures are not", () => {
     bad.push("resize loop would be reported");
   }
   if (!isNoise("The operation was aborted.")) bad.push("an abort would be reported");
+  if (!isNoise("Script error.")) bad.push("a cross-origin script error would be reported");
   if (isNoise("Cannot read properties of null (reading 'title')")) bad.push("a real bug was dropped");
+  if (isNoise("TypeError: x is not a function")) bad.push("a real bug was dropped");
   return bad;
 });
 
-check("the same failure reports once", () => {
-  const error = new TypeError("same every time");
+check("the same failure reports once, a new one reports", () => {
+  resetReportState();
   const bad: string[] = [];
+  const error = new TypeError("same every time");
   if (!shouldReport(fingerprintOf(error))) bad.push("first report was dropped");
   if (shouldReport(fingerprintOf(error))) bad.push("duplicate report was sent");
+  if (!shouldReport(fingerprintOf(new RangeError("different")))) bad.push("a new failure was dropped");
+  resetReportState();
+  if (!shouldReport(fingerprintOf(error))) bad.push("the reset did not clear the reported set");
+  resetReportState();
   return bad;
 });
 
-check("a flood is capped", () => {
+check("a flood is capped at the exact session maximum", () => {
+  resetReportState();
+  const bad: string[] = [];
   let sent = 0;
-  for (let index = 0; index < 200; index += 1) {
+  for (let index = 0; index < MAX_REPORTS * 3; index += 1) {
     if (shouldReport(`flood-${index}`)) sent += 1;
   }
-  // The cap counts every report this session, so it includes the ones above.
-  return sent > 30 ? [`${sent} events escaped the cap`] : [];
+  if (sent !== MAX_REPORTS) bad.push(`${sent} reports sent, want exactly ${MAX_REPORTS}`);
+  if (shouldReport("flood-past-the-cap")) bad.push("a report was accepted past the cap");
+  resetReportState();
+  if (!shouldReport("flood-after-reset")) bad.push("the reset did not clear the cap");
+  resetReportState();
+  return bad;
+});
+
+check("a decision that cannot be serialized is still recorded", () => {
+  const loop: Record<string, unknown> = {};
+  loop.self = loop;
+  note("circular note", loop);
+  const tail = traceTail();
+  const last = tail[tail.length - 1] ?? "";
+  return last.includes("circular note") ? [] : ["the note was dropped with its unserializable data"];
 });
 
 check("the recorder keeps the last decisions, scrubbed", () => {
