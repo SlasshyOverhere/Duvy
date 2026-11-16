@@ -130,6 +130,7 @@ export const PosterCard = memo(function PosterCard({
   wide?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const gradient = placeholderGradient(item.name);
   const percent = entry ? progressPercent(entry.position, entry.duration) : 0;
@@ -175,9 +176,20 @@ export const PosterCard = memo(function PosterCard({
           }}
         />
         <div className="poster-hover">
-          <span className="poster-hover-title">{item.name}</span>
+          {item.logo && !logoFailed ? (
+            <img
+              className="poster-hover-logo"
+              src={item.logo}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <span className="poster-hover-title">{item.name}</span>
+          )}
           <span className="poster-hover-meta">
-            {[item.releaseInfo, item.imdbRating ? `${item.imdbRating} IMDb` : null]
+            {[item.releaseInfo, item.runtime, item.imdbRating ? `${item.imdbRating} IMDb` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>
