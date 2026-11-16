@@ -57,7 +57,7 @@ struct Store {
 
 fn load(state: &AppState) -> Result<Store, String> {
     let conn = state.db.conn();
-    Ok(db::read_kv(&conn, KV)
+    Ok(db::read_secret_kv(&conn, KV)
         .ok()
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
@@ -67,7 +67,7 @@ fn load(state: &AppState) -> Result<Store, String> {
 fn save(state: &AppState, store: &Store) -> Result<(), String> {
     let value = serde_json::to_value(store).map_err(|e| e.to_string())?;
     let conn = state.db.conn();
-    db::write_kv(&conn, KV, &value).map_err(|e| e.to_string())
+    db::write_secret_kv(&conn, KV, &value).map_err(|e| e.to_string())
 }
 
 /// One refresh at a time: Trakt rotates the refresh token on use, so a second

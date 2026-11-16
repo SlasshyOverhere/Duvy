@@ -4,8 +4,8 @@
 //! few hundred rows at most, so a single WAL-mode connection behind a mutex is
 //! both simpler and faster than a pool.
 
-use crate::secret;
 use crate::playback_log;
+use crate::secret::{self, SecretError};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -115,7 +115,6 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
     conn.execute_batch(PRAGMAS)?;
     migrate(&conn)?;
-    encrypt_legacy_settings(&conn)?;
     prune_progress(&conn)?;
     Ok(conn)
 }
@@ -131,26 +130,6 @@ fn prune_progress(conn: &Connection) -> rusqlite::Result<()> {
             AND NOT (duration > 0 AND position >= duration * ?2)",
         params![now() - YEAR_MS, FINISHED_AT],
     )?;
-    Ok(())
-}
-
-/// Rows written before DPAPI protection existed are plaintext. Upgrade them on
-/// open so an existing profile does not wait for each setting to be saved again.
-fn encrypt_legacy_settings(conn: &Connection) -> rusqlite::Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT key, value FROM settings WHERE substr(value, 1, 5) <> 'enc1:'")?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(stmt);
-    for (key, value) in rows {
-        conn.execute(
-            "UPDATE settings SET value = ?2 WHERE key = ?1",
-            params![key, secret::encode(&value)],
-        )?;
-    }
     Ok(())
 }
 
@@ -769,39 +748,93 @@ pub fn set_people_photo(conn: &Connection, key: &str, photo: &str) -> rusqlite::
 // Settings
 // ---------------------------------------------------------------------------
 
-pub fn read_kv(conn: &Connection, key: &str) -> rusqlite::Result<Option<Value>> {
-    let raw: Option<String> = conn
+pub fn read_kv(conn: &Connection, key: &str) -> Result<Option<Value>, SecretError> {
+    let Some(raw) = read_row(conn, key)? else {
+        return Ok(None);
+    };
+    let json = if secret::is_protected(&raw) {
+        secret::load(key)?
+    } else if secret::is_legacy(&raw) {
+        secret::decode_legacy(&raw)?
+    } else {
+        raw
+    };
+    parse(key, json)
+}
+
+/// Credentials: the row holds a marker and the value lives in the protected
+/// store. Legacy rows are moved over on first read.
+pub fn read_secret_kv(conn: &Connection, key: &str) -> Result<Option<Value>, SecretError> {
+    let Some(raw) = read_row(conn, key)? else {
+        return Ok(None);
+    };
+    if secret::is_protected(&raw) {
+        return parse(key, secret::load(key)?);
+    }
+    let plain = if secret::is_legacy(&raw) {
+        secret::decode_legacy(&raw)?
+    } else {
+        raw
+    };
+    secret::store(key, &plain)?;
+    conn.execute(
+        "UPDATE settings SET value = ?2 WHERE key = ?1",
+        params![key, secret::marker()],
+    )?;
+    parse(key, plain)
+}
+
+fn read_row(conn: &Connection, key: &str) -> Result<Option<String>, SecretError> {
+    Ok(conn
         .query_row(
             "SELECT value FROM settings WHERE key = ?1",
             params![key],
             |r| r.get(0),
         )
-        .optional()?;
-    Ok(raw
-        .and_then(|s| secret::decode(&s))
-        .and_then(|s| serde_json::from_str(&s).ok()))
+        .optional()?)
 }
 
-pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> rusqlite::Result<()> {
+fn parse(key: &str, json: String) -> Result<Option<Value>, SecretError> {
+    serde_json::from_str(&json)
+        .map(Some)
+        .map_err(|error| SecretError::Decode(format!("{key}: {error}")))
+}
+
+pub fn write_kv(conn: &Connection, key: &str, value: &Value) -> Result<(), SecretError> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = ?2",
-        params![key, secret::encode(&value.to_string())],
+        params![key, value.to_string()],
     )?;
     Ok(())
 }
 
-pub fn delete_kv(conn: &Connection, key: &str) -> rusqlite::Result<()> {
+pub fn write_secret_kv(conn: &Connection, key: &str, value: &Value) -> Result<(), SecretError> {
+    secret::store(key, &value.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, secret::marker()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_kv(conn: &Connection, key: &str) -> Result<(), SecretError> {
     conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
     Ok(())
 }
 
-pub fn read_settings(conn: &Connection) -> rusqlite::Result<Value> {
-    Ok(read_kv(conn, "app")?.unwrap_or(Value::Object(Default::default())))
+pub fn delete_secret_kv(conn: &Connection, key: &str) -> Result<(), SecretError> {
+    delete_kv(conn, key)?;
+    secret::remove(key)
 }
 
-pub fn write_settings(conn: &Connection, value: &Value) -> rusqlite::Result<()> {
-    write_kv(conn, "app", value)
+pub fn read_settings(conn: &Connection) -> Result<Value, SecretError> {
+    Ok(read_secret_kv(conn, "app")?.unwrap_or(Value::Object(Default::default())))
+}
+
+pub fn write_settings(conn: &Connection, value: &Value) -> Result<(), SecretError> {
+    write_secret_kv(conn, "app", value)
 }
 
 #[cfg(test)]

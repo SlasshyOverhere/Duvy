@@ -42,6 +42,8 @@ tokio = { version = "1", features = [
   "rt-multi-thread",
 ] }
 url = "2"
+# OS protected storage: Credential Manager, Keychain, Secret Service.
+keyring = "4"
 tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]

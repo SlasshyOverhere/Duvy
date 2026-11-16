@@ -748,7 +748,7 @@ fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
 }
 
 #[test]
-fn credentials_are_encrypted_at_rest() {
+fn credentials_are_never_persisted_in_a_reversible_form() {
     let (conn, path) = temp_database();
     let stored = json!({ "tmdbKey": "abc123", "trakt": { "token": "tok" } });
     db::write_settings(&conn, &stored).expect("settings write");
@@ -763,16 +763,18 @@ fn credentials_are_encrypted_at_rest() {
             row.get(0)
         })
         .expect("raw value");
-    assert!(
-        raw.starts_with("enc1:"),
-        "stored value must be encrypted: {raw}"
+    assert_eq!(
+        raw,
+        crate::secret::marker(),
+        "the row only says where the value lives"
     );
+    assert!(!raw.contains("abc123"), "plaintext must not survive on disk");
     assert!(
-        !raw.contains("abc123"),
-        "plaintext key must not survive on disk"
+        !raw.contains("616263313233"),
+        "nor hex of the plaintext: {raw}"
     );
 
-    // Rows written before encryption existed still load.
+    // Rows written before the protected store existed still load.
     let legacy = json!({ "plain": true }).to_string();
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('legacy', ?1)",
@@ -784,7 +786,7 @@ fn credentials_are_encrypted_at_rest() {
         Some(json!({ "plain": true }))
     );
 
-    // The shared kv path roundtrips through the same codec.
+    // Caches that hold no credential stay plain JSON.
     db::write_kv(&conn, "kv", &json!({ "n": 1 })).expect("kv write");
     assert_eq!(db::read_kv(&conn, "kv").unwrap(), Some(json!({ "n": 1 })));
 
@@ -792,31 +794,51 @@ fn credentials_are_encrypted_at_rest() {
 }
 
 #[test]
-fn legacy_plaintext_rows_are_encrypted_on_open() {
+fn a_failed_decode_is_an_error_not_a_plaintext_value() {
+    let (conn, path) = temp_database();
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('lost', 'keyring:1')",
+        [],
+    )
+    .expect("marker row");
+
+    // The row exists but its value is gone: an error, never Ok(None) or text.
+    assert!(matches!(
+        db::read_secret_kv(&conn, "lost"),
+        Err(crate::secret::SecretError::Absent)
+    ));
+    assert!(matches!(
+        db::read_secret_kv(&conn, "garbage"),
+        Ok(None)
+    ));
+    cleanup(conn, path);
+}
+
+#[test]
+fn a_legacy_enc1_row_migrates_into_protected_storage() {
     let path = temp_path();
-    let conn = db::open(&path).expect("first open");
+    let conn = db::open(&path).expect("open");
+    let payload = json!({ "old": true }).to_string();
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('legacy', ?1)",
-        rusqlite::params![json!({ "old": true }).to_string()],
+        rusqlite::params![crate::secret::legacy_payload(&payload)],
     )
     .expect("legacy insert");
-    drop(conn);
 
-    let conn = db::open(&path).expect("second open");
-    let raw: String = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = 'legacy'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("raw value");
-    assert!(
-        raw.starts_with("enc1:"),
-        "legacy row must be upgraded: {raw}"
-    );
     assert_eq!(
-        db::read_kv(&conn, "legacy").unwrap(),
-        Some(json!({ "old": true }))
+        db::read_secret_kv(&conn, "legacy").unwrap(),
+        Some(json!({ "old": true })),
+        "the old value still loads"
+    );
+    let raw: String = conn
+        .query_row("SELECT value FROM settings WHERE key = 'legacy'", [], |row| {
+            row.get(0)
+        })
+        .expect("raw value");
+    assert_eq!(
+        raw,
+        crate::secret::marker(),
+        "and the reversible row is replaced"
     );
     cleanup(conn, path);
 }

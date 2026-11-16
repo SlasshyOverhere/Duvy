@@ -241,7 +241,7 @@ fn load(state: &AppState) -> Result<Vec<Stored>, String> {
         .0
         .lock()
         .map_err(|_| "The local database is locked.".to_string())?;
-    let value = db::read_kv(&conn, KEY_BLOB).map_err(|error| error.to_string())?;
+    let value = db::read_secret_kv(&conn, KEY_BLOB).map_err(|error| error.to_string())?;
     drop(conn);
     let Some(value) = value else {
         return Ok(Vec::new());
@@ -257,7 +257,7 @@ fn store(state: &AppState, servers: &[Stored]) -> Result<(), String> {
         .lock()
         .map_err(|_| "The local database is locked.".to_string())?;
     let value = serde_json::to_value(servers).map_err(|error| error.to_string())?;
-    db::write_kv(&conn, KEY_BLOB, &value).map_err(|error| error.to_string())
+    db::write_secret_kv(&conn, KEY_BLOB, &value).map_err(|error| error.to_string())
 }
 
 fn public(servers: &[Stored]) -> Vec<Server> {

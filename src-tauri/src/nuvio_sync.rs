@@ -119,7 +119,7 @@ pub struct NuvioProfile {
 // ---------------------------------------------------------------------------
 
 pub fn load_session(conn: &Connection) -> Session {
-    db::read_kv(conn, SESSION_KEY)
+    db::read_secret_kv(conn, SESSION_KEY)
         .ok()
         .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
@@ -128,7 +128,7 @@ pub fn load_session(conn: &Connection) -> Session {
 
 fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
     let value = serde_json::to_value(session).map_err(|e| e.to_string())?;
-    db::write_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
+    db::write_secret_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
 }
 
 /// Records that a sync finished without writing back the tokens this call
@@ -465,7 +465,7 @@ pub fn sign_out(state: &AppState) -> Result<(), String> {
         session.last_sync = 0;
         save_session(&conn, &session)
     } else {
-        db::delete_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
+        db::delete_secret_kv(&conn, SESSION_KEY).map_err(|e| e.to_string())
     }
 }
 

@@ -1,7 +1,7 @@
 //! Debrid resolution: turn a cached/torrent link into a direct HTTPS stream.
 //!
-//! The account keys live in the `settings` table as one blob under `debrid`,
-//! shaped `{ "realdebrid": "...", "alldebrid": "...", ... }`. SQLite is only
+//! The account keys live in the OS protected store under `debrid`, shaped
+//! `{ "realdebrid": "...", "alldebrid": "...", ... }`; SQLite holds a marker. SQLite is only
 //! touched synchronously: the blob is loaded, the lock dropped, then the HTTP
 //! calls run. Each provider answers with a different JSON shape, so every
 //! response has a small pure parser below that the unit tests pin down.
@@ -80,7 +80,7 @@ fn canonical(provider: &str) -> Option<&'static str> {
 
 fn load_keys(state: &AppState) -> serde_json::Map<String, Value> {
     let conn = state.db.conn();
-    db::read_kv(&conn, KEY_BLOB)
+    db::read_secret_kv(&conn, KEY_BLOB)
         .ok()
         .flatten()
         .and_then(|value| value.as_object().cloned())
@@ -93,7 +93,7 @@ fn store_keys(state: &AppState, keys: &serde_json::Map<String, Value>) -> Result
         .0
         .lock()
         .map_err(|_| "The local database is locked.".to_string())?;
-    db::write_kv(&conn, KEY_BLOB, &Value::Object(keys.clone())).map_err(|e| e.to_string())
+    db::write_secret_kv(&conn, KEY_BLOB, &Value::Object(keys.clone())).map_err(|e| e.to_string())
 }
 
 fn stored_keys(state: &AppState) -> Vec<(String, String)> {
