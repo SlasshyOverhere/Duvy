@@ -2249,6 +2249,8 @@
 .pv .pv-upnext-go:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  /* Same dark ring as every other control; the card clips the outline. */
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.62);
 }
 
 /* ---- nothing queued: the same frame as a plain panel -------------------- */

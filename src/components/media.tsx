@@ -218,8 +218,17 @@ export function Row({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
 
-  const onScroll = () => setAtStart((scroller.current?.scrollLeft ?? 0) < 8);
+  const measure = () => {
+    const node = scroller.current;
+    if (!node) return;
+    setAtStart(node.scrollLeft < 8);
+    setAtEnd(node.scrollLeft + node.clientWidth >= node.scrollWidth - 8);
+  };
+
+  // Cards arrive after the first paint, so the arrows re-measure with them.
+  useEffect(measure, [children]);
 
   const scroll = (direction: number) => {
     const node = scroller.current;
@@ -260,6 +269,11 @@ export function Row({
       node.scrollLeft = start.left - dx;
     };
     const click = (event: MouseEvent) => {
+      // Keyboard activation carries no detail, so a stale drag flag cannot eat it.
+      if (!event.detail) {
+        moved = false;
+        return;
+      }
       if (!moved) return;
       event.preventDefault();
       event.stopPropagation();
@@ -290,7 +304,7 @@ export function Row({
         {detail ? <div className="row-head-right">{detail}</div> : null}
       </header>
       <div className="row-track">
-        <div className="row-scroller" ref={scroller} onScroll={onScroll}>
+        <div className="row-scroller" ref={scroller} onScroll={measure}>
           {children}
         </div>
         <div className="row-arrows">
@@ -301,7 +315,13 @@ export function Row({
             className={atStart ? "is-edge is-hidden" : "is-edge"}
             onClick={() => scroll(-1)}
           />
-          <IconButton icon="forward" label="Scroll right" size={18} className="is-edge" onClick={() => scroll(1)} />
+          <IconButton
+            icon="forward"
+            label="Scroll right"
+            size={18}
+            className={atEnd ? "is-edge is-hidden" : "is-edge"}
+            onClick={() => scroll(1)}
+          />
         </div>
       </div>
     </section>

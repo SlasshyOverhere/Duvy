@@ -66,7 +66,7 @@ export function TopBar() {
         target?.tagName === "SELECT" ||
         target?.isContentEditable;
       if (
-        (event.key === "/" && !typing) ||
+        (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) ||
         (event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey))
       ) {
         // Navigating again from search would stack an entry and drop the query.

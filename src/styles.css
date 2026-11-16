@@ -1953,6 +1953,11 @@ button.pill:hover {
   background: var(--glass-wash), var(--glass-fill-soft);
 }
 
+/* Rows are semantic only: the grid still lays out the days directly. */
+.calendar-week {
+  display: contents;
+}
+
 .calendar-weekday {
   padding: 8px 10px;
   font-size: 11px;

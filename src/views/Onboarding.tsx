@@ -11,7 +11,7 @@ import { analyticsAvailable } from "../lib/analytics";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { errorMessage } from "../lib/format";
-import { Button, Icon, Spinner } from "../components/ui";
+import { Button, Icon, Spinner, useFocusTrap } from "../components/ui";
 
 type Step = "welcome" | "account";
 type Provider = "nuvio" | "stremio";
@@ -119,6 +119,8 @@ export function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const still = useReducedMotion() ?? false;
+  // The preview sits over the app, so it is a modal there and the app alone at first run.
+  const trap = useFocusTrap<HTMLDivElement>(preview);
   // The old step is gone by the time this node mounts, so focus lands on the
   // step that is actually on screen.
   const attachStage = useCallback((node: HTMLDivElement | null) => {
@@ -202,7 +204,13 @@ export function Onboarding({
         };
 
   return (
-    <div className="app">
+    <div
+      ref={trap}
+      className="app"
+      role={preview ? "dialog" : undefined}
+      aria-modal={preview || undefined}
+      aria-label={preview ? "Onboarding preview" : undefined}
+    >
       <main className="onboarding">
         <Lamp />
         <AnimatePresence mode="wait" initial={false}>

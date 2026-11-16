@@ -29,7 +29,7 @@ import type {
   SubtitleTrack,
   Video,
 } from "../lib/types";
-import { ContextMenu, Icon, LogoMark, Spinner } from "../components/ui";
+import { ContextMenu, Icon, LogoMark, Spinner, useFocusTrap } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
 import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
@@ -127,6 +127,8 @@ function Overlay({
   onClose: () => void;
   children: ReactNode;
 }) {
+  // Trap first: its cleanup lifts inert before focus is handed back.
+  const trap = useFocusTrap<HTMLElement>();
   useReturnFocus();
   return (
     <div
@@ -136,6 +138,7 @@ function Overlay({
       }}
     >
       <section
+        ref={trap}
         className="pv-overlay-body"
         role="dialog"
         aria-label={label}
@@ -222,6 +225,8 @@ function SidePanel({
   reloadBusy?: boolean;
   children: ReactNode;
 }) {
+  // Trap first: its cleanup lifts inert before focus is handed back.
+  const trap = useFocusTrap<HTMLElement>();
   useReturnFocus();
   return (
     <div
@@ -230,7 +235,7 @@ function SidePanel({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="pv-side" role="dialog" aria-label={label} aria-modal="true">
+      <aside ref={trap} className="pv-side" role="dialog" aria-label={label} aria-modal="true">
         <header className="pv-side-head">
           <h2>{title}</h2>
           {onReload ? (
@@ -462,6 +467,11 @@ const SeekTrack = memo(function SeekTrack({
         setHover(null);
       }}
       onKeyDown={(event) => {
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          onSeek(event.key === "Home" ? 0 : duration);
+          return;
+        }
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         onSeekRel((event.key === "ArrowLeft" ? -1 : 1) * step);
@@ -802,11 +812,10 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
       <div className="pv-rails">
         <section className="pv-rail pv-rail--lang">
           <h3>Languages</h3>
-          <div className="pv-rail-list" role="listbox" aria-label="Subtitle language">
+          <div className="pv-rail-list" role="group" aria-label="Subtitle language">
             <button
               type="button"
-              role="option"
-              aria-selected={offSelected}
+              aria-pressed={offSelected}
               className={`pv-rail-row${offSelected ? " is-on" : ""}`}
               onClick={onOff}
             >
@@ -821,8 +830,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
                 <button
                   key={group.lang}
                   type="button"
-                  role="option"
-                  aria-selected={on}
+                  aria-pressed={on}
                   className={`pv-rail-row${on ? " is-on" : ""}`}
                   onClick={() => onLang(group.lang)}
                 >
@@ -848,7 +856,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
               </button>
             </div>
           ) : (
-            <div className="pv-rail-list" role="listbox" aria-label="Subtitle variant">
+            <div className="pv-rail-list" role="group" aria-label="Subtitle variant">
               {currentVariants.map((variant) => {
                 const on =
                   variant.trackId != null
@@ -858,8 +866,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
                   <button
                     key={variant.key}
                     type="button"
-                    role="option"
-                    aria-selected={on}
+                    aria-pressed={on}
                     className={`pv-rail-row pv-rail-row--stack${on ? " is-on" : ""}`}
                     onClick={() => onChoose(variant)}
                   >
@@ -1017,6 +1024,8 @@ export function PlayerView() {
     notify,
     navigate,
     route,
+    fullscreen,
+    setFullscreen,
     playRequest,
     buildSession,
     resolveStream,
@@ -1046,7 +1055,6 @@ export function PlayerView() {
   const [surface, setSurface] = useState<Surface>(null);
   const [chrome, setChrome] = useState(true);
   const [locked, setLocked] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1090,7 +1098,6 @@ export function PlayerView() {
   const scrubAt = useRef(0);
   const scrubTimer = useRef<number | null>(null);
   const wasPlaying = useRef(false);
-  const fsNow = useRef(false);
   const volRef = useRef(readVolume());
   const speedRef = useRef(1);
   const posRef = useRef(0);
@@ -1474,23 +1481,16 @@ export function PlayerView() {
   const leaveFullscreen = useCallback(() => {
     // A browser fullscreen left set would outlive this screen.
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
-    if (!fsNow.current) return;
-    fsNow.current = false;
     setFullscreen(false);
-    delete document.documentElement.dataset.fullscreen;
     void api.window.fullscreen(false);
-  }, []);
+  }, [setFullscreen]);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
   useEffect(() => {
-    const onChange = () => {
-      const on = Boolean(document.fullscreenElement);
-      fsNow.current = on;
-      setFullscreen(on);
-    };
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  }, [setFullscreen]);
 
   const stop = useCallback(() => {
     alive.current = false;
@@ -1571,15 +1571,14 @@ export function PlayerView() {
       setFullscreen(Boolean(document.fullscreenElement));
       return;
     }
-    const next = !fsNow.current;
+    const next = !fullscreen;
     try {
       await api.window.fullscreen(next);
-      fsNow.current = next;
       setFullscreen(next);
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
-  }, [notify]);
+  }, [fullscreen, notify, setFullscreen]);
 
   const showHud = useCallback((label: string, value: string) => {
     if (hudTimer.current) window.clearTimeout(hudTimer.current);
@@ -2251,7 +2250,7 @@ export function PlayerView() {
             setChrome(true);
           } else if (surface) setSurface(null);
           else if (showNext) dismissNext();
-          else if (fsNow.current) leaveFullscreen();
+          else if (fullscreen) leaveFullscreen();
           // Escape never ends playback; leaving is the explicit Close.
           else setChrome(false);
           return;
@@ -2270,6 +2269,7 @@ export function PlayerView() {
     cycleAudio,
     cycleSub,
     dismissNext,
+    fullscreen,
     leaveFullscreen,
     locked,
     nextEpisode,
@@ -2550,6 +2550,14 @@ export function PlayerView() {
         event.preventDefault();
         setCtxMenu({ x: event.clientX, y: event.clientY });
       }}
+      onKeyDown={(event) => {
+        // Keyboard path to the same menu: ContextMenu key or Shift+F10.
+        if (locked) return;
+        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+        event.preventDefault();
+        const box = (event.target as HTMLElement).getBoundingClientRect();
+        setCtxMenu({ x: box.left + 16, y: box.top + 16 });
+      }}
       onFocusCapture={() => {
         if (locked) return;
         actAt.current = Date.now();
@@ -2720,15 +2728,14 @@ export function PlayerView() {
               {audioTracks.length === 0 ? (
                 <p className="pv-overlay-empty">No audio tracks available.</p>
               ) : (
-                <div className="pv-rail-list" role="listbox" aria-label="Audio tracks">
+                <div className="pv-rail-list" role="group" aria-label="Audio tracks">
                   {audioTracks.map((track) => {
                     const on = local.activeAudio === track.id;
                     return (
                       <button
                         key={track.id}
                         type="button"
-                        role="option"
-                        aria-selected={on}
+                        aria-pressed={on}
                         className={`pv-rail-row${on ? " is-on" : ""}`}
                         onClick={() => send("audio", track.id)}
                       >

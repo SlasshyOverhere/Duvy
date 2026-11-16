@@ -4,6 +4,7 @@ import { isTauri } from "../lib/bridge";
 import { errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
 import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
+import { useFocusTrap } from "./ui";
 
 /**
  * Asks once, then honours the answer: the SDK is only live while the user has
@@ -13,6 +14,9 @@ export function CrashReporting() {
   const { settings, appInfo, saveSettings } = useApp();
   const [error, setError] = useState<string | null>(null);
   const choice = settings?.telemetry ?? null;
+  const trap = useFocusTrap<HTMLDivElement>(
+    Boolean(telemetryAvailable && settings?.onboarded && choice === null),
+  );
 
   const decide = (telemetry: boolean) => {
     setError(null);
@@ -50,7 +54,13 @@ export function CrashReporting() {
 
   return (
     <div className="consent">
-      <div className="consent-card" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div
+        ref={trap}
+        className="consent-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consent-title"
+      >
         <h2 id="consent-title">Send crash reports?</h2>
         <p>
           When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A

@@ -415,6 +415,57 @@ export function IconButton({
   );
 }
 
+const FOCUSABLE =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab inside a modal and puts the rest of the app out of reach. */
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(active = true) {
+  const ref = useRef<T | null>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!active || !node) return;
+
+    // Everything beside each ancestor of the dialog is inert while it is open.
+    const hidden: HTMLElement[] = [];
+    for (let el: HTMLElement | null = node; el && el !== document.body; el = el.parentElement) {
+      for (const sibling of Array.from(el.parentElement?.children ?? [])) {
+        if (sibling === el || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+        sibling.inert = true;
+        hidden.push(sibling);
+      }
+    }
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE));
+      if (!items.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      const inside = Boolean(at && node.contains(at));
+      if (event.shiftKey && (!inside || at === first || at === node)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (!inside || at === last)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    node.addEventListener("keydown", onKey);
+    return () => {
+      node.removeEventListener("keydown", onKey);
+      hidden.forEach((el) => (el.inert = false));
+    };
+  }, [active]);
+
+  return ref;
+}
+
 export interface ContextAction {
   label: string;
   icon?: IconName;
@@ -458,7 +509,9 @@ export function ContextMenu({
 
   useEffect(
     () => () => {
-      opener.current?.focus?.();
+      // An outside click already placed focus; only a keyboard close hands it back.
+      const at = document.activeElement;
+      if (!at || at === document.body) opener.current?.focus?.();
     },
     [],
   );
@@ -498,6 +551,8 @@ export function ContextMenu({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === "Tab") {
+          // Tab leaves the menu and hands focus back to whatever opened it.
+          event.preventDefault();
           onClose();
           return;
         }

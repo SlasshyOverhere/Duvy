@@ -70,6 +70,9 @@ interface Store {
   libraryIds: Set<string>;
   toasts: Toast[];
   route: Route;
+  /** One fullscreen state for the window, shared by the shell and the player. */
+  fullscreen: boolean;
+  setFullscreen: (on: boolean) => void;
   /** Non-null from the click until the source is resolved; the player opens at once. */
   starting: StartingArt | null;
   cancelStart: () => void;
@@ -419,6 +422,7 @@ export function noSourceError(options: StreamOption[]): Error {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>({ name: "home" });
+  const [fullscreen, setFullscreen] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -500,6 +504,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       timers.clear();
     };
   }, []);
+
+  // The window chrome keys off one attribute, so one place owns it.
+  useEffect(() => {
+    if (fullscreen) document.documentElement.dataset.fullscreen = "on";
+    else delete document.documentElement.dataset.fullscreen;
+  }, [fullscreen]);
 
   const clearFrameWatchdog = useCallback(() => {
     if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
@@ -1563,6 +1573,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       libraryIds,
       toasts,
       route,
+      fullscreen,
+      setFullscreen,
       starting,
       cancelStart,
       navigate,
@@ -1606,6 +1618,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       libraryIds,
       toasts,
       route,
+      fullscreen,
+      setFullscreen,
       starting,
       cancelStart,
       navigate,
