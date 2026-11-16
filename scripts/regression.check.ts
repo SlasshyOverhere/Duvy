@@ -2,6 +2,7 @@
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { findSkip } from "../src/components/player/skip";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel: string) => readFileSync(root + rel, "utf8");
@@ -178,6 +179,26 @@ run("skip markers only offer a button", () => {
   }
   if (!/pv-skip/.test(playerView)) {
     out.push("Player.tsx has no skip button");
+  }
+  return out;
+});
+
+run("outro lands on the post-credits scene when there is one", () => {
+  const out: string[] = [];
+  const duration = 3000;
+  const at = (entry: Parameters<typeof findSkip>[0]) =>
+    findSkip(entry, duration - 100, duration)?.at;
+  if (at({ outroStart: 2900, outroEnd: 2950, postCreditsStart: 2950 }) !== 2950) {
+    out.push("skip.ts does not land on the post-credits scene");
+  }
+  if (at({ outroStart: 2900, outroEnd: 2950 }) !== 2950) {
+    out.push("skip.ts does not land on the credits end");
+  }
+  if (at({ outroStart: 2900 }) !== duration - 1) {
+    out.push("skip.ts does not fall back to the end of the file");
+  }
+  if (at({ outroStart: 2900, postCreditsStart: 2000 }) !== duration - 1) {
+    out.push("skip.ts lands on a post-credits marker before the credits");
   }
   return out;
 });

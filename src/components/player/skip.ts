@@ -3,7 +3,8 @@
  *
  * The player never moves the playhead on its own: it only offers a button for
  * the segment under the current position. Each segment runs from half a second
- * before its start until its end; the outro runs to the end of the file.
+ * before its start until its end; the outro lands on the post-credits scene
+ * when there is one, otherwise on the credits end.
  */
 export interface SkipEntry {
   recapStart?: number | null;
@@ -11,6 +12,8 @@ export interface SkipEntry {
   introStart?: number | null;
   introEnd?: number | null;
   outroStart?: number | null;
+  outroEnd?: number | null;
+  postCreditsStart?: number | null;
 }
 
 export type SkipKind = "recap" | "intro" | "outro";
@@ -55,9 +58,20 @@ export function findSkip(
 
   if (outroStart != null && outroStart > 0 && outroStart < duration - 2) {
     if (position >= outroStart - 0.5) {
-      return { kind: "outro", at: duration - 1 };
+      return { kind: "outro", at: outroTarget(entry, duration) };
     }
   }
 
   return null;
+}
+
+/** Post-credits scene when it follows the credits, else the credits end. */
+function outroTarget(entry: SkipEntry, duration: number): number {
+  const { outroStart, outroEnd, postCreditsStart } = entry;
+  const start = outroStart ?? 0;
+  const sane = (at?: number | null): at is number =>
+    at != null && at > start + 2 && at < duration - 1;
+  if (sane(postCreditsStart)) return postCreditsStart;
+  if (sane(outroEnd)) return outroEnd;
+  return duration - 1;
 }

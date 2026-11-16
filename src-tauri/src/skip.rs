@@ -23,6 +23,8 @@ pub struct SkipEntry {
     pub intro_start: Option<f64>,
     pub intro_end: Option<f64>,
     pub outro_start: Option<f64>,
+    pub outro_end: Option<f64>,
+    pub post_credits_start: Option<f64>,
 }
 
 impl SkipEntry {
@@ -32,6 +34,8 @@ impl SkipEntry {
             && self.intro_start.is_none()
             && self.intro_end.is_none()
             && self.outro_start.is_none()
+            && self.outro_end.is_none()
+            && self.post_credits_start.is_none()
     }
 }
 
@@ -134,9 +138,13 @@ fn from_segments(value: &serde_json::Value) -> SkipEntry {
         entry.intro_start = Some(start);
         entry.intro_end = Some(end);
     }
-    // Only the outro's start is needed; the skip lands on the end of the file.
-    if let Some((start, _)) = seg("outro") {
+    if let Some((start, end)) = seg("outro") {
         entry.outro_start = Some(start);
+        entry.outro_end = Some(end);
+    }
+    // Only the post-credit start is needed; the skip lands on the scene.
+    if let Some((start, _)) = seg("post_credits") {
+        entry.post_credits_start = Some(start);
     }
     entry
 }
@@ -148,6 +156,8 @@ fn validate(entry: &SkipEntry) -> Result<(), String> {
         entry.intro_start,
         entry.intro_end,
         entry.outro_start,
+        entry.outro_end,
+        entry.post_credits_start,
     ]
     .into_iter()
     .flatten()
@@ -159,6 +169,7 @@ fn validate(entry: &SkipEntry) -> Result<(), String> {
     for (start, end) in [
         (entry.recap_start, entry.recap_end),
         (entry.intro_start, entry.intro_end),
+        (entry.outro_start, entry.outro_end),
     ] {
         if let (Some(start), Some(end)) = (start, end)
             && end <= start
@@ -210,12 +221,15 @@ mod tests {
             "intro": { "start_sec": 2.5, "end_sec": 58 },
             "recap": { "start_sec": 0, "end_sec": 90 },
             "outro": { "start_sec": 2600, "end_sec": 2650 },
+            "post_credits": { "start_sec": 2650, "end_sec": 2700 },
         });
         assert_eq!(
             from_segments(&value),
             SkipEntry {
                 recap_start: Some(0.0),
                 recap_end: Some(90.0),
+                outro_end: Some(2650.0),
+                post_credits_start: Some(2650.0),
                 ..entry((2.5, 58.0), Some(2600.0))
             }
         );
