@@ -486,7 +486,7 @@ export function ContinueCard({
         </span>
         {next ? null : (
           <span className="continue-progress">
-            <span style={{ width: `${Math.max(2, percent)}%` }} />
+            <span style={{ width: `${percent}%` }} />
           </span>
         )}
         {menu ? (
