@@ -1358,9 +1358,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (startToken.current !== token) return;
         let video: Video | null = null;
         if (details.type === "series") {
-          const last = progress
-            .filter((entry) => entry.metaId === details.id)
-            .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+          const last = fromStart
+            ? undefined
+            : progress
+                .filter((entry) => entry.metaId === details.id)
+                .sort((a, b) => b.updatedAt - a.updatedAt)[0];
           video =
             (last
               ? details.videos.find(
