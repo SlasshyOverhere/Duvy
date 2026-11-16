@@ -403,7 +403,9 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
                 episode_title, position, duration, updated_at
          FROM (
            SELECT progress.*,
-                  ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY updated_at DESC) AS rn
+                  ROW_NUMBER() OVER (
+             PARTITION BY meta_id ORDER BY updated_at DESC, season DESC, episode DESC, key DESC
+           ) AS rn
            FROM progress
            WHERE duration > 0
          )
@@ -420,7 +422,7 @@ pub fn list_continue_watching(conn: &Connection) -> rusqlite::Result<Vec<Progres
              JOIN progress p ON p.key = w.key
              WHERE w.watched = 1 AND w.updated_at > p.updated_at
            )
-         ORDER BY updated_at DESC
+         ORDER BY updated_at DESC, season DESC, episode DESC, key DESC
          LIMIT 30",
     )?;
     let rows = stmt.query_map(params![FINISHED_AT], ProgressItem::from_row)?;
@@ -707,7 +709,8 @@ pub struct WatchedItem {
 pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem>> {
     let mut stmt = conn.prepare(
         "WITH marks AS (
-           SELECT w.key, w.meta_id, w.updated_at AS at FROM watched w
+           SELECT w.key, w.meta_id, w.updated_at AS at, p.season, p.episode FROM watched w
+           LEFT JOIN progress p ON p.key = w.key
            WHERE w.watched = 1
              -- Playback after a mark means the title is being watched again,
              -- so the completed entry has to go.
@@ -719,13 +722,16 @@ pub fn list_watched_items(conn: &Connection) -> rusqlite::Result<Vec<WatchedItem
                  AND p.updated_at > w.updated_at
              )
            UNION ALL
-           SELECT key, meta_id, updated_at FROM progress
+           SELECT key, meta_id, updated_at, season, episode FROM progress
            WHERE duration > 0 AND position >= duration * ?1
          ),
          newest AS (
            SELECT key, meta_id, at FROM (
              SELECT key, meta_id, at,
-                    ROW_NUMBER() OVER (PARTITION BY meta_id ORDER BY at DESC, key DESC) AS rn
+                    ROW_NUMBER() OVER (
+                      PARTITION BY meta_id
+                      ORDER BY at DESC, season DESC, episode DESC, key DESC
+                    ) AS rn
              FROM marks
            ) WHERE rn = 1
          )
