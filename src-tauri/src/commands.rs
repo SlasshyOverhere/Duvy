@@ -1256,7 +1256,15 @@ pub async fn person_details(
     if id <= 0 {
         return Err("Malformed person id".into());
     }
-    tmdb::person(&state.http, &key, id).await
+    tmdb::person(&state.http, &key, id).await.map_err(|error| {
+        // The proxy answers 404 for a route it does not forward, which reads
+        // the same as a person TMDB does not know.
+        if error.contains("HTTP 404") {
+            "TMDB has no such person, or the TMDB proxy does not forward person pages (redeploy workers/tmdb-proxy.js).".into()
+        } else {
+            error
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
