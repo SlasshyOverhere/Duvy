@@ -48,7 +48,45 @@ function firstEpisode(details: Details): Video | null {
   );
 }
 
-export function DetailsView({ id, type }: { id: string; type: string }) {
+/** The row that opened this page holds the hero: name, art, year, rating, blurb. */
+function seededDetails(preview: MetaPreview): Details {
+  return {
+    id: preview.id,
+    type: preview.type,
+    name: preview.name,
+    poster: preview.poster,
+    background: preview.background,
+    logo: preview.logo,
+    description: preview.description,
+    releaseInfo: preview.releaseInfo,
+    year: preview.releaseInfo,
+    rating: preview.imdbRating,
+    genres: preview.genres ?? [],
+    runtime: preview.runtime,
+    videos: [],
+    cast: [],
+    director: [],
+    writer: [],
+    country: [],
+    trailers: [],
+    seasons: [],
+    networks: [],
+    companies: [],
+    collectionItems: [],
+    originCountry: [],
+    source: "seed",
+  };
+}
+
+export function DetailsView({
+  id,
+  type,
+  preview,
+}: {
+  id: string;
+  type: string;
+  preview?: MetaPreview;
+}) {
   const cacheKey = `${type}:${id}`;
   const {
     navigate,
@@ -82,7 +120,14 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
-  const details = loaded?.key === cacheKey ? loaded.details : null;
+  // The card that was clicked already knows the hero, so paint it at once and
+  // let the rest of the page fill in behind it.
+  const details =
+    loaded?.key === cacheKey
+      ? loaded.details
+      : preview && !error
+        ? seededDetails(preview)
+        : null;
   // A TMDB id and its IMDb twin are the same title, so one id owns its rows.
   const metaId = details?.imdbId ?? id;
   const episodeRail = useRef<HTMLDivElement>(null);
@@ -120,7 +165,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   // Photos and neighbours land after the page paints: the title is readable
   // immediately, and both requests are decoration, never a blocker.
   useEffect(() => {
-    if (!details) return;
+    if (!details || details.source === "seed") return;
     let alive = true;
     const cast = details.cast ?? [];
     // TMDB already sent a face per cast member; only the gaps need a lookup.
@@ -251,7 +296,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <PosterCard
           key={item.id}
           item={item}
-          onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+          onOpen={() =>
+            navigate({ name: "details", id: item.id, type: item.type, preview: item })
+          }
         />
       )),
     [similar, navigate],
@@ -797,7 +844,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               <PosterCard
                 key={item.id}
                 item={item}
-                onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+                onOpen={() =>
+                  navigate({ name: "details", id: item.id, type: item.type, preview: item })
+                }
               />
             ))}
           </Row>

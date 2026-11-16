@@ -134,7 +134,18 @@ export function WatchedView() {
   };
 
   const open = (item: WatchedItem) =>
-    navigate({ name: "details", id: item.metaId, type: item.type });
+    navigate({
+      name: "details",
+      id: item.metaId,
+      type: item.type,
+      preview: {
+        id: item.metaId,
+        type: item.type,
+        name: titleOf(item),
+        poster: item.poster,
+        background: item.background,
+      },
+    });
 
   const status = error
     ? "History unavailable"
@@ -149,17 +160,19 @@ export function WatchedView() {
     () =>
       (items ?? []).map((item) => {
         const title = titleOf(item);
+        const preview = {
+          id: item.metaId,
+          type: item.type,
+          name: title,
+          poster: item.poster,
+          background: item.background,
+        } as MetaPreview;
         return {
           key: item.key,
-          preview: {
-            id: item.metaId,
-            type: item.type,
-            name: title,
-            poster: item.poster,
-            background: item.background,
-          } as MetaPreview,
+          preview,
           meta: [episodeCode(item), watchedOn(item.watchedAt)].filter(Boolean).join(" · "),
-          onOpen: () => navigate({ name: "details", id: item.metaId, type: item.type }),
+          onOpen: () =>
+            navigate({ name: "details", id: item.metaId, type: item.type, preview }),
         };
       }),
     [items, navigate],

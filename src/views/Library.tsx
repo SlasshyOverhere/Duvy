@@ -107,18 +107,21 @@ export function LibraryView() {
   // Stable card props so PosterCard's memo survives unrelated re-renders.
   const cards = useMemo(
     () =>
-      items.map((item) => ({
-        item,
-        preview: {
+      items.map((item) => {
+        const preview = {
           id: item.id,
           type: item.type,
           name: item.name,
           poster: item.poster,
           background: item.background,
-        } as MetaPreview,
-        onOpen: () => navigate({ name: "details", id: item.id, type: item.type }),
-        onPlay: () => void playItem({ id: item.id, type: item.type, name: item.name }),
-      })),
+        } as MetaPreview;
+        return {
+          item,
+          preview,
+          onOpen: () => navigate({ name: "details", id: item.id, type: item.type, preview }),
+          onPlay: () => void playItem(preview),
+        };
+      }),
     [items, navigate, playItem],
   );
 

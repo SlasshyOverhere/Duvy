@@ -208,7 +208,7 @@ function Screen() {
                 {route.name === "library" ? <LibraryView /> : null}
                 {route.name === "watched" ? <WatchedView /> : null}
                 {route.name === "settings" ? <SettingsView section={route.section} /> : null}
-                {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
+                {route.name === "details" ? <DetailsView id={route.id} type={route.type} preview={route.preview} /> : null}
                 {route.name === "person" ? <PersonView id={route.id} /> : null}
               </Suspense>
             </ErrorBoundary>

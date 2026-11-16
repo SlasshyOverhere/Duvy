@@ -135,7 +135,9 @@ export function PersonView({ id }: { id: number }) {
                 <PosterCard
                   key={`${title}:${item.id}`}
                   item={item}
-                  onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+                  onOpen={() =>
+                    navigate({ name: "details", id: item.id, type: item.type, preview: item })
+                  }
                 />
               ))}
             </Row>

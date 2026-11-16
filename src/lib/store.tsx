@@ -46,7 +46,7 @@ export type Route =
   | { name: "library" }
   | { name: "watched" }
   | { name: "settings"; section?: string }
-  | { name: "details"; id: string; type: string }
+  | { name: "details"; id: string; type: string; preview?: MetaPreview }
   | { name: "person"; id: number }
   | { name: "player" };
 

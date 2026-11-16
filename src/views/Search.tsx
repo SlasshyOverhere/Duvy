@@ -255,7 +255,9 @@ export function SearchView({ query }: { query?: string }) {
         key={`${item.id}-${item.type}`}
         item={item}
         caption
-        onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+        onOpen={() =>
+          navigate({ name: "details", id: item.id, type: item.type, preview: item })
+        }
         onPlay={() => void playItem(item)}
       />
     );
@@ -289,7 +291,9 @@ export function SearchView({ query }: { query?: string }) {
               key={`${item.id}-${item.type}`}
               item={item}
               caption
-              onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              onOpen={() =>
+          navigate({ name: "details", id: item.id, type: item.type, preview: item })
+        }
               onPlay={() => void playItem(item)}
             />
           ))}

@@ -343,7 +343,9 @@ export function HomeView() {
               key={`${row.id}-${item.id}-${item.type}`}
               item={item}
               entry={resumeProgress.get(item.id)}
-              onOpen={() => navigate({ name: "details", id: item.id, type: item.type })}
+              onOpen={() =>
+                navigate({ name: "details", id: item.id, type: item.type, preview: item })
+              }
               onPlay={() => void playItem(item)}
             />
           ))}
@@ -396,7 +398,7 @@ export function HomeView() {
       {hero ? (
         <Hero
           item={hero}
-          onOpen={() => navigate({ name: "details", id: hero.id, type: hero.type })}
+          onOpen={() => navigate({ name: "details", id: hero.id, type: hero.type, preview: hero })}
           onPlay={() => void playItem(hero)}
           onLibrary={() => void toggleLibrary(hero)}
           inLibrary={inLibrary(hero.id)}
