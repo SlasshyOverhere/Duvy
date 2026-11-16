@@ -57,11 +57,11 @@ struct Store {
 
 fn load(state: &AppState) -> Result<Store, String> {
     let conn = state.db.conn();
-    Ok(db::read_secret_kv(&conn, KV)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default())
+    let Some(value) = db::read_secret_kv(&conn, KV).map_err(|error| error.to_string())? else {
+        return Ok(Store::default());
+    };
+    serde_json::from_value(value)
+        .map_err(|error| format!("the stored Trakt session could not be read: {error}"))
 }
 
 fn save(state: &AppState, store: &Store) -> Result<(), String> {

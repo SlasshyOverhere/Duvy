@@ -121,15 +121,28 @@ pub struct NuvioProfile {
 // Persistence
 // ---------------------------------------------------------------------------
 
+fn stored_session(conn: &Connection) -> Result<Option<Session>, String> {
+    let Some(value) = db::read_secret_kv(conn, SESSION_KEY).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|e| format!("the stored Nuvio session could not be read: {e}"))
+}
+
 pub fn load_session(conn: &Connection) -> Session {
-    db::read_secret_kv(conn, SESSION_KEY)
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default()
+    match stored_session(conn) {
+        Ok(session) => session.unwrap_or_default(),
+        Err(error) => {
+            eprintln!("nuvio: {error}");
+            Session::default()
+        }
+    }
 }
 
 fn save_session(conn: &Connection, session: &Session) -> Result<(), String> {
+    // Refuse to write over a session row we could not read.
+    stored_session(conn)?;
     let value = serde_json::to_value(session).map_err(|e| e.to_string())?;
     db::write_secret_kv(conn, SESSION_KEY, &value).map_err(|e| e.to_string())
 }

@@ -395,7 +395,10 @@ fn clear_history_keeps_library_addons_settings_and_people() {
         db::people_photo(&conn, "tt7:Jane").unwrap().as_deref(),
         Some("https://example.test/j.jpg")
     );
-    assert_eq!(db::read_settings(&conn).unwrap()["accent"], json!("kept"));
+    assert_eq!(
+        db::read_settings(&conn).unwrap().unwrap()["accent"],
+        json!("kept")
+    );
 
     cleanup(conn, path);
 }
@@ -769,7 +772,7 @@ fn credentials_are_never_persisted_in_a_reversible_form() {
     let stored = json!({ "tmdbKey": "abc123", "trakt": { "token": "tok" } });
     db::write_settings(&conn, &stored).expect("settings write");
     assert_eq!(
-        db::read_settings(&conn).unwrap(),
+        db::read_settings(&conn).unwrap().unwrap(),
         stored,
         "settings roundtrip"
     );
@@ -806,6 +809,58 @@ fn credentials_are_never_persisted_in_a_reversible_form() {
     db::write_kv(&conn, "kv", &json!({ "n": 1 })).expect("kv write");
     assert_eq!(db::read_kv(&conn, "kv").unwrap(), Some(json!({ "n": 1 })));
 
+    cleanup(conn, path);
+}
+
+#[test]
+fn unreadable_settings_are_not_replaced_by_defaults() {
+    let (conn, path) = temp_database();
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('app', 'keyring:1')",
+        [],
+    )
+    .expect("marker row");
+
+    // The row exists but cannot be recovered: not a fresh install.
+    assert!(matches!(
+        Settings::try_load(&conn),
+        Err(crate::secret::SecretError::Absent)
+    ));
+    assert!(
+        Settings::default().save(&conn).is_err(),
+        "defaults must not overwrite a row that could not be read"
+    );
+
+    let raw: String = conn
+        .query_row("SELECT value FROM settings WHERE key = 'app'", [], |row| {
+            row.get(0)
+        })
+        .expect("row survives");
+    assert_eq!(raw, crate::secret::marker(), "the row is untouched");
+    cleanup(conn, path);
+}
+
+#[test]
+fn a_fresh_install_is_not_an_unreadable_row() {
+    let (conn, path) = temp_database();
+    assert!(matches!(db::read_settings(&conn), Ok(None)));
+    assert!(Settings::try_load(&conn).is_ok(), "no row is not a failure");
+    assert!(Settings::default().save(&conn).is_ok());
+    cleanup(conn, path);
+}
+
+#[test]
+fn a_bad_settings_field_keeps_its_default_without_losing_the_rest() {
+    let (conn, path) = temp_database();
+    db::write_settings(
+        &conn,
+        &json!({ "accent": "violet", "seekStep": "not a number" }),
+    )
+    .expect("settings write");
+
+    let settings = Settings::try_load(&conn).expect("one bad field is not fatal");
+    assert_eq!(settings.accent, "violet");
+    assert_eq!(settings.seek_step, Settings::default().seek_step);
     cleanup(conn, path);
 }
 

@@ -37,12 +37,12 @@ impl SkipEntry {
 
 type Store = BTreeMap<String, SkipEntry>;
 
-fn load(conn: &rusqlite::Connection) -> Store {
-    db::read_kv(conn, KEY)
-        .ok()
-        .flatten()
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_default()
+fn load(conn: &rusqlite::Connection) -> Result<Store, String> {
+    let Some(value) = db::read_kv(conn, KEY).map_err(|error| error.to_string())? else {
+        return Ok(Store::new());
+    };
+    serde_json::from_value(value)
+        .map_err(|error| format!("the stored skip markers could not be read: {error}"))
 }
 
 fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
@@ -53,7 +53,7 @@ fn save(conn: &rusqlite::Connection, store: &Store) -> Result<(), String> {
 #[tauri::command]
 pub fn skip_get(meta_id: String, state: State<'_, AppState>) -> Result<Option<SkipEntry>, String> {
     let conn = state.db.conn();
-    Ok(load(&conn).get(&meta_id).cloned())
+    Ok(load(&conn)?.get(&meta_id).cloned())
 }
 
 #[tauri::command]
@@ -67,7 +67,7 @@ pub fn skip_set(
     }
     validate(&entry)?;
     let conn = state.db.conn();
-    let mut store = load(&conn);
+    let mut store = load(&conn)?;
 
     if entry.is_empty() {
         store.remove(&meta_id);

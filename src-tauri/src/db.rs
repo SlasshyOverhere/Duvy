@@ -830,8 +830,10 @@ pub fn delete_secret_kv(conn: &Connection, key: &str) -> Result<(), SecretError>
     secret::remove(key)
 }
 
-pub fn read_settings(conn: &Connection) -> Result<Value, SecretError> {
-    Ok(read_secret_kv(conn, "app")?.unwrap_or(Value::Object(Default::default())))
+/// `Ok(None)` is a fresh install; an error means the row exists but its value
+/// could not be recovered, which the caller must not overwrite.
+pub fn read_settings(conn: &Connection) -> Result<Option<Value>, SecretError> {
+    read_secret_kv(conn, "app")
 }
 
 pub fn write_settings(conn: &Connection, value: &Value) -> Result<(), SecretError> {
