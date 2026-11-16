@@ -77,6 +77,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; video: Video } | null>(null);
   const [actionsMenu, setActionsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
@@ -554,7 +555,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               </div>
               <p className="detail-overview">{details.description || "No overview yet."}</p>
 
-              <div className="detail-actions">
+              <div className={`detail-actions${actionsOpen ? " is-open" : ""}`}>
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -564,42 +565,50 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   <Icon name="play" size={17} />
                   <span>{resumeTarget.label}</span>
                 </button>
-                <IconButton
-                  icon="check"
-                  size={19}
-                  label={watchTarget?.watched ? "Mark as unwatched" : "Mark as watched"}
-                  active={watchTarget?.watched}
-                  disabled={!watchTarget}
-                  onClick={() => {
-                    if (watchTarget) toggleWatched(watchTarget.key, !watchTarget.watched);
-                  }}
-                />
-                <IconButton
-                  icon="library"
-                  size={19}
-                  label={inWatchlist ? "Remove from library" : "Add to library"}
-                  active={inWatchlist}
-                  onClick={() =>
-                    void toggleLibrary({
-                      id: metaId,
-                      type: details.type,
-                      name: details.name,
-                      poster: details.poster,
-                      background: details.background,
-                      releaseInfo: details.year,
-                      imdbRating: rating,
-                    })
-                  }
-                />
-                <IconButton
-                  icon="more"
-                  size={19}
-                  label="More actions"
-                  onClick={(event) => {
+                <div className="detail-actions-extra" inert={!actionsOpen}>
+                  <IconButton
+                    icon="check"
+                    size={19}
+                    label={watchTarget?.watched ? "Mark as unwatched" : "Mark as watched"}
+                    active={watchTarget?.watched}
+                    disabled={!watchTarget}
+                    onClick={() => {
+                      if (watchTarget) toggleWatched(watchTarget.key, !watchTarget.watched);
+                    }}
+                  />
+                  <IconButton
+                    icon="library"
+                    size={19}
+                    label={inWatchlist ? "Remove from library" : "Add to library"}
+                    active={inWatchlist}
+                    onClick={() =>
+                      void toggleLibrary({
+                        id: metaId,
+                        type: details.type,
+                        name: details.name,
+                        poster: details.poster,
+                        background: details.background,
+                        releaseInfo: details.year,
+                        imdbRating: rating,
+                      })
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className={`icon-btn detail-actions-toggle${actionsOpen ? " is-active" : ""}`}
+                  aria-label={actionsOpen ? "Hide actions" : "Show actions"}
+                  aria-expanded={actionsOpen}
+                  title={actionsOpen ? "Hide actions" : "Show actions"}
+                  onClick={() => setActionsOpen((open) => !open)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
                     const box = event.currentTarget.getBoundingClientRect();
                     setActionsMenu({ x: box.left, y: box.bottom + 8 });
                   }}
-                />
+                >
+                  <Icon name="more" size={19} />
+                </button>
               </div>
 
             <div className="detail-credits">
