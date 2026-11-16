@@ -5,7 +5,7 @@ import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row, menuFromKey } from "../components/media";
-import { Button, ContextMenu, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
+import { Button, ContextMenu, EmptyState, Icon, IconButton, ImdbMark, Loading, type ContextAction } from "../components/ui";
 import {
   airOrder,
   episodeCode,
@@ -67,6 +67,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [picked, setPicked] = useState<{ key: string; season: number } | null>(null);
   const [drawer, setDrawer] = useState<{ video: Video | null } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; video: Video } | null>(null);
+  const [actionsMenu, setActionsMenu] = useState<{ x: number; y: number } | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
@@ -166,7 +167,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
 
   const marks = useMemo(() => new Map(marked), [marked]);
 
-  const toggleEpisodeWatched = useCallback(
+  const toggleWatched = useCallback(
     (key: string, next: boolean) => {
       markWatched(key, metaId, next)
         .then(() => notify(next ? "Marked as watched" : "Marked as unwatched"))
@@ -272,6 +273,22 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     };
   }, [details, seriesProgress, progressFor, buildSession, marks, metaId]);
 
+  // The check marks what the play button points at: the title for a movie, the
+  // episode it would resume for a show.
+  const watchTarget = useMemo(() => {
+    if (!details) return null;
+    const video = details.type === "series" ? resumeTarget.video : null;
+    if (details.type === "series" && !video) return null;
+    const key = video ? buildSession(details, video).key : metaId;
+    const entry = progressFor(key);
+    return {
+      key,
+      watched:
+        marks.has(key) ||
+        Boolean(entry && progressPercent(entry.position, entry.duration) >= 90),
+    };
+  }, [details, resumeTarget.video, buildSession, metaId, marks, progressFor]);
+
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
     if (!details) return;
@@ -364,7 +381,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             aria-pressed={done}
             aria-label={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
             title={`Mark ${code} as ${done ? "unwatched" : "watched"}`}
-            onClick={() => toggleEpisodeWatched(key, !done)}
+            onClick={() => toggleWatched(key, !done)}
           >
             <Icon name="check" size={15} />
           </button>
@@ -378,7 +395,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     progressFor,
     buildSession,
     marks,
-    toggleEpisodeWatched,
+    toggleWatched,
   ]);
 
   const startStream = async (stream: StreamOption) => {
@@ -435,6 +452,17 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const inWatchlist = inLibrary(metaId);
   const rating = scoreLabel(details.rating);
   const trailer = details.trailer;
+  const detailMenu: ContextAction[] = [
+    { label: "Sources", icon: "sliders", onSelect: () => openSources(resumeTarget.video) },
+  ];
+  if (trailer) {
+    detailMenu.push({
+      label: "Trailer",
+      icon: "external",
+      onSelect: () =>
+        void openExternal(trailer).catch(() => notify("Could not open the trailer", "error")),
+    });
+  }
   const logo = details.logo ?? rememberedLogo(metaId);
 
   return (
@@ -490,11 +518,21 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   <Icon name="play" size={17} />
                   <span>{resumeTarget.label}</span>
                 </button>
-                <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
-                  Sources
-                </Button>
-                <Button
-                  icon={inWatchlist ? "check" : "plus"}
+                <IconButton
+                  icon="check"
+                  size={19}
+                  label={watchTarget?.watched ? "Mark as unwatched" : "Mark as watched"}
+                  active={watchTarget?.watched}
+                  disabled={!watchTarget}
+                  onClick={() => {
+                    if (watchTarget) toggleWatched(watchTarget.key, !watchTarget.watched);
+                  }}
+                />
+                <IconButton
+                  icon="library"
+                  size={19}
+                  label={inWatchlist ? "Remove from library" : "Add to library"}
+                  active={inWatchlist}
                   onClick={() =>
                     void toggleLibrary({
                       id: metaId,
@@ -506,21 +544,16 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                       imdbRating: rating,
                     })
                   }
-                >
-                  {inWatchlist ? "In library" : "Library"}
-                </Button>
-                {trailer ? (
-                  <Button
-                    icon="external"
-                    onClick={() =>
-                      void openExternal(trailer).catch(() =>
-                        notify("Could not open the trailer", "error"),
-                      )
-                    }
-                  >
-                    Trailer
-                  </Button>
-                ) : null}
+                />
+                <IconButton
+                  icon="more"
+                  size={19}
+                  label="More actions"
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setActionsMenu({ x: box.left, y: box.bottom + 8 });
+                  }}
+                />
               </div>
 
             <div className="detail-credits">
@@ -619,6 +652,16 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         </section>
       ) : null}
 
+      {actionsMenu ? (
+        <ContextMenu
+          x={actionsMenu.x}
+          y={actionsMenu.y}
+          title={details.name}
+          onClose={() => setActionsMenu(null)}
+          actions={detailMenu}
+        />
+      ) : null}
+
       {menu
         ? (() => {
             const key = buildSession(details, menu.video).key;
@@ -639,7 +682,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   {
                     label: done ? "Mark as unwatched" : "Mark as watched",
                     icon: "check",
-                    onSelect: () => toggleEpisodeWatched(key, !done),
+                    onSelect: () => toggleWatched(key, !done),
                   },
                   {
                     label:

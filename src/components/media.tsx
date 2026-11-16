@@ -363,7 +363,7 @@ export function ContinueCard({
   position,
   duration,
   next = false,
-  onOpen,
+  onDetails,
   onPlay,
 }: {
   entry: ProgressItem;
@@ -375,7 +375,7 @@ export function ContinueCard({
   position: number;
   duration: number;
   next?: boolean;
-  onOpen: () => void;
+  onDetails: () => void;
   onPlay: () => void;
 }) {
   const [still, setStill] = useState(background ?? poster ?? null);
@@ -408,6 +408,7 @@ export function ContinueCard({
   };
 
   const actions: ContextAction[] = [
+    { label: "Go to details", icon: "info", onSelect: onDetails },
     { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onPlay },
     {
       label: "Start from beginning",
@@ -439,58 +440,70 @@ export function ContinueCard({
 
   return (
     <div className="continue-item">
-      <button
-        type="button"
-        className="continue-card"
-        aria-label={`${name}${next ? ", next up" : ""}`}
-        onClick={onOpen}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY });
-        }}
-        onKeyDown={(event) => {
-          const at = menuFromKey(event);
-          if (at) setMenu(at);
-        }}
-        style={{ background: placeholderGradient(name) } as CSSProperties}
-      >
-        {still ? (
-          <img
-            src={still}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            // A dead still falls back to the poster, then to the gradient.
-            onError={() => setStill(still === poster ? null : (poster ?? null))}
-          />
-        ) : null}
-        <span className="continue-veil" />
-        <span className="continue-hover">
-          {logo && !logoFailed ? (
+      <div className="continue-frame">
+        <button
+          type="button"
+          className="continue-card"
+          aria-label={`${name}${next ? ", next up" : ""}`}
+          onClick={onPlay}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ x: event.clientX, y: event.clientY });
+          }}
+          onKeyDown={(event) => {
+            const at = menuFromKey(event);
+            if (at) setMenu(at);
+          }}
+          style={{ background: placeholderGradient(name) } as CSSProperties}
+        >
+          {still ? (
             <img
-              className="continue-hover-logo"
-              src={logo}
+              src={still}
               alt=""
               loading="lazy"
               decoding="async"
-              onError={() => setLogoFailed(true)}
+              // A dead still falls back to the poster, then to the gradient.
+              onError={() => setStill(still === poster ? null : (poster ?? null))}
             />
-          ) : (
-            <span className="continue-hover-name">{name}</span>
-          )}
-          {details ? <span className="continue-hover-sub">{details}</span> : null}
-          {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
-          {next ? (
-            <span className="continue-hover-sub">Next up</span>
-          ) : Number.isFinite(left) && left > 0 ? (
-            <span className="continue-hover-sub">{remainingLabel(left)}</span>
           ) : null}
-        </span>
-        {next ? null : (
-          <span className="continue-progress">
-            <span style={{ width: `${percent}%` }} />
+          <span className="continue-veil" />
+          <span className="continue-hover">
+            {logo && !logoFailed ? (
+              <img
+                className="continue-hover-logo"
+                src={logo}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span className="continue-hover-name">{name}</span>
+            )}
+            {details ? <span className="continue-hover-sub">{details}</span> : null}
+            {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
+            {next ? (
+              <span className="continue-hover-sub">Next up</span>
+            ) : Number.isFinite(left) && left > 0 ? (
+              <span className="continue-hover-sub">{remainingLabel(left)}</span>
+            ) : null}
           </span>
-        )}
+          {next ? null : (
+            <span className="continue-progress">
+              <span style={{ width: `${percent}%` }} />
+            </span>
+          )}
+        </button>
+        <IconButton
+          className="continue-more"
+          icon="more"
+          size={16}
+          label={`More options for ${name}`}
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: box.left, y: box.bottom + 8 });
+          }}
+        />
         {menu ? (
           <ContextMenu
             x={menu.x}
@@ -500,7 +513,7 @@ export function ContinueCard({
             onClose={() => setMenu(null)}
           />
         ) : null}
-      </button>
+      </div>
       <div className="continue-caption">
         <span className="continue-name">{name}</span>
         <span className="continue-sub">

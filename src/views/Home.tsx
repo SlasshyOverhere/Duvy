@@ -375,7 +375,7 @@ export function HomeView() {
               }
               position={entry.position}
               duration={entry.duration}
-              onOpen={() => navigate({ name: "details", id: entry.metaId, type: entry.type })}
+              onDetails={() => navigate({ name: "details", id: entry.metaId, type: entry.type })}
               onPlay={() => void resumeEntry(entry)}
             />
           ))}

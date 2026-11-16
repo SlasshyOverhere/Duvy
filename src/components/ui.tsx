@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -393,7 +394,7 @@ export function IconButton({
   className,
 }: {
   icon: IconName;
-  onClick?: () => void;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   label: string;
   active?: boolean;
   disabled?: boolean;
