@@ -377,7 +377,6 @@ export function ContinueCard({
   onOpen: () => void;
 }) {
   const [still, setStill] = useState(background ?? poster ?? null);
-  const [gone, setGone] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
@@ -398,8 +397,9 @@ export function ContinueCard({
   const drop = (label: string, task: Promise<unknown>) => {
     void task
       .then(() => {
-        setGone(true);
         notify(label);
+        // The parent list drops the card once the refresh lands; hiding it here
+        // would strand it invisible if the readback failed.
         return refreshProgress();
       })
       .catch(() => notify("That did not stick. Try again.", "error"));
