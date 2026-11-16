@@ -196,10 +196,15 @@ run("sentinel: end of stream keeps the player open", () => {
   const closeAt = end.indexOf("close(app");
   if (closeAt < 0) return ["end_stream never frees the slot"];
   // Reaching the end is not a reason to close: the epilogue and the viewer's
-  // choice have to happen on screen.
-  const guardAt = end.indexOf('reason != "eof"');
-  if (guardAt < 0 || guardAt > closeAt) {
+  // choice have to happen on screen. Any eof guard that returns before the
+  // close satisfies this, whatever shape it takes.
+  const guardAt = end.lastIndexOf('"eof"', closeAt);
+  if (guardAt < 0) {
     return ["end_stream closes the player on end of file, killing the Up next card"];
+  }
+  const returns = end.indexOf("return", guardAt);
+  if (returns < 0 || returns > closeAt) {
+    return ["the eof guard does not return before closing the player"];
   }
   return [];
 });
