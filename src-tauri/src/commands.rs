@@ -1159,7 +1159,17 @@ pub async fn meta_details(
         .iter()
         .any(|addon| addon.enabled && addon.addon_id == CINEMETA_ID);
 
-    let mut details = if let Some(meta) = addon_meta(&addons, &id, &media_type).await {
+    // The TMDB record for an IMDb id is known up front, so it is looked up
+    // while the addons are still answering instead of after them.
+    let find = async {
+        if !tmdb::available(&key) || !id.starts_with("tt") {
+            return None;
+        }
+        tmdb::find_by_imdb(&state.http, &key, &id).await.ok().flatten()
+    };
+    let (addon, found) = tokio::join!(addon_meta(&addons, &id, &media_type), find);
+
+    let mut details = if let Some(meta) = addon {
         meta_details_from_meta(meta, "addon")
     } else if id.starts_with("tt") {
         let direct = if cinemeta_installed {
@@ -1174,17 +1184,13 @@ pub async fn meta_details(
             .flatten()
         };
         match direct {
-            Some(found) => found,
-            None if tmdb::available(&key) => {
-                let found = tmdb::find_by_imdb(&state.http, &key, &id).await?;
-                match found {
-                    Some((kind, tmdb_id)) => {
-                        tmdb::details(&state.http, &key, &kind, &tmdb_id).await?
-                    }
-                    None => return Err("No metadata source could resolve this title".into()),
+            Some(meta) => meta,
+            None => match found.as_ref() {
+                Some((kind, tmdb_id)) => {
+                    tmdb::details(&state.http, &key, kind, tmdb_id).await?
                 }
-            }
-            None => return Err("No metadata source could resolve this title".into()),
+                None => return Err("No metadata source could resolve this title".into()),
+            },
         }
     } else {
         return Err(
@@ -1219,9 +1225,8 @@ pub async fn meta_details(
         if !tmdb::available(&key) || !needs_tmdb {
             return None;
         }
-        let imdb = imdb.as_deref()?;
-        let (kind, tmdb_id) = tmdb::find_by_imdb(&state.http, &key, imdb).await.ok()??;
-        tmdb::details(&state.http, &key, &kind, &tmdb_id).await.ok()
+        let (kind, tmdb_id) = found.as_ref()?;
+        tmdb::details(&state.http, &key, kind, tmdb_id).await.ok()
     };
     let (cinemeta, rich) = tokio::join!(cinemeta, rich);
 
