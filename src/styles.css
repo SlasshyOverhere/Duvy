@@ -2288,10 +2288,8 @@ button.pill:hover {
   background-color: var(--glass-fill-hover);
 }
 
-/* Play is icon-only, so it holds a 44px circle in the same row. */
+/* Play carries its label, so it sizes to the text like the rest of the row. */
 .detail-actions .btn.btn-primary {
-  width: 44px;
-  padding: 0;
   font-weight: 600;
   color: #0a0a0a;
   background: #ffffff;

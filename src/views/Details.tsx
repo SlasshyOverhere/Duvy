@@ -136,9 +136,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const seriesProgress = useMemo(
     () =>
       progress
-        .filter((entry) => entry.metaId === id)
+        .filter((entry) => entry.metaId === metaId)
         .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null,
-    [progress, id],
+    [progress, metaId],
   );
 
   const seasons = useMemo(
@@ -240,7 +240,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       return {
         video: null,
         position: entry?.position ?? 0,
-        label: entry ? `Resume ${timeAgo(entry.updatedAt)}` : "Play",
+        label: entry ? "Resume" : "Play",
       };
     }
     const queue = [...details.videos].sort((a, b) => {
@@ -486,10 +486,9 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   className="btn btn-primary"
                   onClick={playOrResume}
                   disabled={details.type === "series" && details.videos.length === 0}
-                  aria-label={resumeTarget.label}
-                  title={resumeTarget.label}
                 >
                   <Icon name="play" size={17} />
+                  <span>{resumeTarget.label}</span>
                 </button>
                 <Button icon="sliders" onClick={() => openSources(resumeTarget.video)}>
                   Sources
