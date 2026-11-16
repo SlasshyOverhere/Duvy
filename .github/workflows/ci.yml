@@ -46,6 +46,11 @@ jobs:
           # its own ~1 GB entry that no other ref can read.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # The pinned-hash gate must reject a wrong checksum.
+      - name: libmpv checksum self-test
+        shell: pwsh
+        run: ./scripts/fetch-libmpv.ps1 -SelfTest
+
       # The libmpv import library and DLL are not committed.
       - name: Fetch libmpv
         shell: pwsh
