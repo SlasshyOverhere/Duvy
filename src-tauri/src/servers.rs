@@ -329,7 +329,18 @@ pub async fn srv_add(
 }
 
 #[tauri::command]
-pub async fn srv_remove(id: String, state: State<'_, AppState>) -> Result<Vec<Server>, String> {
+pub async fn srv_remove(
+    id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<Server>, String> {
+    if !crate::confirm(
+        &app,
+        "Remove server",
+        "The saved server and its sign-in are removed from Duvy.",
+    ) {
+        return Err("Removal cancelled".into());
+    }
     let mut servers = load(state.inner())?;
     servers.retain(|server| server.id != id);
     store(state.inner(), &servers)?;

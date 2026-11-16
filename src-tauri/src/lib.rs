@@ -31,7 +31,7 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 pub struct AppState {
     pub db: db::Db,
@@ -45,6 +45,18 @@ pub struct AppState {
 mod command_tests;
 #[cfg(test)]
 mod db_tests;
+
+/// Irreversible actions ask first, in a native dialog no page script can press.
+pub fn confirm(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
+    app.dialog()
+        .message(message)
+        .title(title)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Continue".to_string(),
+            "Cancel".to_string(),
+        ))
+        .blocking_show()
+}
 
 /// A panic ends the process, so the hook is the last thing that can say why:
 /// one line in the local journal, plus a report to the window while it lasts.

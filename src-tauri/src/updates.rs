@@ -174,6 +174,13 @@ async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
 /// over and the process exits, so this only returns when something failed.
 #[tauri::command]
 pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Install update",
+        "Duvy will close and install the new version.",
+    ) {
+        return Err("Update cancelled".into());
+    }
     let _busy = WORK.lock().await;
     // Reuse the release the check already found: a second latest.json round
     // trip made the download look stalled before the first byte arrived.

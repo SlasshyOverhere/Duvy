@@ -1690,6 +1690,13 @@ pub async fn nuvio_sign_in(
 
 #[tauri::command]
 pub async fn nuvio_sign_out(app: AppHandle) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Sign out of Nuvio",
+        "Duvy forgets the Nuvio session and stops syncing.",
+    ) {
+        return Err("Sign out cancelled".into());
+    }
     crate::db_blocking(app, crate::nuvio_sync::sign_out).await
 }
 
@@ -1741,6 +1748,13 @@ pub async fn stremio_sign_in(
 
 #[tauri::command]
 pub async fn stremio_sign_out(app: AppHandle) -> Result<(), String> {
+    if !crate::confirm(
+        &app,
+        "Sign out of Stremio",
+        "Duvy forgets the Stremio session and stops syncing.",
+    ) {
+        return Err("Sign out cancelled".into());
+    }
     crate::db_blocking(app, crate::stremio_sync::sign_out).await
 }
 
