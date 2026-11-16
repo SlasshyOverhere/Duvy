@@ -15,7 +15,7 @@ let feedSig = "";
  *  the title's newest mark, so a fresh mark re-resolves its next up. */
 const nextUpCache = new Map<
   string,
-  { sig: string; gen: number; entry: ProgressItem | null }
+  { sig: string; gen: number; metaId: string; entry: ProgressItem | null }
 >();
 const NEXT_UP_CACHE_MAX = 120;
 const NEXT_UP_BATCH = 6;
@@ -32,10 +32,13 @@ function pruneNextUp(): void {
   }
 }
 
-function cachedNextUp(sigOf: (metaId: string) => string): Map<string, ProgressItem> {
-  const map = new Map<string, ProgressItem>();
-  for (const [key, { sig, entry }] of nextUpCache) {
-    if (entry && sig === sigOf(entry.metaId)) map.set(key, entry);
+/** A null entry means the lookup finished and the show has no next episode. */
+function cachedNextUp(
+  sigOf: (metaId: string) => string,
+): Map<string, ProgressItem | null> {
+  const map = new Map<string, ProgressItem | null>();
+  for (const [key, { sig, metaId, entry }] of nextUpCache) {
+    if (sig === sigOf(metaId)) map.set(key, entry);
   }
   return map;
 }
@@ -121,7 +124,9 @@ export function HomeView() {
     return map;
   }, [watched]);
   const sigOf = useCallback((metaId: string) => markSig.get(metaId) ?? "", [markSig]);
-  const [nextUp, setNextUp] = useState<Map<string, ProgressItem>>(() => cachedNextUp(sigOf));
+  const [nextUp, setNextUp] = useState<Map<string, ProgressItem | null>>(() =>
+    cachedNextUp(sigOf),
+  );
 
   useEffect(() => {
     if (attempt === 0 && fresh) {
@@ -208,9 +213,13 @@ export function HomeView() {
       // A finished movie belongs in Watched, not here.
       if (row.type !== "series") continue;
       const next = nextUp.get(row.key);
-      // While the next episode is still being resolved the finished one stays,
-      // so the show never drops off the row.
-      rows.push(next ? { entry: next, next: true } : { entry: row, next: false });
+      // Unresolved keeps the finished episode so the show never flickers off
+      // the row; resolved to nothing means the show is over, so it goes.
+      if (next === undefined) {
+        rows.push({ entry: row, next: false });
+      } else if (next) {
+        rows.push({ entry: next, next: true });
+      }
     }
     return rows.slice(0, 30);
   }, [latestRows, watchedKeys, nextUp]);
@@ -270,6 +279,7 @@ export function HomeView() {
         nextUpCache.set(row.key, {
           sig,
           gen,
+          metaId: row.metaId,
           entry:
             video && season != null && episode != null
               ? {
