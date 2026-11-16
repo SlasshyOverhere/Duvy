@@ -1093,8 +1093,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const markWatchedMany = useCallback(
     async (keys: string[], metaId: string) => {
       note("mark watched many", { metaId, count: keys.length });
-      for (const key of keys) await api.progress.setWatched(key, metaId, true);
-      await refreshProgress();
+      // One refresh even when a key fails: the marks that did land must show.
+      try {
+        for (const key of keys) await api.progress.setWatched(key, metaId, true);
+      } finally {
+        await refreshProgress();
+      }
     },
     [refreshProgress],
   );
