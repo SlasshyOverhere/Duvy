@@ -149,9 +149,6 @@ export function TraktView() {
 
   const disconnect = async () => {
     if (working.current) return;
-    if (!window.confirm("Disconnect Trakt? History already stored locally stays on this machine.")) {
-      return;
-    }
     working.current = true;
     setBusy("disconnect");
     setError(null);
