@@ -2997,37 +2997,39 @@ export function PlayerView() {
         </section>
       ) : null}
 
-      {skipSegment && !failed && !locked && !outroCovered ? (
-        <button
-          type="button"
-          className="pv-skip"
-          onClick={() => seekTo(skipSegment.at)}
-        >
-          Skip {skipSegment.kind}
-        </button>
-      ) : null}
+      <div className="pv-corner">
+        {/* A paused frame is a still, so it says what the still is, and resumes
+            on the click that would have unpaused it anyway. It outlives the
+            chrome: when the controls leave, the frame still names itself. */}
+        {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
+          <button
+            type="button"
+            className="pv-now"
+            onClick={() => togglePause()}
+            aria-label={`Resume ${title}`}
+          >
+            {poster ? (
+              <img className="pv-now-art" src={poster} alt="" loading="lazy" decoding="async" />
+            ) : null}
+            <span className="pv-now-body">
+              {episodeLine ? <span className="pv-now-ep">{episodeLine}</span> : null}
+              <span className="pv-now-title">{title}</span>
+              {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
+              {overview ? <span className="pv-now-note">{overview}</span> : null}
+            </span>
+          </button>
+        ) : null}
 
-      {/* A paused frame is a still, so it says what the still is, and resumes
-          on the click that would have unpaused it anyway. It outlives the
-          chrome: when the controls leave, the frame still names itself. */}
-      {paused && !failed && !locked && !surface && !showNext && !local.ended ? (
-        <button
-          type="button"
-          className={`pv-now${skipSegment ? " pv-now--above" : ""}`}
-          onClick={() => togglePause()}
-          aria-label={`Resume ${title}`}
-        >
-          {poster ? (
-            <img className="pv-now-art" src={poster} alt="" loading="lazy" decoding="async" />
-          ) : null}
-          <span className="pv-now-body">
-            {episodeLine ? <span className="pv-now-ep">{episodeLine}</span> : null}
-            <span className="pv-now-title">{title}</span>
-            {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
-            {overview ? <span className="pv-now-note">{overview}</span> : null}
-          </span>
-        </button>
-      ) : null}
+        {skipSegment && !failed && !locked && !outroCovered ? (
+          <button
+            type="button"
+            className="pv-skip"
+            onClick={() => seekTo(skipSegment.at)}
+          >
+            {skipSegment.label}
+          </button>
+        ) : null}
+      </div>
 
       {local.ended && !nextEpisode && !failed && !dropped ? (
         <section className="pv-upnext pv-upnext--end">

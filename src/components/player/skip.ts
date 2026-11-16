@@ -3,8 +3,8 @@
  *
  * The player never moves the playhead on its own: it only offers a button for
  * the segment under the current position. Each segment runs from half a second
- * before its start until its end; the outro lands on the post-credits scene
- * when there is one, otherwise on the credits end.
+ * before its start until its end; the outro runs to the post-credits scene when
+ * there is one, otherwise to the credits end.
  */
 export interface SkipEntry {
   recapStart?: number | null;
@@ -14,14 +14,16 @@ export interface SkipEntry {
   outroStart?: number | null;
   outroEnd?: number | null;
   postCreditsStart?: number | null;
+  postCreditsEnd?: number | null;
 }
 
-export type SkipKind = "recap" | "intro" | "outro";
+export type SkipKind = "recap" | "intro" | "outro" | "credits";
 
 interface SkipSegment {
   kind: SkipKind;
   /** Timestamp to seek to. */
   at: number;
+  label: string;
 }
 
 export function findSkip(
@@ -52,26 +54,36 @@ export function findSkip(
 
   const { recapStart, recapEnd, introStart, introEnd, outroStart } = entry;
   const recap = endOf(recapStart, recapEnd);
-  if (recap != null) return { kind: "recap", at: recap };
+  if (recap != null) return { kind: "recap", at: recap, label: "Skip recap" };
   const intro = endOf(introStart, introEnd);
-  if (intro != null) return { kind: "intro", at: intro };
+  if (intro != null) return { kind: "intro", at: intro, label: "Skip intro" };
 
-  if (outroStart != null && outroStart > 0 && outroStart < duration - 2) {
-    if (position >= outroStart - 0.5) {
-      return { kind: "outro", at: outroTarget(entry, duration) };
-    }
+  if (outroStart == null || outroStart <= 0 || outroStart >= duration - 2) {
+    return null;
+  }
+  if (position < outroStart - 0.5) return null;
+
+  const { outroEnd, postCreditsStart, postCreditsEnd } = entry;
+  // A marker behind the credits would rewind the playhead.
+  const later = (at: number | null | undefined, after: number) =>
+    at != null && at > after + 2 && at < duration - 1 ? at : null;
+  const scene = later(postCreditsStart, outroStart);
+  const to = scene ?? later(outroEnd, outroStart) ?? duration - 1;
+
+  // The offer ends where it lands, so a second click cannot replay the scene.
+  // The second of slack absorbs a seek that lands a frame short.
+  if (position < to - 1) {
+    return {
+      kind: "outro",
+      at: to,
+      label: scene != null ? "Skip to post-credits" : "Skip outro",
+    };
+  }
+  // Credits left after the scene: the tail of the file is all that is left.
+  const tail = scene != null ? later(postCreditsEnd, scene) : null;
+  if (tail != null && position >= tail) {
+    return { kind: "credits", at: duration - 1, label: "Skip credits" };
   }
 
   return null;
-}
-
-/** Post-credits scene when it follows the credits, else the credits end. */
-function outroTarget(entry: SkipEntry, duration: number): number {
-  const { outroStart, outroEnd, postCreditsStart } = entry;
-  const start = outroStart ?? 0;
-  const sane = (at?: number | null): at is number =>
-    at != null && at > start + 2 && at < duration - 1;
-  if (sane(postCreditsStart)) return postCreditsStart;
-  if (sane(outroEnd)) return outroEnd;
-  return duration - 1;
 }

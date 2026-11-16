@@ -1951,14 +1951,26 @@
 
 /* ---- paused card -------------------------------------------------------- */
 
+/* The skip offer and the paused card share this corner, so the column keeps
+   them apart instead of letting one cover the other. */
+.pv .pv-corner {
+  position: absolute;
+  left: 2rem;
+  bottom: 132px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
+  /* Settles both ways, so the stack glides when the chrome comes and goes. */
+  transition: bottom 0.24s var(--ease);
+}
+
 /* A paused frame is a still. Name it: art, the episode, one line of meta, and
    the resume the click would have done anyway. No panel, only a scrim, so the
    photograph still reads. */
 .pv .pv-now {
-  position: absolute;
-  left: 2rem;
-  bottom: 132px;
-  z-index: 3;
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 1.1rem;
@@ -1970,8 +1982,6 @@
   text-align: left;
   cursor: pointer;
   animation: pv-now-in 0.26s var(--ease) both;
-  /* Settles both ways, so the card glides when the chrome comes and goes. */
-  transition: bottom 0.24s var(--ease);
 }
 
 @keyframes pv-now-in {
@@ -1996,19 +2006,10 @@
   pointer-events: none;
 }
 
-/* The skip offer owns this corner: step up rather than cover it. */
-.pv .pv-now--above {
-  bottom: 190px;
-}
-
-/* With the controls gone the card is the only thing left on the frame, so it
+/* With the controls gone the stack is the only thing left on the frame, so it
    settles to the edge instead of hovering over empty space. */
-.pv:not(.pv--awake) .pv-now {
+.pv:not(.pv--awake) .pv-corner {
   bottom: 2.25rem;
-}
-
-.pv:not(.pv--awake) .pv-now--above {
-  bottom: 5.5rem;
 }
 
 .pv .pv-now-art {
@@ -2308,10 +2309,6 @@
 /* ---- skip intro / outro -------------------------------------------------- */
 
 .pv .pv-skip {
-  position: absolute;
-  left: 2rem;
-  bottom: 132px;
-  z-index: 4;
   height: 2.6rem;
   padding: 0 1.2rem;
   border: 0;
@@ -2328,11 +2325,7 @@
   background: var(--pv-control-hover), var(--pv-panel);
 }
 
-.pv--panel .pv-skip {
-  display: none;
-}
-
-.pv--panel .pv-now {
+.pv--panel .pv-corner {
   display: none;
 }
 
@@ -2358,20 +2351,14 @@
     width: min(26rem, calc(100% - 24px));
   }
 
-  .pv .pv-skip {
+  .pv .pv-corner {
     left: 12px;
     bottom: 116px;
   }
 
   .pv .pv-now {
-    left: 12px;
-    bottom: 116px;
     gap: 0.8rem;
     max-width: calc(100vw - 24px);
-  }
-
-  .pv .pv-now--above {
-    bottom: 172px;
   }
 
   .pv .pv-now-art {
