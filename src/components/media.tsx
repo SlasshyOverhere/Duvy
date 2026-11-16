@@ -67,11 +67,21 @@ function PosterMenu({
   const current = marked ? undefined : hit;
 
   const setWatched = (next: boolean) => {
-    // Unmarking has to hit the key that is actually marked; once a whole show
-    // is marked, the newest playhead is a different key.
-    const mark = watched.find((row) => row.metaId === item.id);
-    const key = next ? current?.key ?? item.id : mark?.key ?? item.id;
-    void markWatched(key, item.id, next)
+    const apply = async () => {
+      if (next) {
+        // A show with no resume point has no episode to mark; the action is
+        // hidden in that case, so this only runs for a movie or a real episode.
+        const key = current?.key ?? item.id;
+        await markWatched(key, item.id, true);
+        return;
+      }
+      // Unmarking a show has to clear every episode, not just the newest one.
+      const marks = await api.watched.marks(item.id);
+      const keys = marks.length ? marks.map(([key]) => key) : current ? [current.key] : [];
+      for (const key of keys) await api.progress.setWatched(key, item.id, false);
+      await refreshProgress();
+    };
+    void apply()
       .then(() => notify(`${item.name} marked as ${next ? "watched" : "unwatched"}`))
       .catch(() => notify("Could not update that", "error"));
   };
@@ -90,11 +100,14 @@ function PosterMenu({
       onSelect: () => void playItem(item, true),
     });
   }
-  actions.push({
-    label: marked ? "Mark as unwatched" : "Mark as watched",
-    icon: marked ? "x" : "check",
-    onSelect: () => setWatched(!marked),
-  });
+  // A series with no episode to point at cannot be marked from a card.
+  if (marked || current || item.type === "movie") {
+    actions.push({
+      label: marked ? "Mark as unwatched" : "Mark as watched",
+      icon: marked ? "x" : "check",
+      onSelect: () => setWatched(!marked),
+    });
+  }
   if (current) {
     actions.push({
       label: "Remove from continue watching",
