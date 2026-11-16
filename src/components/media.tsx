@@ -346,6 +346,7 @@ export function ContinueCard({
   background,
   name,
   subtitle,
+  meta,
   position,
   duration,
   next = false,
@@ -356,6 +357,7 @@ export function ContinueCard({
   background?: string | null;
   name: string;
   subtitle?: string;
+  meta?: MetaPreview;
   position: number;
   duration: number;
   next?: boolean;
@@ -363,11 +365,22 @@ export function ContinueCard({
 }) {
   const [still, setStill] = useState(background ?? poster ?? null);
   const [gone, setGone] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const { playItem, progress: history, markWatched, refreshProgress, notify } = useApp();
   const raw = progressPercent(position, duration);
   const percent = Number.isFinite(raw) ? raw : 0;
   const left = duration - position;
+  // Progress rows carry no art or score, so the feed row for the same title is
+  // reused when there is one, and an IMDb id still has its logo for free.
+  const logo =
+    meta?.logo ??
+    (entry.metaId.startsWith("tt")
+      ? `https://images.metahub.space/logo/medium/${entry.metaId}/img`
+      : null);
+  const details = [meta?.releaseInfo, meta?.runtime, meta?.imdbRating ? `${meta.imdbRating} IMDb` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const drop = (label: string, task: Promise<unknown>) => {
     void task
@@ -439,7 +452,19 @@ export function ContinueCard({
         ) : null}
         <span className="continue-veil" />
         <span className="continue-hover">
-          <span className="continue-hover-name">{name}</span>
+          {logo && !logoFailed ? (
+            <img
+              className="continue-hover-logo"
+              src={logo}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <span className="continue-hover-name">{name}</span>
+          )}
+          {details ? <span className="continue-hover-sub">{details}</span> : null}
           {subtitle ? <span className="continue-hover-sub">{subtitle}</span> : null}
           {next ? (
             <span className="continue-hover-sub">Next up</span>

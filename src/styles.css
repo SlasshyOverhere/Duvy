@@ -1481,6 +1481,14 @@ button.pill:hover {
   overflow: hidden;
 }
 
+/* min-height: 0 keeps a tall logo inside max-height in a column flex box. */
+.continue-hover-logo {
+  max-width: 100%;
+  max-height: 46%;
+  min-height: 0;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.55));
+}
+
 .continue-hover-sub {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.8);

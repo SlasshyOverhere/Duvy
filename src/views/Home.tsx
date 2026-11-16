@@ -181,6 +181,14 @@ export function HomeView() {
 
   // Continue watching off live store state, so a mark or a clear lands without
   // reloading the whole feed.
+  const metaById = useMemo(() => {
+    const map = new Map<string, MetaPreview>();
+    for (const row of feedRows) {
+      for (const item of row.items) map.set(item.id, item);
+    }
+    return map;
+  }, [feedRows]);
+
   const continuing = useMemo(() => {
     const rows: { entry: ProgressItem; next: boolean }[] = [];
     for (const row of latestRows) {
@@ -323,6 +331,7 @@ export function HomeView() {
               name={entry.name}
               poster={entry.poster}
               background={entry.background}
+              meta={metaById.get(entry.metaId)}
               subtitle={
                 entry.type === "series"
                   ? `${seasonLabel(entry.season, entry.episode)}${
@@ -337,7 +346,7 @@ export function HomeView() {
           ))}
         </Row>
       ),
-    [continuing, resumeEntry],
+    [continuing, resumeEntry, metaById],
   );
 
   const ambient = cssImage(hero?.background);
