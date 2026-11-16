@@ -2622,30 +2622,42 @@ button.pill:hover {
   overflow-wrap: anywhere;
 }
 
+/* One season at a time, laid out as Nuvio's horizontal episode rail. */
 .episode-list {
   display: flex;
-  flex-direction: column;
+  gap: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-inline: -4px;
+  padding: 4px 4px 8px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.episode-list::-webkit-scrollbar {
+  height: 0;
 }
 
 .episode {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  width: 100%;
-  padding: 16px 8px 16px 0;
-  border-bottom: 1px solid var(--glass-edge-soft);
-  background: var(--glass-fill-soft);
-  transition: background-color 0.15s var(--ease);
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(268px, 30vw, 420px);
+  aspect-ratio: 420 / 256;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  scroll-snap-align: start;
 }
 
 .episode-open {
-  display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
   width: 100%;
-  padding: 0;
+  height: 100%;
+  padding: 16px;
   border: 0;
   background: none;
   color: inherit;
@@ -2653,17 +2665,34 @@ button.pill:hover {
   font: inherit;
 }
 
+/* The art fills the card and the scrim carries the copy, as in Nuvio. */
+.episode-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 34%,
+    rgba(0, 0, 0, 0.44) 58%,
+    rgba(0, 0, 0, 0.88) 100%
+  );
+  pointer-events: none;
+}
+
 .episode-watch {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
   width: 30px;
   height: 30px;
   display: grid;
   place-items: center;
-  margin-top: 2px;
   border-radius: 50%;
-  border: 1px solid var(--glass-edge);
-  background: transparent;
-  color: var(--faint);
-  opacity: 0.45;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(0, 0, 0, 0.46);
+  color: var(--text);
+  opacity: 0.55;
   transition:
     opacity 0.14s var(--ease),
     background-color 0.14s var(--ease),
@@ -2682,22 +2711,12 @@ button.pill:hover {
   opacity: 1;
 }
 
-.episode:hover {
-  background-color: var(--glass-fill-hover);
-}
-
-.episode:active {
-  background-color: var(--glass-fill-active);
-}
-
 .episode-thumb {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-sm);
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
   overflow: hidden;
   background: var(--surface-2);
-  outline: 1px solid var(--glass-edge-soft);
-  outline-offset: -1px;
   display: block;
 }
 
@@ -2709,8 +2728,9 @@ button.pill:hover {
 
 .episode-play {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
   width: 30px;
   height: 30px;
   display: grid;
@@ -2729,11 +2749,12 @@ button.pill:hover {
 }
 
 .episode-body {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  padding-top: 2px;
 }
 
 .episode-top {
@@ -2746,26 +2767,30 @@ button.pill:hover {
 .episode-num {
   font-size: 11px;
   font-weight: 600;
-  color: var(--faint);
+  color: color-mix(in srgb, var(--text) 72%, transparent);
 }
 
 .episode-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
   color: var(--text);
-  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .episode-seen {
-  font-size: 10.5px;
-  color: var(--faint);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 76%, transparent);
   margin-left: auto;
 }
 
 .episode-overview {
   font-size: 12.5px;
-  color: var(--faint);
-  line-height: 1.55;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 84%, transparent);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -2774,14 +2799,15 @@ button.pill:hover {
 
 .episode-progress {
   height: 3px;
-  background: rgba(255, 255, 255, 0.12);
-  max-width: 240px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.24);
   margin-top: 2px;
 }
 
 .episode-progress span {
   display: block;
   height: 100%;
+  border-radius: 2px;
   background: var(--accent);
 }
 
@@ -2789,29 +2815,42 @@ button.pill:hover {
   margin-bottom: 16px;
 }
 
+/* Nuvio's cast is a rail of circular faces, not a grid of portraits. */
 .cast-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 156px));
-  gap: clamp(14px, 1.5vw, 20px);
+  display: flex;
+  gap: clamp(14px, 1.6vw, 20px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-inline: -4px;
+  padding: 4px 4px 8px;
+  scrollbar-width: none;
+}
+
+.cast-grid::-webkit-scrollbar {
+  height: 0;
 }
 
 .cast-card {
+  flex: 0 0 auto;
+  width: 112px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+  text-align: center;
 }
 
 .cast-photo {
-  aspect-ratio: 2 / 3;
-  border-radius: var(--radius-sm);
+  width: 100px;
+  aspect-ratio: 1;
+  border-radius: 50%;
   overflow: hidden;
   background: var(--surface-2);
   outline: 1px solid var(--glass-edge-soft);
   outline-offset: -1px;
   display: grid;
   place-items: center;
-  margin-bottom: 8px;
 }
 
 .cast-photo img {
@@ -2827,21 +2866,24 @@ button.pill:hover {
 }
 
 .cast-name {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text);
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cast-role {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--faint);
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  max-width: 100%;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* A face with a TMDB id is a link to that person. */
@@ -2851,7 +2893,7 @@ button.pill:hover {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 
