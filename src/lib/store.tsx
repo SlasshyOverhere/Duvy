@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, isTauri } from "./bridge";
+import { api, isTauri, validUpdate } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
 import { wentBackwards } from "./errors";
@@ -211,6 +211,9 @@ function resumePosition(position: number, duration: number): number {
   return position / duration >= FINISHED_SHARE ? 0 : position;
 }
 
+/** Addon rows are untrusted: a null or numeric field must not break a pick. */
+const lower = (value: unknown): string => (typeof value === "string" ? value.toLowerCase() : "");
+
 /**
  * The quality wanted, preferring the pack and the addon already playing, then
  * the source this session used last time, then the best source offered.
@@ -224,9 +227,9 @@ export function pickSource(
 ): StreamOption | undefined {
   const playable = options.filter((stream) => stream.playable);
   // The pack playing now holds the next episode: a binge stays in one torrent.
-  const packHash = playing?.infoHash?.toLowerCase() ?? null;
+  const packHash = lower(playing?.infoHash);
   if (packHash) {
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === packHash);
+    const samePack = playable.find((stream) => lower(stream.infoHash) === packHash);
     if (samePack) return samePack;
   }
   // The addon playing now beats a memory from another session: a source the
@@ -234,16 +237,17 @@ export function pickSource(
   const fromAddon = playing ? playable.filter((stream) => stream.addon === playing.addon) : [];
   const wanted = quality && quality !== "auto" ? quality.toLowerCase() : null;
   const fits = (stream: StreamOption) =>
-    wanted === null || stream.quality.toLowerCase().includes(wanted);
+    wanted === null || lower(stream.quality).includes(wanted);
   const home = fromAddon.find(fits) ?? fromAddon[0];
   if (home) return home;
   // The source this session used last time wins, as long as the addon still
   // offers it.
   if (remembered) {
+    const memoryHash = lower(remembered.infoHash);
     const same = playable.find((stream) =>
-      remembered.infoHash
+      memoryHash
         ? stream.addon === remembered.addon &&
-          stream.infoHash?.toLowerCase() === remembered.infoHash.toLowerCase() &&
+          lower(stream.infoHash) === memoryHash &&
           (remembered.fileIdx == null || stream.fileIdx === remembered.fileIdx)
         : remembered.url
           ? stream.addon === remembered.addon && stream.url === remembered.url
@@ -255,9 +259,9 @@ export function pickSource(
   }
   // Then the pack this season played from last time, so a pack that broke one
   // episode is not reopened on the next one after a restart.
-  if (pack?.infoHash) {
-    const seasonPack = pack.infoHash.toLowerCase();
-    const samePack = playable.find((stream) => stream.infoHash?.toLowerCase() === seasonPack);
+  const seasonPack = lower(pack?.infoHash);
+  if (seasonPack) {
+    const samePack = playable.find((stream) => lower(stream.infoHash) === seasonPack);
     if (samePack) return samePack;
   }
   if (wanted !== null) {
@@ -303,7 +307,13 @@ function packKey(key: string): string {
 export function rememberedSource(key: string | null | undefined): SourceMemory | null {
   if (!key) return null;
   const found = readSourceMemory()[key];
-  return found && typeof found.addon === "string" && typeof found.quality === "string"
+  // Stored rows outlive the build that wrote them: only the shapes the play
+  // path reads are trusted.
+  return found &&
+    typeof found.addon === "string" &&
+    typeof found.quality === "string" &&
+    (found.infoHash == null || typeof found.infoHash === "string") &&
+    (found.url == null || typeof found.url === "string")
     ? found
     : null;
 }
@@ -515,6 +525,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [clearFrameWatchdog],
   );
 
+  // A provider swap (or a quit) must not leave the watchdog armed.
+  useEffect(() => clearFrameWatchdog, [clearFrameWatchdog]);
+
   const navigate = useCallback((next: Route, options?: { replace?: boolean }) => {
     const current = routeRef.current;
     // Re-clicking the screen already open used to push a duplicate entry, so
@@ -603,11 +616,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [player]);
 
   const refreshAddons = useCallback(async () => {
-    setAddons(await api.addons.list());
+    try {
+      setAddons(await api.addons.list());
+    } catch (error) {
+      // Callers still decide what to show, but a silent failure is invisible.
+      note("addon refresh failed", { error: errorMessage(error) });
+      throw error;
+    }
   }, []);
 
   const refreshLibrary = useCallback(async () => {
-    setLibrary(await api.library.list());
+    try {
+      setLibrary(await api.library.list());
+    } catch (error) {
+      note("library refresh failed", { error: errorMessage(error) });
+      throw error;
+    }
   }, []);
 
   const refreshProgress = useCallback(async () => {
@@ -766,7 +790,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     void listen<UpdateInfo>("update:available", (event) => {
       // The corner card carries this, not a toast.
-      setUpdate(event.payload);
+      const found = validUpdate(event.payload);
+      if (found) setUpdate(found);
     })
       .then((stop) => {
         if (disposed) stop();
@@ -894,6 +919,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               !firstFrame.current && !stopRequested.current && openedAt.current > 0 && afterMs < 15000;
             clearFrameWatchdog();
             setPlayer(null);
+            setPlayingUrl(null);
             playerRef.current = null;
             if (diedEarly) {
               note("closed before first frame", { afterMs, generation });
@@ -1217,6 +1243,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return true;
       } catch (error) {
         note("open failed", { error: errorMessage(error) });
+        // The link never played, so the next episode must not resume from it.
+        setPlayingUrl(null);
         notify(errorMessage(error), "error");
         return false;
       } finally {

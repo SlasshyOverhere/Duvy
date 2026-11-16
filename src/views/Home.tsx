@@ -5,7 +5,7 @@ import { useApp } from "../lib/store";
 import type { HomeFeed, MetaPreview, ProgressItem } from "../lib/types";
 import { Hero, ContinueCard, PosterCard, Row } from "../components/media";
 import { Button, EmptyState, Icon, Spinner } from "../components/ui";
-import { progressPercent, seasonLabel } from "../lib/format";
+import { progressPercent, seasonLabel, cssImage, errorMessage } from "../lib/format";
 
 const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
@@ -14,6 +14,16 @@ let feedSig = "";
 /** Next episode after a finished one, or null when the show is over. The sig is
  *  the title's newest mark, so a fresh mark re-resolves its next up. */
 const nextUpCache = new Map<string, { sig: string; entry: ProgressItem | null }>();
+const NEXT_UP_CACHE_MAX = 120;
+const NEXT_UP_BATCH = 6;
+
+/** The cache is a session memo, not a history: the oldest titles drop first. */
+function pruneNextUp(): void {
+  for (const key of nextUpCache.keys()) {
+    if (nextUpCache.size <= NEXT_UP_CACHE_MAX) break;
+    nextUpCache.delete(key);
+  }
+}
 
 function cachedNextUp(sigOf: (metaId: string) => string): Map<string, ProgressItem> {
   const map = new Map<string, ProgressItem>();
@@ -121,7 +131,7 @@ export function HomeView() {
         setFeed(result);
       })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+        if (alive) setError(errorMessage(e));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -131,10 +141,10 @@ export function HomeView() {
     };
   }, [addonSignature, attempt]);
 
-  const featured = useMemo(
-    () => pickFeatured(feed?.rows?.[0]?.items ?? []),
-    [feed],
-  );
+  const featured = useMemo(() => {
+    const top = feed?.rows?.[0]?.items;
+    return pickFeatured(Array.isArray(top) ? top : []);
+  }, [feed]);
   const hero = featured[slide] ?? featured[0] ?? null;
   const nextBackdrop = featured[(slide + 1) % featured.length]?.background;
 
@@ -202,57 +212,61 @@ export function HomeView() {
       return;
     }
     let alive = true;
-    void Promise.allSettled(
-      pending.map(async (row) => {
-        const details = await api.details(row.metaId, row.type);
-        const queue = [...details.videos].sort(
-          (a, b) =>
-            (a.season ?? 0) - (b.season ?? 0) ||
-            (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
+    const resolve = async (row: ProgressItem) => {
+      const details = await api.details(row.metaId, row.type);
+      const queue = [...details.videos].sort(
+        (a, b) =>
+          (a.season ?? 0) - (b.season ?? 0) ||
+          (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
+      );
+      const at = queue.findIndex(
+        (video) =>
+          video.season === row.season &&
+          (video.episode ?? video.number) === row.episode,
+      );
+      // An episode already marked watched is behind the viewer, not next up.
+      const after = at < 0 ? [] : queue.slice(at + 1);
+      const video = after.find((candidate) => {
+        const season = candidate.season;
+        const episode = candidate.episode ?? candidate.number;
+        return (
+          season != null &&
+          episode != null &&
+          !watchedKeys.has(`${row.metaId}:${season}:${episode}`)
         );
-        const at = queue.findIndex(
-          (video) =>
-            video.season === row.season &&
-            (video.episode ?? video.number) === row.episode,
-        );
-        // An episode already marked watched is behind the viewer, not next up.
-        const after = at < 0 ? [] : queue.slice(at + 1);
-        const video = after.find((candidate) => {
-          const season = candidate.season;
-          const episode = candidate.episode ?? candidate.number;
-          return (
-            season != null &&
-            episode != null &&
-            !watchedKeys.has(`${row.metaId}:${season}:${episode}`)
-          );
-        });
-        const season = video?.season ?? null;
-        const episode = video ? (video.episode ?? video.number ?? null) : null;
-        nextUpCache.set(row.key, {
-          sig: sigOf(row.metaId),
-          entry:
-            video && season != null && episode != null
-              ? {
-                  key: `${row.metaId}:${season}:${episode}`,
-                  metaId: row.metaId,
-                  type: row.type,
-                  name: row.name,
-                  poster: row.poster,
-                  background: video.thumbnail ?? row.background ?? row.poster,
-                  season,
-                  episode,
-                  episodeTitle: video.title ?? null,
-                  position: 0,
-                  duration: 0,
-                  updatedAt: row.updatedAt,
-                }
-              : null,
-        });
-      }),
-    ).then(() => {
-      if (!alive) return;
+      });
+      const season = video?.season ?? null;
+      const episode = video ? (video.episode ?? video.number ?? null) : null;
+      nextUpCache.set(row.key, {
+        sig: sigOf(row.metaId),
+        entry:
+          video && season != null && episode != null
+            ? {
+                key: `${row.metaId}:${season}:${episode}`,
+                metaId: row.metaId,
+                type: row.type,
+                name: row.name,
+                poster: row.poster,
+                background: video.thumbnail ?? row.background ?? row.poster,
+                season,
+                episode,
+                episodeTitle: video.title ?? null,
+                position: 0,
+                duration: 0,
+                updatedAt: row.updatedAt,
+              }
+            : null,
+      });
+    };
+    void (async () => {
+      // Bounded: a long history must not fire one details call per title.
+      for (let i = 0; i < pending.length; i += NEXT_UP_BATCH) {
+        await Promise.allSettled(pending.slice(i, i + NEXT_UP_BATCH).map(resolve));
+        if (!alive) return;
+      }
+      pruneNextUp();
       setNextUp(cachedNextUp(sigOf));
-    });
+    })();
     return () => {
       alive = false;
     };
@@ -326,14 +340,11 @@ export function HomeView() {
     [continuing, resumeEntry],
   );
 
+  const ambient = cssImage(hero?.background);
   return (
     <div className="home">
-      {hero?.background ? (
-        <div
-          className="ambient"
-          aria-hidden="true"
-          style={{ backgroundImage: `url("${hero.background}")` }}
-        />
+      {ambient ? (
+        <div className="ambient" aria-hidden="true" style={{ backgroundImage: ambient }} />
       ) : null}
 
       {loading && !feed ? <HomeSkeleton /> : null}

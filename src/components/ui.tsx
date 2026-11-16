@@ -521,9 +521,9 @@ export function ContextMenu({
           <p className="ctx-title">{title}</p>
         </div>
       ) : null}
-      {actions.map((action) => (
+      {actions.map((action, index) => (
         <button
-          key={action.label}
+          key={`${index}-${action.label}`}
           type="button"
           role="menuitem"
           className={`ctx-item${action.icon === "play" ? " is-primary" : ""}`}

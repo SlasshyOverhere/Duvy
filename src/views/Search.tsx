@@ -9,6 +9,8 @@ import { Button, EmptyState, Icon, Loading } from "../components/ui";
 
 const RECENT_KEY = "search.recent";
 const RECENT_MAX = 8;
+// A wide search can answer with thousands of rows; the grid only needs a slice.
+const RESULT_MAX = 300;
 const chipText: CSSProperties = { border: 0, background: "none", padding: 0, color: "inherit" };
 const chipRemove: CSSProperties = {
   ...chipText,
@@ -23,9 +25,15 @@ const chipRemove: CSSProperties = {
 function readRecent(): string[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string").slice(0, RECENT_MAX)
-      : [];
+    if (!Array.isArray(parsed)) return [];
+    // A stored list can carry repeats from an older build; a chip is one entry.
+    const unique = new Map<string, string>();
+    for (const item of parsed) {
+      if (typeof item !== "string") continue;
+      const entry = item.trim();
+      if (entry && !unique.has(entry.toLowerCase())) unique.set(entry.toLowerCase(), entry);
+    }
+    return [...unique.values()].slice(0, RECENT_MAX);
   } catch {
     return [];
   }
@@ -57,7 +65,7 @@ function mergeResults(base: MetaPreview[], extra: MetaPreview[]): MetaPreview[] 
     seen.add(key);
     merged.push(item);
   }
-  return merged;
+  return merged.slice(0, RESULT_MAX);
 }
 
 // Screen-reader only: announces results without adding a visual row.
@@ -91,6 +99,8 @@ export function SearchView({ query }: { query?: string }) {
   const [recoState, setRecoState] = useState<"loading" | "ready" | "error">("loading");
   const [recoAttempt, setRecoAttempt] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  // Each search run gets an id, so a chunk from an older run cannot answer it.
+  const runId = useRef(0);
   const [recent, setRecent] = useState<string[]>(readRecent);
 
   const remember = (raw: string) => {
@@ -139,6 +149,7 @@ export function SearchView({ query }: { query?: string }) {
       return;
     }
     let alive = true;
+    runId.current += 1;
     // Results always belong to the query being asked; never merge across.
     setResults([]);
     setLoading(true);
@@ -172,12 +183,16 @@ export function SearchView({ query }: { query?: string }) {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<{ query: string; items: MetaPreview[]; done?: boolean }>(
+    void listen<{ query: string; id?: number; items?: MetaPreview[]; done?: boolean }>(
       "search:addons",
       (event) => {
-        if (event.payload.query !== activeRef.current) return;
-        setResults((prev) => mergeResults(prev, event.payload.items));
-        if (event.payload.done ?? true) setWaiting(false);
+        const payload = event.payload;
+        // A run id, when the emitter sends one, beats matching the query text.
+        if (typeof payload.id === "number" && payload.id !== runId.current) return;
+        if (payload.query !== activeRef.current) return;
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        setResults((prev) => mergeResults(prev, items));
+        if (payload.done ?? true) setWaiting(false);
       },
     )
       .then((stop) => {

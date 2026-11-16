@@ -5,6 +5,7 @@ import { sentry } from "./sentry";
 import type {
   AddonInfo,
   AppInfo,
+  CastMember,
   Details,
   DebridProvider,
   HomeFeed,
@@ -25,6 +26,7 @@ import type {
   SubtitleTrack,
   TraktStatus,
   UpdateInfo,
+  Video,
   WatchedItem,
 } from "./types";
 
@@ -37,6 +39,259 @@ export function isTauri(): boolean {
 
 export function isBrowserPreview(): boolean {
   return PREVIEW && !isTauri();
+}
+
+// Addon responses are third-party JSON and stored rows can predate this build,
+// so every payload the views render is read through here first.
+const META_LIMIT = 300;
+
+type Dict = Record<string, unknown>;
+
+function dict(value: unknown): Dict {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Dict) : {};
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function numOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function arr(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function strings(value: unknown): string[] {
+  return arr(value).filter((item): item is string => typeof item === "string");
+}
+
+/** Coerced fields over the raw row, so keys the views read still ride along. */
+function shaped<T>(raw: Dict, fields: Dict): T {
+  return { ...raw, ...fields } as unknown as T;
+}
+
+function readMeta(value: unknown): MetaPreview {
+  const meta = dict(value);
+  return shaped<MetaPreview>(meta, {
+    id: text(meta.id),
+    type: text(meta.type),
+    name: text(meta.name),
+    poster: textOrNull(meta.poster),
+    background: textOrNull(meta.background),
+    logo: textOrNull(meta.logo),
+    genres: Array.isArray(meta.genres) ? strings(meta.genres) : null,
+  });
+}
+
+function readMetas(value: unknown): MetaPreview[] {
+  return arr(value)
+    .map(readMeta)
+    .filter((meta) => meta.id && meta.type && meta.name)
+    .slice(0, META_LIMIT);
+}
+
+function readRow(value: unknown): HomeRow {
+  const row = dict(value);
+  return shaped<HomeRow>(row, {
+    id: text(row.id),
+    title: text(row.title),
+    type: text(row.type),
+    catalogId: text(row.catalogId),
+    items: readMetas(row.items),
+  });
+}
+
+function readProgress(value: unknown): ProgressItem {
+  const item = dict(value);
+  return shaped<ProgressItem>(item, {
+    key: text(item.key),
+    metaId: text(item.metaId),
+    type: text(item.type),
+    name: text(item.name),
+    poster: textOrNull(item.poster),
+    background: textOrNull(item.background),
+    season: numOrNull(item.season),
+    episode: numOrNull(item.episode),
+    episodeTitle: textOrNull(item.episodeTitle),
+    position: num(item.position),
+    duration: num(item.duration),
+    updatedAt: num(item.updatedAt),
+  });
+}
+
+function readProgressList(value: unknown): ProgressItem[] {
+  return arr(value)
+    .map(readProgress)
+    .filter((item) => item.key && item.metaId);
+}
+
+function readWatchedList(value: unknown): WatchedItem[] {
+  return arr(value)
+    .map((entry) => {
+      const item = dict(entry);
+      return shaped<WatchedItem>(item, {
+        key: text(item.key),
+        metaId: text(item.metaId),
+        type: text(item.type),
+        name: text(item.name),
+        poster: textOrNull(item.poster),
+        background: textOrNull(item.background),
+        season: numOrNull(item.season),
+        episode: numOrNull(item.episode),
+        watchedAt: num(item.watchedAt),
+      });
+    })
+    .filter((item) => item.key && item.metaId);
+}
+
+function readLibrary(value: unknown): LibraryItem[] {
+  return arr(value)
+    .map((entry) => {
+      const item = dict(entry);
+      return shaped<LibraryItem>(item, {
+        id: text(item.id),
+        type: text(item.type),
+        name: text(item.name),
+        poster: textOrNull(item.poster),
+        background: textOrNull(item.background),
+        addedAt: num(item.addedAt),
+        meta: item.meta ? readMeta(item.meta) : null,
+      });
+    })
+    .filter((item) => item.id);
+}
+
+function readDetails(value: unknown): Details {
+  const details = dict(value);
+  return shaped<Details>(details, {
+    id: text(details.id),
+    type: text(details.type),
+    name: text(details.name),
+    poster: textOrNull(details.poster),
+    background: textOrNull(details.background),
+    logo: textOrNull(details.logo),
+    imdbId: textOrNull(details.imdbId),
+    genres: strings(details.genres),
+    videos: arr(details.videos).map((entry) => {
+      const video = dict(entry);
+      return shaped<Video>(video, {
+        id: text(video.id),
+        title: textOrNull(video.title),
+        season: numOrNull(video.season),
+        episode: numOrNull(video.episode),
+        number: numOrNull(video.number),
+        thumbnail: textOrNull(video.thumbnail),
+      });
+    }),
+    cast: arr(details.cast).map((entry) => {
+      const member = dict(entry);
+      return shaped<CastMember>(member, {
+        name: text(member.name),
+        character: text(member.character),
+        photo: textOrNull(member.photo),
+      });
+    }),
+    director: strings(details.director),
+    writer: strings(details.writer),
+    country: strings(details.country),
+  });
+}
+
+function readStreams(value: unknown): StreamOption[] {
+  return arr(value)
+    .filter((entry) => Boolean(entry) && typeof entry === "object")
+    .map((entry) => {
+      const stream = dict(entry);
+      return shaped<StreamOption>(stream, {
+        addon: text(stream.addon),
+        name: textOrNull(stream.name),
+        title: textOrNull(stream.title),
+        description: textOrNull(stream.description),
+        url: textOrNull(stream.url),
+        infoHash: textOrNull(stream.infoHash),
+        fileIdx: numOrNull(stream.fileIdx),
+        externalUrl: textOrNull(stream.externalUrl),
+        quality: text(stream.quality),
+        size: textOrNull(stream.size),
+        sizeBytes: numOrNull(stream.sizeBytes),
+        seeders: numOrNull(stream.seeders),
+        languages: strings(stream.languages),
+        badges: strings(stream.badges),
+        cached: stream.cached === true,
+        playable: stream.playable === true,
+        score: num(stream.score),
+      });
+    });
+}
+
+function readSubtitles(value: unknown): SubtitleTrack[] {
+  return arr(value)
+    .map((entry) => {
+      const track = dict(entry);
+      return shaped<SubtitleTrack>(track, {
+        id: text(track.id),
+        url: text(track.url),
+        lang: text(track.lang),
+        addon: text(track.addon),
+      });
+    })
+    .filter((track) => track.url);
+}
+
+/** A release notice the UI can render; anything without a version is dropped. */
+export function validUpdate(value: unknown): UpdateInfo | null {
+  const update = dict(value);
+  const version = text(update.version);
+  if (!version) return null;
+  return shaped<UpdateInfo>(update, {
+    version,
+    currentVersion: text(update.currentVersion),
+    notes: textOrNull(update.notes),
+    date: textOrNull(update.date),
+  });
+}
+
+const readers: Record<string, (value: unknown) => unknown> = {
+  home_feed: (value) => {
+    const feed = dict(value);
+    return {
+      continueWatching: readProgressList(feed.continueWatching),
+      // A row without an id cannot be keyed; it would repeat in the grid.
+      rows: arr(feed.rows)
+        .map(readRow)
+        .filter((row) => row.id),
+      addonErrors: strings(feed.addonErrors),
+    };
+  },
+  recommendations: (value) => arr(value).map(readRow),
+  catalog: (value) => ({ metas: readMetas(dict(value).metas) }),
+  search: readMetas,
+  similar: readMetas,
+  meta_details: readDetails,
+  streams: readStreams,
+  subtitles: readSubtitles,
+  library_list: readLibrary,
+  progress_list: readProgressList,
+  progress_for: (value) => (value == null ? null : readProgress(value)),
+  watched_list: readWatchedList,
+  watched_keys: strings,
+  update_check: validUpdate,
+  update_cached: validUpdate,
+};
+
+export function readPayload(command: string, value: unknown): unknown {
+  const read = readers[command];
+  return read ? read(value) : value;
 }
 
 export async function openExternal(url: string): Promise<void> {
@@ -59,8 +314,10 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   // Tracing is only live once the reporter is loaded (opt-in), so before that
   // the call goes straight to the bridge.
   const Sentry = sentry();
-  if (!Sentry) return invoke<T>(command, args);
-  return Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<T>(command, args));
+  const raw = Sentry
+    ? await Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<unknown>(command, args))
+    : await invoke<unknown>(command, args);
+  return readPayload(command, raw) as T;
 }
 
 export const api = {
@@ -98,7 +355,9 @@ export const api = {
     const feed = await call<HomeFeed>("home_feed");
     // Every card on the page knows its logo, so a later start has it at once.
     rememberLogos(
-      (feed.rows ?? []).flatMap((row) => row.items.map((meta) => ({ id: meta.id, logo: meta.logo }))),
+      (feed.rows ?? []).flatMap((row) =>
+        (row.items ?? []).map((meta) => ({ id: meta.id, logo: meta.logo })),
+      ),
     );
     return feed;
   },

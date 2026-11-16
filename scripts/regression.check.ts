@@ -2,6 +2,7 @@
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { readPayload, validUpdate } from "../src/lib/bridge.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel: string) => readFileSync(root + rel, "utf8");
@@ -27,6 +28,30 @@ function rustFn(src: string, name: string): string {
 
 const checks: Array<{ name: string; fn: () => string[] }> = [];
 const run = (name: string, fn: () => string[]) => checks.push({ name, fn });
+
+run("untrusted payloads are read before they reach render", () => {
+  const out: string[] = [];
+  const feed = readPayload("home_feed", {
+    rows: [{ id: "top", title: "Top", items: [{ id: "tt1", type: "movie", name: "A" }, null] }],
+    addonErrors: "boom",
+  }) as { rows: Array<{ items: unknown[] }>; addonErrors: unknown };
+  if (feed.rows[0]?.items.length !== 1) out.push("a junk feed item reached the home rows");
+  if (!Array.isArray(feed.addonErrors)) out.push("a non-array addonErrors reached the notice");
+  const streams = readPayload("streams", [{ addon: "x", quality: null, infoHash: 7 }]) as Array<{
+    quality: string;
+    infoHash: unknown;
+  }>;
+  if (streams[0]?.quality !== "" || streams[0]?.infoHash !== null) {
+    out.push("a null quality or a numeric info hash was not normalized");
+  }
+  if (validUpdate(null) !== null || validUpdate({ version: 4 }) !== null) {
+    out.push("an update without a version string was accepted");
+  }
+  if (validUpdate({ version: "0.2.0" })?.version !== "0.2.0") {
+    out.push("a real update payload was dropped");
+  }
+  return out;
+});
 
 run("update check runs at launch", () => {
   const out: string[] = [];

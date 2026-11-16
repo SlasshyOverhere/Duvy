@@ -15,8 +15,18 @@ export function cachedFeed(): HomeFeed | null {
     const raw = localStorage.getItem(FEED_CACHE);
     if (!raw) return null;
     // A store written by an older build or another tool must not crash the home.
-    const parsed = JSON.parse(raw) as HomeFeed | null;
-    return parsed && Array.isArray(parsed.rows) ? parsed : null;
+    const parsed = JSON.parse(raw) as Partial<HomeFeed> | null;
+    if (!parsed || !Array.isArray(parsed.rows)) return null;
+    const rows = parsed.rows.filter(
+      (row): row is HomeRow => Boolean(row) && Array.isArray((row as HomeRow).items),
+    );
+    return {
+      continueWatching: Array.isArray(parsed.continueWatching) ? parsed.continueWatching : [],
+      rows,
+      addonErrors: Array.isArray(parsed.addonErrors)
+        ? parsed.addonErrors.filter((line): line is string => typeof line === "string")
+        : [],
+    };
   } catch {
     return null;
   }
@@ -57,7 +67,9 @@ export function cachedRecos(): HomeRow[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     // Anything but a row list would reach `.map` on the search screen.
-    return Array.isArray(parsed) ? (parsed as HomeRow[]) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((row): row is HomeRow => Boolean(row) && Array.isArray((row as HomeRow).items))
+      : [];
   } catch {
     return [];
   }

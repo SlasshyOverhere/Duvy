@@ -105,7 +105,9 @@ export function sample(watch: Watch, next: Sample): Issue[] {
     }
   }
 
-  if (next.playing && next.duration <= 0 && next.at - watch.createdAt > 20_000) {
+  // A watch armed without a start time counts from its first sample instead.
+  const started = watch.createdAt > 0 ? watch.createdAt : (watch.samples[0]?.at ?? next.at);
+  if (next.playing && next.duration <= 0 && next.at - started > 20_000) {
     fire("no-duration", "Playback reports no duration after 20 seconds", {
       position: round(next.position),
     });

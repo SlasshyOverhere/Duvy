@@ -100,6 +100,14 @@ export function episodesUpTo<
   });
 }
 
+/** A CSS url() only for real image links, so addon art cannot break the rule. */
+export function cssImage(value?: string | null): string | undefined {
+  if (!value || !/^(https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|avif)[;,])/i.test(value)) {
+    return undefined;
+  }
+  return `url("${value.replace(/["\\]/g, "\\$&")}")`;
+}
+
 /** Stable tonal backdrop for artwork placeholders, derived from a title. */
 export function placeholderGradient(seed: string): string {
   let hash = 0;
