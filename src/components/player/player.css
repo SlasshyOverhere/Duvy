@@ -1415,10 +1415,9 @@
   top: 104px;
   left: 28px;
   z-index: 3;
-  /* Sized to the longest row so the severities sit close to their labels
-     instead of drifting to the right edge of a fixed column. */
-  width: max-content;
-  max-width: min(17rem, calc(100vw - 3.5rem));
+  /* Fixed width so the meters line up in a column instead of stepping in and
+     out with each label's length. */
+  width: min(15rem, calc(100vw - 3.5rem));
   pointer-events: none;
   /* The artwork behind it is unpredictable, so the type carries its own
      contrast instead of a plate. */
@@ -1447,16 +1446,35 @@
   animation-delay: calc(90ms + var(--row, 0) * 70ms);
 }
 
-/* The dot carries the severity; the word repeats it for anyone who cannot
-   read the colour. */
-.pv .pv-guide-row::before {
-  content: "";
+/* The meter carries the severity: one tick for mild, two for moderate, three
+   for severe. Colour names the tone, the count repeats it. */
+.pv .pv-guide-meter {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--guide-tone, var(--pv-faint));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-tone, transparent) 22%, transparent);
+  display: flex;
+  gap: 3px;
+}
+
+.pv .pv-guide-meter i {
+  width: 13px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pv .pv-guide-meter i:nth-child(-n + 1) {
+  background: var(--guide-tone);
+  box-shadow: 0 0 8px -1px var(--guide-tone);
+}
+
+.pv .pv-guide-row[data-severity="moderate"] .pv-guide-meter i:nth-child(-n + 2),
+.pv .pv-guide-row[data-severity="severe"] .pv-guide-meter i:nth-child(-n + 3) {
+  background: var(--guide-tone);
+  box-shadow: 0 0 8px -1px var(--guide-tone);
+}
+
+/* A clean category is a green tick, not a hole in the list. */
+.pv .pv-guide-row[data-severity="none"] {
+  --guide-tone: #4cc38a;
 }
 
 .pv .pv-guide-row[data-severity="severe"] {
@@ -1471,28 +1489,20 @@
   --guide-tone: #e3c46a;
 }
 
-/* A clean category keeps its line so nothing looks omitted, but it recedes:
-   a hollow dot and a muted label, no severity word. */
-.pv .pv-guide-row[data-severity="none"]::before {
-  background: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34);
-}
-
-.pv .pv-guide-row[data-severity="none"] .pv-guide-label {
-  color: rgba(255, 255, 255, 0.42);
-}
-
 .pv .pv-guide-label {
   flex: 1;
   min-width: 0;
   color: rgba(255, 255, 255, 0.94);
 }
 
-.pv .pv-guide-severity {
-  flex: none;
-  font-size: 0.73rem;
-  text-transform: capitalize;
-  color: var(--guide-tone, var(--pv-muted));
+/* The word is only for screen readers; the ticks are the sighted reading. */
+.pv .pv-guide-say {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Leaving: the rows peel away from the bottom up, then the block lifts out.

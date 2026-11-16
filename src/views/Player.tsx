@@ -107,10 +107,14 @@ function ParentalGuide({
             style={{ "--row": index } as CSSProperties}
           >
             <span className="pv-guide-label">{GUIDE_LABELS[warning.category]}</span>
-            {/* A clean category keeps its line but says nothing. */}
-            {warning.severity === "none" ? null : (
-              <span className="pv-guide-severity">{warning.severity}</span>
-            )}
+            {/* Severity as a meter: three ticks, colour for the tone. The word
+                stays for screen readers, which cannot count ticks. */}
+            <span className="pv-guide-meter" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="pv-guide-say">{warning.severity}</span>
           </li>
         ))}
       </ul>
