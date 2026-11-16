@@ -85,25 +85,38 @@ export function StreamDrawer({
   // so the row itself is draggable.
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
     const node = filtersRef.current;
-    if (!node) return;
+    if (!node || event.button !== 0) return;
     drag.current = { down: true, moved: false, x: event.clientX, left: node.scrollLeft };
   };
 
   const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
     const node = filtersRef.current;
     if (!node || !drag.current.down) return;
+    // A release outside the row never reaches endDrag, so trust the buttons.
     if (event.buttons === 0) {
       drag.current.down = false;
       return;
     }
     const dx = event.clientX - drag.current.x;
-    // A click drifts a few pixels; only a real drag may pan the row.
-    if (!drag.current.moved && Math.abs(dx) < 8) return;
-    drag.current.moved = true;
-    node.scrollLeft = drag.current.left - dx;
+    if (!drag.current.moved) {
+      // A click drifts a few pixels; only a real drag may pan the row.
+      if (Math.abs(dx) < 4) return;
+      // Capture only once it is a drag, so a tap still clicks its chip. The
+      // row is thin, and without capture a pointer that slips off it stops
+      // panning halfway through the gesture.
+      drag.current.moved = true;
+      // Re-anchor so the row does not jump by the dead-zone distance.
+      drag.current.x = event.clientX;
+      drag.current.left = node.scrollLeft;
+      node.setPointerCapture(event.pointerId);
+      return;
+    }
+    node.scrollLeft = drag.current.left - (event.clientX - drag.current.x);
   };
 
-  const endDrag = () => {
+  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
+    const node = filtersRef.current;
+    if (node?.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId);
     drag.current.down = false;
   };
 
