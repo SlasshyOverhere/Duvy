@@ -16,6 +16,14 @@ fn is_tv(media_type: &str) -> bool {
     media_type == "series" || media_type == "tv"
 }
 
+/// IMDb ids are `tt` plus digits. Anything else is untrusted text that must not
+/// be pasted into an upstream path, where `..`, `/` or `?` would move the request.
+pub(crate) fn imdb_id(value: &str) -> Option<&str> {
+    let digits = value.strip_prefix("tt")?;
+    (digits.len() <= 10 && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(value)
+}
+
 fn text(value: Option<&Value>) -> Option<String> {
     value
         .and_then(Value::as_str)
@@ -53,6 +61,7 @@ async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
 
 /// Cinemeta carries every episode in one document, so it owns the video list.
 async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Option<MetaDetails> {
+    let imdb = imdb_id(imdb)?;
     let kind = if is_tv(media_type) { "series" } else { "movie" };
     let value = json(client, &format!("{CINEMETA}/{kind}/{imdb}.json"))
         .await
@@ -318,5 +327,22 @@ mod tests {
         assert_eq!(bare("Jean-Luc Picard"), "jeanlucpicard");
         // A near miss must stay a miss: a wrong face is worse than none.
         assert_ne!(bare("Michael Johnston"), bare("Michael Johnstone"));
+    }
+
+    #[test]
+    fn only_imdb_ids_reach_an_upstream_path() {
+        assert_eq!(imdb_id("tt1234567"), Some("tt1234567"));
+        for refused in [
+            "tt",
+            "kitsu:5",
+            "tt123/../config",
+            "tt123?x=1",
+            "tt123#frag",
+            "TT123",
+            "tt12a45",
+            "tt12345678901",
+        ] {
+            assert_eq!(imdb_id(refused), None, "{refused} is not an id");
+        }
     }
 }

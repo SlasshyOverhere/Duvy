@@ -638,6 +638,9 @@ pub async fn find_by_imdb(
     key: &str,
     imdb_id: &str,
 ) -> Result<Option<(String, String)>, String> {
+    let Some(imdb_id) = crate::meta::imdb_id(imdb_id) else {
+        return Ok(None);
+    };
     let value = get(
         client,
         key,

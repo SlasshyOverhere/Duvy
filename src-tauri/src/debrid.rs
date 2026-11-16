@@ -270,7 +270,10 @@ fn info_hash(source: &str) -> Option<String> {
             continue;
         }
         let hash = value.rsplit(':').next().unwrap_or_default().trim();
-        if hash.len() == 40 || hash.len() == 32 {
+        // Only a real hash: it becomes a path segment on the provider's API.
+        if (hash.len() == 40 || hash.len() == 32)
+            && hash.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
             return Some(hash.to_string());
         }
     }
@@ -1241,6 +1244,9 @@ mod tests {
             Some("2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E".to_string())
         );
         assert_eq!(info_hash("not a hash"), None);
+        // A hash becomes a path segment, so only hash characters get through.
+        assert_eq!(info_hash(&format!("magnet:?xt=urn:btih:{}", "..".repeat(20))), None);
+        assert_eq!(info_hash(&format!("magnet:?xt=urn:btih:{}", "../../".repeat(8))), None);
         assert_eq!(to_magnet(hash), format!("magnet:?xt=urn:btih:{hash}"));
     }
 
