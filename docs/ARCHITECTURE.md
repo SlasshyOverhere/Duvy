@@ -225,9 +225,10 @@ bun run test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-`bun run test` runs three script suites: `player.check.ts` guards the player HUD layout and
-control wiring, `regression.check.ts` guards the updater and player lifecycle wiring, and
-`telemetry.check.ts` guards crash-report scrubbing, deduplication and the playback watchdog.
+`bun run test` runs four script suites: `player.check.ts` guards the player HUD layout and
+control wiring, `regression.check.ts` guards the updater and player lifecycle wiring,
+`telemetry.check.ts` guards crash-report scrubbing, deduplication and the playback watchdog, and
+`analytics.check.ts` guards the usage-count payload, the install id and the off switch.
 
 The Rust unit tests cover addon URL/id building, stream parsing and ranking, metadata helpers,
 SQLite round-trips, settings merge/reset, debrid parsers, Trakt and account-sync merge
