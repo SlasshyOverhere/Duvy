@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { TopBar } from "./components/Shell";
 import { ResizeEdges, WindowControls } from "./components/TitleBar";
+import { isBrowserPreview } from "./lib/bridge";
 import { StoreProvider, useApp } from "./lib/store";
 import { report } from "./lib/telemetry";
 import { CrashReporting } from "./components/Consent";
@@ -183,6 +184,12 @@ function Screen() {
 
   return (
     <div className="app">
+      {isBrowserPreview() ? (
+        <p className="preview-bar">
+          Preview backend: catalogs, sources and playback are fixtures. Install the desktop app
+          for real addons.
+        </p>
+      ) : null}
       <div className="shell">
         <div className="main">
           <TopBar />

@@ -28,12 +28,15 @@ import type {
   WatchedItem,
 } from "./types";
 
+/** Fixtures are dev-only: a release build always talks to Rust. */
+const PREVIEW = import.meta.env.DEV;
+
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export function isBrowserPreview(): boolean {
-  return !isTauri();
+  return PREVIEW && !isTauri();
 }
 
 export async function openExternal(url: string): Promise<void> {
@@ -47,7 +50,7 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauri()) {
+  if (PREVIEW && !isTauri()) {
     // Loaded at runtime only: the desktop app never imports these fixtures.
     const { mock } = await import("./mock");
     return mock(command, args) as Promise<T>;

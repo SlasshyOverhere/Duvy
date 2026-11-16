@@ -1,10 +1,10 @@
 /**
- * Browser-only mock backend.
+ * Dev-only mock backend.
  *
  * `bun run dev` in a normal browser has no Tauri runtime, so the bridge routes
- * commands here instead. This keeps the UI debuggable with HMR and makes the
- * layout reviewable without launching the desktop shell. The desktop build
- * always talks to Rust.
+ * commands here instead. Metadata is canned, but the poster art is fetched from
+ * picsum.photos, so the preview does reach the network. The desktop build always
+ * talks to Rust.
  */
 import type {
   AddonInfo,
@@ -58,6 +58,7 @@ const TITLES_SERIES = [
 
 const GENRES = ["Drama", "Thriller", "Sci-Fi", "Mystery", "Adventure"];
 
+/** Canned rows, real artwork: these URLs are fetched from picsum. */
 function poster(seed: string) {
   return `https://picsum.photos/seed/${encodeURIComponent(seed)}/440/660`;
 }
@@ -216,6 +217,9 @@ const progress: ProgressItem[] = [
   },
 ];
 
+/** Explicit watched marks, the preview's stand-in for the `watched` table. */
+const marks = new Map<string, { metaId: string; at: number }>();
+
 function allItems() {
   return [...MOVIES, ...SERIES];
 }
@@ -225,7 +229,8 @@ function findMeta(id: string): MetaPreview | undefined {
 }
 
 function detailsFor(id: string): Details {
-  const meta = findMeta(id) ?? MOVIES[0];
+  const meta = findMeta(id);
+  if (!meta) throw new Error("That title is not in the preview catalog");
   const isSeries = meta.type === "series";
   const videos = isSeries
     ? Array.from({ length: 8 }, (_, index) => ({
@@ -389,7 +394,7 @@ const delay = (ms = 90) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function mock(command: string, args?: Record<string, unknown>): Promise<unknown> {
   await delay();
-  const payload = (args ?? {}) as Record<string, any>;
+  const payload = (args ?? {}) as Record<string, unknown>;
 
   switch (command) {
     case "app_info":
@@ -399,14 +404,14 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         dataDir: "~/Duvy",
       } satisfies AppInfo;
 
-    // The preview makes no outbound requests of its own.
+    // No HTTP client lives here, so there are no request counters to report.
     case "net_stats":
       return {};
 
     case "settings_get":
       return settings;
     case "settings_set":
-      settings = { ...settings, ...(payload.patch ?? {}) };
+      settings = { ...settings, ...(payload.patch as Partial<Settings> | undefined) };
       return settings;
 
     // Account sync talks to real backends, so the preview reports signed out.
@@ -449,11 +454,13 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       return installed;
     }
     case "addons_remove":
-      addons = addons.filter((addon) => addon.url !== payload.url);
+      addons = addons.filter((addon) => addon.url !== String(payload.url ?? ""));
       return null;
     case "addons_set_enabled":
       addons = addons.map((addon) =>
-        addon.url === payload.url ? { ...addon, enabled: Boolean(payload.enabled) } : addon,
+        addon.url === String(payload.url ?? "")
+          ? { ...addon, enabled: Boolean(payload.enabled) }
+          : addon,
       );
       return null;
 
@@ -526,14 +533,28 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       if (index >= 0) progress.splice(index, 1);
       return null;
     }
-    case "watched_set":
+    case "watched_set": {
+      const key = String(payload.key ?? "");
+      if (!key) return null;
+      if (payload.watched) {
+        marks.set(key, { metaId: String(payload.metaId ?? ""), at: Date.now() });
+      } else {
+        marks.delete(key);
+      }
       return null;
-    case "watched_marks":
-      return [];
-    case "watched_keys":
-      return progress
+    }
+    case "watched_marks": {
+      const metaId = String(payload.metaId ?? "");
+      return [...marks]
+        .filter(([, mark]) => mark.metaId === metaId)
+        .map(([key, mark]) => [key, mark.at] as [string, number]);
+    }
+    case "watched_keys": {
+      const finished = progress
         .filter((entry) => entry.duration > 0 && entry.position >= entry.duration * 0.9)
         .map((entry) => entry.key);
+      return [...new Set([...marks.keys(), ...finished])];
+    }
     case "cast_photos":
       return {};
     case "similar":
@@ -593,7 +614,8 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         player.start = Date.now();
       }
       if (action === "stop") player = null;
-      return snapshot();
+      // The bridge declares this command as a plain acknowledgement.
+      return null;
     }
     case "player_stop":
       player = null;

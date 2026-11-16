@@ -285,6 +285,18 @@ select {
   overflow: hidden;
 }
 
+/* A fixture backend must never pass for the real one. */
+.preview-bar {
+  flex: none;
+  margin: 0;
+  padding: 7px var(--pad);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 /* One definition for every window button, header and player alike. */
 .win-bar {
   display: flex;
