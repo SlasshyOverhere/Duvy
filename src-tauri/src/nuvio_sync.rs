@@ -612,9 +612,10 @@ fn content_type(value: &Value) -> String {
 }
 
 /// Local progress key for a remote entry: `metaId` for movies, `metaId:s:e`
-/// for episodes, so Duvy can resolve its own resume lookups.
+/// for episodes, so Duvy can resolve its own resume lookups. Season 0 is a
+/// real season (specials), so the episode number alone decides.
 fn local_key(content_id: &str, season: i64, episode: i64) -> String {
-    if season > 0 && episode > 0 {
+    if episode > 0 {
         format!("{content_id}:{season}:{episode}")
     } else {
         content_id.to_string()
@@ -1195,6 +1196,8 @@ mod tests {
     fn keys_round_trip_to_nuvio_shape() {
         assert_eq!(local_key("tt1", 0, 0), "tt1");
         assert_eq!(local_key("tt1", 2, 5), "tt1:2:5");
+        // A season-0 special is an episode, not the whole title.
+        assert_eq!(local_key("tt1", 0, 3), "tt1:0:3");
     }
 
     #[test]
