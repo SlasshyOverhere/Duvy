@@ -10,6 +10,10 @@ const SECRET_KEY =
   /token|secret|password|authorization|cookie|api[-_]?key|info[-_]?hash|magnet|timezone|culture|e-?mail|user-?name/i;
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>\\]+/gi;
+// Catches a credential in the tail of a link that would not parse, where the URL
+// pass stopped at the whitespace and left `?token=...` behind as plain text.
+const SECRET_PARAM_IN_TEXT =
+  /\b(?:token|secret|password|api[-_]?key|passkey|info[-_]?hash|key)=[^\s&"'<>]+/gi;
 const MAGNET_IN_TEXT = /magnet:\?[^\s"'<>]+/gi;
 // Any absolute Windows path and the two POSIX home roots: the segment after the
 // root is the account name, localized Windows folder or not.
@@ -36,6 +40,7 @@ export function cleanText(text: string): string {
         return "[url]";
       }
     })
+    .replace(SECRET_PARAM_IN_TEXT, "[redacted]")
     .replace(MAGNET_IN_TEXT, "magnet:?[redacted]")
     .replace(EMAIL_IN_TEXT, "[email]")
     .replace(HOME_IN_TEXT, "[home]")

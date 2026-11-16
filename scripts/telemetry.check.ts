@@ -114,6 +114,18 @@ check("a link that will not parse is blanked", () => {
   return bad;
 });
 
+check("a token in a link with a space is scrubbed", () => {
+  const out = cleanText("open https://[bad host]/x?token=s3cret then retry the stream");
+  const bad: string[] = [];
+  if (out.includes("s3cret")) bad.push(`token survived: ${out}`);
+  if (!out.includes("open ") || !out.includes("then retry the stream")) {
+    bad.push(`the surrounding text was lost: ${out}`);
+  }
+  const prose = cleanText("see https://debrid.example/x now");
+  if (!prose.includes("now")) bad.push(`prose after a parsed link was lost: ${prose}`);
+  return bad;
+});
+
 check("expected noise is dropped, real failures are not", () => {
   const bad: string[] = [];
   if (!isNoise("ResizeObserver loop completed with undelivered notifications.")) {
