@@ -1461,7 +1461,7 @@ pub async fn watched_set(
 // on the UI thread. Blocking there freezes the whole window.
 #[tauri::command]
 pub async fn player_open(
-    request: PlayRequest,
+    mut request: PlayRequest,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Snapshot, String> {
@@ -1473,6 +1473,10 @@ pub async fn player_open(
     let Some(_opening) = state.player.begin_open() else {
         return Err("The player is already opening".into());
     };
+    // A media-server handle is resolved here, so its token never crosses IPC.
+    if crate::servers::is_stream_handle(&request.url) {
+        request.url = crate::servers::resolve_stream(&state, request.url.trim()).await?;
+    }
     if let Ok(dir) = app.path().app_data_dir() {
         crate::playback_log::init(&dir);
     }
