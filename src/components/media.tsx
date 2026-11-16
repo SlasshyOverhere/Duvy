@@ -435,13 +435,12 @@ export function ContinueCard({
     },
   ];
 
-  if (gone) return null;
-
   return (
     <div className="continue-item">
       <button
         type="button"
         className="continue-card"
+        aria-label={next ? `${name}, next up` : `Resume ${name}`}
         onClick={onOpen}
         onContextMenu={(event) => {
           event.preventDefault();
