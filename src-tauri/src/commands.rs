@@ -259,6 +259,30 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
 }
 
+/// A TMDB-only id and its IMDb twin are the same title, so one id owns the rows.
+fn adopt_imdb_id(state: &AppState, details: &MetaDetails) {
+    let real = match details.imdb_id.as_deref().filter(|id| id.starts_with("tt")) {
+        Some(imdb) => imdb,
+        None if details.id.starts_with("tt") => details.id.as_str(),
+        None => return,
+    };
+    let mut stale = vec![details.id.clone()];
+    if details.id.starts_with("tt")
+        && let Some(tmdb_id) = details.tmdb_id
+    {
+        // Older builds keyed a title by its TMDB id, in both spellings.
+        for kind in ["series", "tv", "movie"] {
+            stale.push(format!("tmdb:{kind}:{tmdb_id}"));
+        }
+    }
+    let conn = state.db.conn();
+    for old in &stale {
+        if let Err(error) = db::adopt_meta(&conn, old, real) {
+            crate::playback_log::mark(format!("could not fold {old} onto {real}: {error}"));
+        }
+    }
+}
+
 /// Metadata addons in list order, but bounded: nine of them in a row, each on
 /// the shared client timeout, is how a details page ends up waiting seconds.
 async fn addon_meta(addons: &[StoredAddon], id: &str, media_type: &str) -> Option<Meta> {
@@ -1077,6 +1101,7 @@ pub async fn meta_details(
         {
             details.videos = crate::meta::videos(&state.http, &imdb, &details.media_type).await;
         }
+        adopt_imdb_id(&state, &details);
         return Ok(details);
     }
 
@@ -1158,6 +1183,7 @@ pub async fn meta_details(
         merge_details(&mut details, rich);
     }
 
+    adopt_imdb_id(&state, &details);
     Ok(details)
 }
 

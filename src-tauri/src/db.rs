@@ -554,6 +554,55 @@ pub fn set_progress_meta(
     Ok(())
 }
 
+/// One title can arrive under two ids: the IMDb one addons stream and the TMDB
+/// one a list row carried. Fold the stale id's rows onto the real one.
+pub fn adopt_meta(conn: &Connection, stale: &str, real: &str) -> rusqlite::Result<()> {
+    if stale == real || !stale.starts_with("tmdb:") || !real.starts_with("tt") {
+        return Ok(());
+    }
+    // Nothing to fold in the common case, so skip the write transaction.
+    let present: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM progress WHERE meta_id = ?1)
+             OR EXISTS (SELECT 1 FROM watched WHERE meta_id = ?1)
+             OR EXISTS (SELECT 1 FROM library WHERE id = ?1)",
+        params![stale],
+        |row| row.get(0),
+    )?;
+    if !present {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
+                               episode, episode_title, position, duration, updated_at)
+         SELECT ?2 || substr(key, length(?1) + 1), ?2, media_type, name, poster, background,
+                season, episode, episode_title, position, duration, updated_at
+         FROM progress WHERE meta_id = ?1
+         ON CONFLICT(key) DO UPDATE SET
+           meta_id = ?2, media_type = excluded.media_type, name = excluded.name,
+           poster = excluded.poster, background = excluded.background, season = excluded.season,
+           episode = excluded.episode, episode_title = excluded.episode_title,
+           position = excluded.position, duration = excluded.duration,
+           updated_at = excluded.updated_at
+         WHERE excluded.updated_at > progress.updated_at",
+        params![stale, real],
+    )?;
+    tx.execute("DELETE FROM progress WHERE meta_id = ?1", params![stale])?;
+    tx.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at)
+         SELECT ?2 || substr(key, length(?1) + 1), ?2, watched, updated_at
+         FROM watched WHERE meta_id = ?1
+         ON CONFLICT(key) DO UPDATE SET
+           meta_id = ?2, watched = excluded.watched, updated_at = excluded.updated_at
+         WHERE excluded.updated_at > watched.updated_at",
+        params![stale, real],
+    )?;
+    tx.execute("DELETE FROM watched WHERE meta_id = ?1", params![stale])?;
+    tx.execute("UPDATE OR IGNORE library SET id = ?2 WHERE id = ?1", params![stale, real])?;
+    tx.execute("DELETE FROM library WHERE id = ?1", params![stale])?;
+    tx.commit()
+}
+
 /// Library rows that arrived from the account with nothing but an id.
 pub fn library_missing_meta(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(

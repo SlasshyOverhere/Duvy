@@ -71,6 +71,8 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
   const details = loaded?.key === cacheKey ? loaded.details : null;
+  // A TMDB id and its IMDb twin are the same title, so one id owns its rows.
+  const metaId = details?.imdbId ?? id;
 
   useEffect(() => {
     let alive = true;
@@ -151,7 +153,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   useEffect(() => {
     let alive = true;
     api.watched
-      .marks(id)
+      .marks(metaId)
       .then((rows) => {
         if (alive) setMarked(rows);
       })
@@ -159,17 +161,17 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     return () => {
       alive = false;
     };
-  }, [id, watched]);
+  }, [metaId, watched]);
 
   const marks = useMemo(() => new Map(marked), [marked]);
 
   const toggleEpisodeWatched = useCallback(
     (key: string, next: boolean) => {
-      markWatched(key, id, next)
+      markWatched(key, metaId, next)
         .then(() => notify(next ? "Marked as watched" : "Marked as unwatched"))
         .catch(() => notify("Could not update that", "error"));
     },
-    [markWatched, id, notify],
+    [markWatched, metaId, notify],
   );
 
   /** Every episode from the first one through `target` still needing a mark. */
@@ -191,11 +193,11 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     (target: Video) => {
       const keys = unmarkedUpTo(target);
       if (!keys.length) return;
-      markWatchedMany(keys, id)
+      markWatchedMany(keys, metaId)
         .then(() => notify(`${keys.length} episodes marked as watched`))
         .catch(() => notify("Could not update those", "error"));
     },
-    [unmarkedUpTo, markWatchedMany, id, notify],
+    [unmarkedUpTo, markWatchedMany, metaId, notify],
   );
 
   const defaultSeason = useMemo(() => (details ? firstSeason(details) : null), [details]);
@@ -233,7 +235,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const resumeTarget = useMemo(() => {
     if (!details) return { video: null as Video | null, position: 0, label: "Play" };
     if (details.type !== "series") {
-      const entry = progressFor(details.id);
+      const entry = progressFor(metaId);
       return {
         video: null,
         position: entry?.position ?? 0,
@@ -267,7 +269,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       position: entry?.position ?? 0,
       label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
-  }, [details, seriesProgress, progressFor, buildSession, marks]);
+  }, [details, seriesProgress, progressFor, buildSession, marks, metaId]);
 
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
@@ -278,7 +280,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         ? target
           ? progressFor(buildSession(details, target).key)
           : null
-        : progressFor(details.id);
+        : progressFor(metaId);
     if (entry) {
       void resumeEntry(entry);
       return;
@@ -429,10 +431,10 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     );
   }
 
-  const inWatchlist = inLibrary(details.id);
+  const inWatchlist = inLibrary(metaId);
   const rating = scoreLabel(details.rating);
   const trailer = details.trailer;
-  const logo = details.logo ?? rememberedLogo(details.id);
+  const logo = details.logo ?? rememberedLogo(metaId);
 
   return (
     <div className="page detail-page">
@@ -495,7 +497,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                   icon={inWatchlist ? "check" : "plus"}
                   onClick={() =>
                     void toggleLibrary({
-                      id: details.id,
+                      id: metaId,
                       type: details.type,
                       name: details.name,
                       poster: details.poster,

@@ -136,12 +136,14 @@ export function usePlayer(): PlayerSnapshot | null {
 function sessionFor(details: Details, video: Video | null): PlaybackSession {
   const season = video?.season ?? null;
   const episode = video?.episode ?? video?.number ?? null;
+  // A TMDB id and its IMDb twin are the same title, so both routes share a row.
+  const metaId = details.imdbId ?? details.id;
   return {
     key:
       season != null && episode != null
-        ? `${details.id}:${season}:${episode}`
-        : details.id,
-    metaId: details.id,
+        ? `${metaId}:${season}:${episode}`
+        : metaId,
+    metaId,
     type: details.type,
     name: details.name,
     poster: details.poster ?? null,
@@ -1361,7 +1363,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const last = fromStart
             ? undefined
             : progress
-                .filter((entry) => entry.metaId === details.id)
+                .filter((entry) => entry.metaId === (details.imdbId ?? details.id))
                 .sort((a, b) => b.updatedAt - a.updatedAt)[0];
           video =
             (last

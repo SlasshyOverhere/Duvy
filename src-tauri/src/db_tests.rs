@@ -376,6 +376,61 @@ fn unmarking_an_unfinished_title_keeps_the_playhead() {
 }
 
 #[test]
+fn adopting_an_imdb_id_folds_the_tmdb_rows() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    for (key, meta_id, position, updated_at) in [
+        ("tmdb:series:5:1:2", "tmdb:series:5", 300.0, 1),
+        ("tt9:1:2", "tt9", 700.0, 2),
+    ] {
+        db::save_progress(
+            &conn,
+            &db::ProgressItem {
+                key: key.into(),
+                meta_id: meta_id.into(),
+                media_type: "series".into(),
+                name: "A Show".into(),
+                poster: None,
+                background: None,
+                season: Some(1),
+                episode: Some(2),
+                episode_title: None,
+                position,
+                duration: 1000.0,
+                updated_at,
+            },
+        )
+        .expect("playhead");
+    }
+    db::set_watched(&conn, "tmdb:series:5:1:2", "tmdb:series:5", true).expect("mark");
+    db::add_to_library(
+        &conn,
+        &db::LibraryItem {
+            id: "tmdb:series:5".into(),
+            media_type: "series".into(),
+            name: "A Show".into(),
+            poster: None,
+            background: None,
+            added_at: 1,
+            meta: None,
+        },
+    )
+    .expect("library");
+
+    db::adopt_meta(&conn, "tmdb:series:5", "tt9").expect("adopt");
+
+    let rows = db::all_progress(&conn).expect("progress");
+    assert_eq!(rows.len(), 1, "one row per episode, not two");
+    assert_eq!(rows[0].key, "tt9:1:2");
+    assert_eq!(rows[0].meta_id, "tt9");
+    assert_eq!(rows[0].position, 700.0, "the newer playhead wins");
+    assert_eq!(db::list_watched(&conn).unwrap(), vec!["tt9:1:2".to_string()]);
+    let library = db::list_library(&conn).expect("library");
+    assert_eq!(library.len(), 1);
+    assert_eq!(library[0].id, "tt9");
+}
+
+#[test]
 fn continue_watching_stops_exactly_at_the_finish_line() {
     let temp = TempDb::new();
     let conn = temp.open();
