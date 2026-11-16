@@ -7,6 +7,9 @@ import { Button, EmptyState, Loading } from "../components/ui";
 
 const DAY: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
 
+// A face is often reopened, and a person's facts barely change.
+const PERSON_CACHE = new Map<number, PersonDetails>();
+
 /** Birthday, death and age on one line, the way Nuvio writes it. */
 function bornLabel(person: PersonDetails): string | null {
   if (!person.birthday) return null;
@@ -28,7 +31,9 @@ function bornLabel(person: PersonDetails): string | null {
 
 export function PersonView({ id }: { id: number }) {
   const { navigate } = useApp();
-  const [person, setPerson] = useState<PersonDetails | null>(null);
+  const [person, setPerson] = useState<PersonDetails | null>(
+    () => PERSON_CACHE.get(id) ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -37,7 +42,9 @@ export function PersonView({ id }: { id: number }) {
     api
       .person(id)
       .then((result) => {
-        if (alive) setPerson(result);
+        if (!alive) return;
+        PERSON_CACHE.set(id, result);
+        setPerson(result);
       })
       .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : String(e));
