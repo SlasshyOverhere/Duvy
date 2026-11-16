@@ -747,6 +747,22 @@ fn a_finished_mark_older_than_the_position_does_not_hide_the_title() {
     cleanup(conn, path);
 }
 
+#[cfg(unix)]
+#[test]
+fn the_database_file_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = temp_path();
+    let conn = db::open(&path).expect("open");
+    let mode = std::fs::metadata(&path)
+        .expect("metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600, "watch history must not be world readable");
+    cleanup(conn, path);
+}
+
 #[test]
 fn credentials_are_never_persisted_in_a_reversible_form() {
     let (conn, path) = temp_database();

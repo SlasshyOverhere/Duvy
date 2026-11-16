@@ -112,6 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_progress_meta_updated ON progress(meta_id, update
 const MIGRATIONS: &[&str] = &[V1, V2];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
+    crate::owner_only(path);
     let conn = Connection::open(path)?;
     conn.execute_batch(PRAGMAS)?;
     migrate(&conn)?;

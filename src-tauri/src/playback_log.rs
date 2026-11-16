@@ -43,6 +43,7 @@ pub fn init(dir: &Path) {
             let _ = std::fs::remove_file(&path);
         }
     }
+    crate::owner_only(&path);
     *lock(&START) = Some(Instant::now());
     *file = Some(path);
 }
@@ -108,5 +109,25 @@ mod tests {
             lines[1].contains("+"),
             "second line reports the gap: {lines:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_log_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("duvy-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("playback.log");
+        let _ = std::fs::remove_file(&path);
+        super::init(&dir);
+        super::mark("permission check");
+        let mode = std::fs::metadata(&path)
+            .expect("log file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "the log carries stream URLs");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

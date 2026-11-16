@@ -517,6 +517,29 @@ pub(crate) fn heal<T>(value: &mut Option<T>, healed: &AtomicBool, label: &str) {
     }
 }
 
+/// Owner-only permissions for files holding history or credentials.
+#[cfg(unix)]
+pub(crate) fn owner_only(path: &std::path::Path) {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(file) => {
+            let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+        }
+        Err(error) => eprintln!("[fs] cannot restrict {}: {error}", path.display()),
+    }
+}
+
+/// The files sit in the per-user app data directory, whose inherited ACL is
+/// already owner-only.
+#[cfg(not(unix))]
+pub(crate) fn owner_only(_path: &std::path::Path) {}
+
 /// Run SQLite work off the UI thread. Sync commands run on the main thread, so
 /// one contended write there would freeze the window for the whole busy_timeout;
 /// the async workers are no place for a blocking call either, hence the pool.
