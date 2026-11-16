@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as KeyEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
@@ -232,38 +233,10 @@ export const PosterCard = memo(function PosterCard({
   );
 });
 
-export function Row({
-  title,
-  detail,
-  children,
-}: {
-  title: string;
-  detail?: ReactNode;
-  children: ReactNode;
-}) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const [atStart, setAtStart] = useState(true);
-  const [atEnd, setAtEnd] = useState(false);
-
-  const measure = () => {
-    const node = scroller.current;
-    if (!node) return;
-    setAtStart(node.scrollLeft < 8);
-    setAtEnd(node.scrollLeft + node.clientWidth >= node.scrollWidth - 8);
-  };
-
-  // Cards arrive after the first paint, so the arrows re-measure with them.
-  useEffect(measure, [children]);
-
-  const scroll = (direction: number) => {
-    const node = scroller.current;
-    if (!node) return;
-    node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
-  };
-
-  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+/** Grab-and-drag a scroller like a touch surface; a drag never opens a card. */
+export function useDragScroll(ref: RefObject<HTMLElement | null>, rebind?: unknown) {
   useEffect(() => {
-    const node = scroller.current;
+    const node = ref.current;
     if (!node) return;
     let start: { x: number; left: number } | null = null;
     let moved = false;
@@ -320,7 +293,40 @@ export function Row({
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, []);
+  }, [ref, rebind]);
+}
+
+export function Row({
+  title,
+  detail,
+  children,
+}: {
+  title: string;
+  detail?: ReactNode;
+  children: ReactNode;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const measure = () => {
+    const node = scroller.current;
+    if (!node) return;
+    setAtStart(node.scrollLeft < 8);
+    setAtEnd(node.scrollLeft + node.clientWidth >= node.scrollWidth - 8);
+  };
+
+  // Cards arrive after the first paint, so the arrows re-measure with them.
+  useEffect(measure, [children]);
+
+  const scroll = (direction: number) => {
+    const node = scroller.current;
+    if (!node) return;
+    node.scrollBy({ left: direction * node.clientWidth * 0.82, behavior: "smooth" });
+  };
+
+  // Grab-and-drag the row like a touch surface; a drag never opens a card.
+  useDragScroll(scroller);
 
   return (
     <section className="row">

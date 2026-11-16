@@ -2632,6 +2632,7 @@ button.pill:hover {
   padding: 4px 4px 8px;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
+  cursor: grab;
 }
 
 .episode-list::-webkit-scrollbar {
@@ -2824,10 +2825,19 @@ button.pill:hover {
   margin-inline: -4px;
   padding: 4px 4px 8px;
   scrollbar-width: none;
+  cursor: grab;
 }
 
 .cast-grid::-webkit-scrollbar {
   height: 0;
+}
+
+/* A drag is a scroll, not a click, so the cursor says so while it happens. */
+.episode-list.is-dragging,
+.cast-grid.is-dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
+  user-select: none;
 }
 
 .cast-card {
