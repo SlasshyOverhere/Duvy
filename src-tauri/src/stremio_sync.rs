@@ -392,7 +392,7 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
 
         let times = int(state, "timesWatched");
         let flagged = int(state, "flaggedWatched");
-        let finished = duration > 0 && offset * 10 >= duration * 9;
+        let finished = duration > 0 && offset.saturating_mul(10) >= duration.saturating_mul(9);
         // A partial playhead is the current state even when the title was
         // finished before. `timesWatched` is per title, not per episode, so a
         // series only counts the current video's own flag.
@@ -775,12 +775,12 @@ fn library_record(
             if progress.key.starts_with(&format!("{}:", progress.meta_id)) {
                 state.insert("video_id".into(), Value::String(progress.key.clone()));
             }
-            if duration > 0 && offset * 10 >= duration * 9 {
+            if duration > 0 && offset.saturating_mul(10) >= duration.saturating_mul(9) {
                 let times = state
                     .get("timesWatched")
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
-                state.insert("timesWatched".into(), json!(times + 1));
+                state.insert("timesWatched".into(), json!(times.saturating_add(1)));
                 if progress.media_type == "movie" {
                     state.insert("flaggedWatched".into(), json!(1));
                 }
@@ -822,6 +822,18 @@ fn parse_iso(text: &str) -> Option<i64> {
         let digits: String = fraction.chars().take(3).collect();
         format!("{digits:0<3}").parse().ok()?
     };
+    // A field out of range is a different instant, not a lenient parse.
+    if date.next().is_some()
+        || clock.next().is_some()
+        || !(1900..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || seconds > 60
+    {
+        return None;
+    }
     let days = days_from_civil(year, month, day);
     Some(days * 86_400_000 + (hour * 3600 + minute * 60 + seconds) * 1000 + millis)
 }
@@ -1058,5 +1070,22 @@ mod tests {
         assert_eq!(text, "2026-10-28T12:24:56Z");
         assert_eq!(parse_iso(&text), Some(ms));
         assert_eq!(parse_iso("2026-10-28T12:24:56.789Z"), Some(ms + 789));
+    }
+
+    #[test]
+    fn an_out_of_range_stremio_date_is_rejected() {
+        for bad in [
+            "2026-13-28T12:24:56Z",
+            "2026-10-32T12:24:56Z",
+            "2026-10-28T24:24:56Z",
+            "2026-10-28T12:61:56Z",
+            "2026-10-28T12:24:61Z",
+            "2026/10/28T12:24:56Z",
+            "2026-10-28T12:24:56Z:30",
+            "999999999999-10-28T12:24:56Z",
+            "not a date",
+        ] {
+            assert_eq!(parse_iso(bad), None, "{bad} must be rejected");
+        }
     }
 }
