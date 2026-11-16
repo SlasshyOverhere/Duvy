@@ -343,6 +343,107 @@ fn marking_a_finished_title_unwatched_removes_it() {
 }
 
 #[test]
+fn unmarking_an_unfinished_title_keeps_the_playhead() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            key: "tt9:1:2".into(),
+            meta_id: "tt9".into(),
+            media_type: "series".into(),
+            name: "A Show".into(),
+            poster: None,
+            background: None,
+            season: Some(1),
+            episode: Some(2),
+            episode_title: None,
+            position: 300.0,
+            duration: 1000.0,
+            updated_at: 1,
+        },
+    )
+    .expect("playhead");
+    db::set_watched(&conn, "tt9:1:2", "tt9", true).expect("mark");
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+
+    // Unmarking retires the mark, not the position: the card has to come back.
+    db::set_watched(&conn, "tt9:1:2", "tt9", false).expect("unmark");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    let back = db::list_continue_watching(&conn).expect("continue");
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].position, 300.0);
+}
+
+#[test]
+fn continue_watching_stops_exactly_at_the_finish_line() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    for (index, position) in [5.0, 6.0, 899.0, 900.0, 920.0].into_iter().enumerate() {
+        db::save_progress(
+            &conn,
+            &db::ProgressItem {
+                key: format!("tt{index}"),
+                meta_id: format!("tt{index}"),
+                media_type: "movie".into(),
+                name: "A Film".into(),
+                poster: None,
+                background: None,
+                season: None,
+                episode: None,
+                episode_title: None,
+                position,
+                duration: 1000.0,
+                updated_at: 0,
+            },
+        )
+        .expect("playhead");
+    }
+    let shown: Vec<f64> = db::list_continue_watching(&conn)
+        .expect("continue")
+        .iter()
+        .map(|row| row.position)
+        .collect();
+    // A second of playback is not a position, and 90% is already finished.
+    assert_eq!(shown, vec![899.0, 6.0]);
+}
+
+#[test]
+fn a_mark_without_a_playhead_still_has_a_type_and_an_episode() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    db::set_watched(&conn, "tt8:2:3", "tt8", true).expect("mark");
+
+    let rows = db::list_watched_items(&conn).expect("watched");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].media_type, "series");
+    assert_eq!(rows[0].season, Some(2));
+    assert_eq!(rows[0].episode, Some(3));
+    // The placeholder borrows the row for its metadata, not as a playhead.
+    assert!(db::list_progress(&conn).unwrap().is_empty());
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+}
+
+#[test]
+fn an_older_mark_cannot_resurrect_an_unwatched_title() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    db::set_watched(&conn, "tt4", "tt4", true).expect("mark");
+    db::set_watched(&conn, "tt4", "tt4", false).expect("unmark");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+
+    // The upsert every sync merge uses, with a timestamp from before the unmark.
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES ('tt4', 'tt4', 1, 1)
+         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= watched.updated_at",
+        [],
+    )
+    .expect("merge");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+}
+
+#[test]
 fn clear_history_keeps_library_addons_settings_and_people() {
     let temp = TempDb::new();
     let conn = temp.open();
