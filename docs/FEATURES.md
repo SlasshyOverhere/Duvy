@@ -1,6 +1,6 @@
 # Features
 
-What works in Duvy 0.1.14 beta, and where each area stops. This is a per-area snapshot, not
+What works in Duvy 0.1.15 beta, and where each area stops. This is a per-area snapshot, not
 a delivery promise. Planned work lives in [`ROADMAP.md`](./ROADMAP.md).
 
 Legend: **Done** works in the beta · **Partial** works but is narrower · **Planned** not built.
@@ -12,8 +12,9 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Catalog browsing | **Done** | Home rows from installed addons, drag-to-scroll, auto-rotating art-led hero; no dedicated Discover browser |
 | Global search | **Done** | Every addon with a `search` extra, plus TMDB when keyed; addon results stream in |
 | Recent searches | **Done** | Last eight, deduped, clickable and removable |
-| Title details | **Done** | Artwork and title logos, ratings, cast photos, trailer link, similar titles |
-| Episode browser | **Done** | Season tabs, episode list, per-episode progress |
+| Title details | **Done** | Artwork and title logos, ratings, cast photos, trailer cards, similar titles, plus studio (film) or network (show) and the film's franchise rail |
+| Episode browser | **Done** | Season tabs, a draggable episode rail, per-episode progress and right-click watched actions |
+| Person pages | **Done** | Portrait, birth and death dates, birthplace, biography and Popular / Latest / Upcoming rails; opened from a cast card and cached for a revisit. Needs a TMDB key |
 | Addon protocol | **Done** | Catalog, meta, stream and subtitle endpoints; install, remove, enable, disable |
 | Addon management | **Partial** | Reorder, manifest refresh and a Configure button from `behaviorHints`; a user-installed addon can be switched off without being removed, and a switched-off addon is never asked. Cinemeta is the built-in default and has no switch. No permissions, collections or per-catalog toggles |
 | Stream picker | **Done** | Quality, size, seeds, cached, HDR, languages, addon filter, size-first or addon-order sorting, copy link and open in browser; no presets or regex autoplay |
@@ -39,10 +40,12 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | Subtitle auto-sync | **Planned** | No analysis or automatic offset |
 | Cache buffers | **Done** | Forward and backward demuxer buffers in seconds, minutes or megabytes from Settings |
 | Speed, volume, seek | **Done** | Player console controls; volume is applied immediately |
-| In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels, hidden by an idle watchdog |
+| In-player overlay | **Done** | Custom HUD with track, subtitle, skip and style panels, hidden by an idle watchdog; `I` opens a stream info panel and a paused picture shows the title, source, runtime and synopsis |
 | Start screen | **Done** | Backdrop and title logo while the source resolves, then the first frame |
 | Seek-bar previews | **Done** | Frame previews from a scratch in-process libmpv |
-| Skip recap/intro/outro | **Partial** | Community markers (recap, intro, outro) plus manual per-show overrides; visible button, no credits or post-credits segments |
+| Skip recap/intro/outro | **Partial** | Community markers (recap, intro, outro) plus manual per-show overrides; a labelled button also skips credits and lands on a post-credits scene. No auto-skip |
+| Parents guide | **Done** | IMDb parents guide for the title as the picture starts: nudity, violence, profanity, alcohol and frightening with a severity meter, shown once; no setting and no other guide source |
+| Video fit modes | **Done** | Fit, fill and stretch, remembered between sessions |
 | Watch party | **Planned** | Needs a sync backend |
 
 ## Sources
@@ -62,9 +65,9 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 | --- | --- | --- |
 | TMDB | **Done** | Optional key; discovery rows, search, artwork, cast |
 | Trakt | **Done** | User-supplied API app, device-code auth, scrobbling, watched/progress sync |
-| Cloud account sync | **Done (best effort)** | Library, progress and watched state against the provider's backend; deletions are not pushed and the API may change |
-| Addon-account sync | **Done (best effort)** | Addons, library and resume points pulled and pushed through the client API, deduped by manifest URL; series watched state is not fully mapped |
-| Profiles | **Partial** | Only cloud-account profile selection; no local profiles or PIN |
+| Nuvio Cloud sync | **Done (best effort)** | Email and password sign-in to the Nuvio backend: profiles, watch progress, watched items, library and addons, merged by timestamp; addons are pull-only and deletions are not pushed |
+| Stremio sync | **Done (best effort)** | Account sign-in over `api.strem.io`: addons and library pulled and pushed, deduped by manifest URL; only the latest watched episode is imported |
+| Profiles | **Partial** | Only Nuvio Cloud profile selection; no local profiles or PIN |
 | Simkl | **Planned** | Not built |
 | MDBList | **Planned** | Not built |
 | Notifications | **Partial** | Desktop notification for new releases; no notification service or per-event controls |

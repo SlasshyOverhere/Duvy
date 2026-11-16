@@ -33,13 +33,14 @@ Run the narrowest check that covers your change, then the full set before you op
 ```bash
 bun run check      # tsc --noEmit
 bun run build      # tsc && vite build
-bun run test       # player HUD, regression and crash-report checks
+bun run test       # player HUD, regression, crash-report and usage-count checks
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI runs `check`, `build`, `test` and the Rust tests on `windows-latest`. Playback, debrid, Trakt,
-sync and server paths are not covered by automated tests; say in the pull request what you tested
-by hand.
+CI runs `check`, `build`, `test`, clippy and the Rust tests on `windows-latest`. Playback, debrid,
+Trakt, sync and server paths are not covered by automated tests; say in the pull request what you
+tested by hand.
 
 ## Code
 

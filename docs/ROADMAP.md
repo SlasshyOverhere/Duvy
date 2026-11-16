@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned work for Duvy, audited October 2026. Shipped features live in
+Planned work for Duvy, audited November 2026. Shipped features live in
 [`FEATURES.md`](./FEATURES.md); this file is only the work queue.
 
 Effort is a rough single-developer estimate, not a promise:
@@ -28,6 +28,15 @@ Effort is a rough single-developer estimate, not a promise:
 | Addon reorder, manifest refresh and a Configure button from `behaviorHints` |
 | Opt-in crash reports with scrubbed events, a masked replay and a local `playback.log` |
 | Player chrome hides on an idle watchdog; source lists sort by file size or addon order |
+| Person pages with biography and Popular / Latest / Upcoming rails, opened from a cast card |
+| Studio, network and franchise sections on details, with draggable episode and cast rails |
+| IMDb parents guide card with a severity meter as playback starts |
+| Post-credits scene handling: skip labels for intro, outro, credits and post-credits |
+| Stream info panel (`I`) with resolution, frame rate, codec, HDR and source facts |
+| Fit, fill and stretch video modes, remembered across sessions |
+| Wheel volume; title art and runtime on poster and continue-card hover |
+| Nuvio Cloud and Stremio sync hardened: base URLs validated before credentials are sent, guarded DNS and redirects, one sync pass at a time |
+| One title identity across TMDB and IMDb ids, with catch-up marking up to an episode |
 
 ## Start here
 
@@ -35,7 +44,7 @@ The five highest value-per-effort items, in order:
 
 1. **DL-01 downloads + offline** - the biggest real capability hole.
 2. **PF-01 profiles + PIN** - every per-profile feature is blocked behind it.
-3. **PL-01 subtitle auto-sync + PL-05 visible skip button** - the player polish users actually feel.
+3. **PL-01 subtitle auto-sync + PL-07 next-episode rules** - the player polish users still feel.
 4. **RG-07 deep links + RG-08 window restore** - small, and they unblock party and trailer links.
 5. **SP-13 real cached status** - the cache-check command exists and nothing calls it.
 
@@ -44,38 +53,34 @@ The five highest value-per-effort items, in order:
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
 | PL-01 | Subtitle auto-sync | Retiming cues against embedded audio (timeline retime, aggressive/passive mode, "synced" state) | XL | Needs audio fingerprinting or a timing service |
-| PL-02 | Subtitle language policy | Preferred + secondary language, forced-only, strip SDH, preferred-only filter | M | One `subtitleLanguage` string today |
+| PL-02 | Subtitle language policy | Preferred + secondary language, forced-only, strip SDH, preferred-only filter | M | One subtitle and one audio language string today |
 | PL-03 | Subtitle style depth | Outline width, render scale, font choice | S | Size, bold, colour, outline colour, background, position and delay shipped; ASS tracks keep their own styling until edited |
 | PL-04 | Skip providers (rest) | AniSkip / AnimeSkip lookup, id resolution (MAL, Kitsu), provider priority | M | Community lookup shipped for IMDb movies and episodes; manual markers still win |
-| PL-05 | Visible skip button | Labelled, dismissible "Skip Intro" / "Skip Recap" / "Skip Credits" with a progress ring | M | We seek silently; also needs PL-06 |
-| PL-06 | Segment taxonomy | recap, credits, post-credits, per-type auto-skip toggles | M | intro + outro only |
+| PL-05 | Skip button ring | A progress ring on the labelled skip button | S | Labelled button, one-click skip and post-credits landing shipped |
+| PL-06 | Auto-skip toggles | Per-type auto-skip, so recap or intro can pass without a click | M | All five segments (recap, intro, outro, credits, post-credits) are recognised; every skip is a click |
 | PL-07 | Next-episode rules | Threshold modes (percent or minutes), auto-select timeout, preload next source, binge-group match | L | Hard-coded 45 s lead; resolves only after the current episode ends |
 | PL-08 | Next-episode card states | finding / failed / unaired, blurred thumb, manual dismiss | M | Plain label today |
-| PL-10 | Pause metadata overlay | Title + synopsis on pause, with a toggle | S | |
-| PL-11 | Parental guide overlay | Severity categories, with a setting | M | No data source wired |
-| PL-12 | Stream info stats | Video codec, resolution, fps, bitrate, HDR, bit depth, server | M | `player.rs` parses no video stats |
 | PL-13 | External player handoff | System player, forward subtitle + skip segments, return progress | L | |
 | PL-14 | Desktop picture-in-picture | Always-on-top, aspect-locked mini window | L | mpv paints into the main window; needs a second window |
-| PL-15 | In-app trailer player | Embedded playback, multiple trailers, letterbox detection, hero trailer | M | Opens the system browser today |
-| PL-16 | Zoom resize mode | `keepaspect` + panscan, alongside fit/fill/stretch | S | |
+| PL-15 | In-app trailer player | Embedded playback, multiple trailers, letterbox detection, hero trailer | M | Trailer cards open the system browser today |
 | PL-17 | Hold-to-boost speed | Momentary multiplier on hold, plus its setting | S | |
 | PL-18 | Fullscreen persistence | Remember window/fullscreen mode across sessions | S | Every playback opens windowed |
-| PL-19 | mpv decoder tuning | Engine, video output, decoder priority, software-fallback threads, DV7 to HEVC, VOD cache | M | Forward and backward buffer sizes shipped; the rest is a hardware toggle only |
-| PL-20 | HDR passthrough | `target-colorspace-hint`, `vo` fallback chain | S | HDR is currently never signalled to the panel |
-| PL-21 | Keyboard depth | Source/episode hotkeys, wheel seek, wheel volume | S | |
+| PL-19 | mpv decoder tuning | Engine, video output, decoder priority, software-fallback threads, DV7 to HEVC, VOD cache | M | Buffers, `hwdec-codecs=all` and peak detection shipped; the rest is a hardware toggle only |
+| PL-20 | HDR passthrough | `target-colorspace-hint`, `vo` fallback chain | S | HDR is detected and tone-mapped, never signalled to the panel |
+| PL-21 | Keyboard depth | Source and episode hotkeys, wheel seek | S | Wheel volume, next-episode and stream-info keys shipped |
 | PL-23 | Mobile gestures | Touch, double-tap seek, mobile PiP, iOS presets | - | Out of scope, desktop only |
 
 ## Sources, streams, debrid, servers
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| SP-01 | Regex autoplay engine | 12 presets, match target, validation, addon allow-list, source scope, selection timeout, manual mode | L | `pickSource` takes whatever answered first |
-| SP-02 | "Finding source" screen | Full-screen per-addon progress with cancel | S | Drawer opens empty |
+| SP-01 | Regex autoplay engine | 12 presets, match target, validation, addon allow-list, source scope, selection timeout, manual mode | L | `pickSource` prefers the playing pack and addon, then the last source, then the best ranked; no user rules |
+| SP-02 | "Finding source" screen | Full-screen per-addon progress with cancel | S | The drawer shows per-addon progress and retry; no cancel and no full-screen view |
 | SP-03 | Reuse-last-link cache | TTL setting, per title | M | Every play re-scrapes |
 | SP-04 | Binge-group continuity | `bingeGroup` + filename matching across episodes | M | In-memory same-hash preference only, lost on restart |
 | SP-05 | Stream behaviour hints | `bingeGroup` and `filename` shown and used | S | `videoSize` badge shipped; the other hints are parsed and discarded |
 | SP-06 | Proxy headers | Honour `proxyHeaders` request/response headers | M | Header-gated streams fail today |
-| SP-07 | External-only streams | `externalUrl` rows open in the browser | S | Dropped by a filter in `commands.rs` |
+| SP-07 | External-only streams | `externalUrl` rows open in the browser | S | Parsed and carried, but the UI never offers it |
 | SP-08 | YouTube streams | `ytId` resolution | M | Parsed then discarded |
 | SP-09 | Imported badge rules | URL list import, preview, multiple active sources, badge position and size, addon logo | M | Hard-coded regex today |
 | SP-10 | Refresh all sources | One action with a spinner | S | Per-addon retry only |
@@ -111,10 +116,10 @@ The five highest value-per-effort items, in order:
 
 | # | Gap | What is missing | Effort | Notes |
 | --- | --- | --- | --- | --- |
-| PF-01 | Local profiles | Picker, create/rename/delete (max 6), remember-last | L | Only cloud-account profile chips today |
-| PF-02 | Profile avatars | Catalog + custom URL + colour | M | `avatarUrl` parsed, never rendered |
+| PF-01 | Local profiles | Picker, create/rename/delete (max 6), remember-last | L | Only Nuvio Cloud profile chips today |
+| PF-02 | Profile avatars | Catalog + custom URL + colour | M | The profile shape carries only id, name and index |
 | PF-03 | Profile backgrounds | Per-profile art | S | |
-| PF-04 | Profile PIN | Set, change, clear, verify, lockout, offline hash cache | M | `pinEnabled` is parsed and never enforced |
+| PF-04 | Profile PIN | Set, change, clear, verify, lockout, offline hash cache | M | No PIN field or enforcement |
 | PF-05 | Per-profile isolation | Addons, settings, credentials, plugins scoped per profile | L | Blocked by PF-01; switching currently inherits the other profile's addons |
 | PF-06 | Guest account | Anonymous sign-in | S | |
 | PF-07 | Device-link login | Code pairing | M | |
@@ -137,7 +142,7 @@ The five highest value-per-effort items, in order:
 | PF-24 | Collections cloud sync | Depends on CL-01 | M | |
 | PF-25 | Media server cloud sync | Server list per account | M | |
 | PF-26 | Credential cloud sync | TMDB, debrid, MDBList per profile | M | |
-| PF-27 | Addon push to cloud | Local addon edits reaching other devices | M | Pull-only by design today |
+| PF-27 | Addon push to cloud | Local addon edits reaching other devices | M | Nuvio addons are pull-only; Stremio pushes the merged union |
 | PF-28 | Delta sync + tombstones | Cursors, deletions propagating | L | Full pull every time; deletions never leave the device |
 | PF-29 | Conflict resolution | Dirty-key set, per-source snapshot, preserve unsynced local edits | L | Plain timestamp LWW today |
 | PF-30 | Bulk watched editing | Season, series, multi-select, unwatch push-back | M | Single-item toggle works |
@@ -165,7 +170,7 @@ The five highest value-per-effort items, in order:
 | DT-01 | Details section control | Hide and reorder 9 sections | M | |
 | DT-02 | Details presentation | Episode card style, blur unwatched, tabbed layout, background mode | M | |
 | DT-03 | Season view mode | Poster grid vs text, season posters | S | |
-| DT-04 | Person / company / network pages | Cast cards are inert | L | |
+| DT-04 | Company and network pages | Studios and networks are labels, not links | M | Cast cards open a person page |
 | DT-05 | Episode stills from TMDB | `videos` is always empty | S | Stills only when an addon supplies them |
 | DT-06 | Episode ratings | Field exists, never populated | M | |
 | DT-07 | TMDB language | Locale setting and localized art | M | `en-US` hardcoded in 5 places |
