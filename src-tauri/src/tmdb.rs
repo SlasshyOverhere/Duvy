@@ -257,14 +257,23 @@ async fn logo_for(
     kind: &str,
     tmdb_id: &str,
 ) -> Option<String> {
-    let value = get(
+    let kind = tmdb_kind(kind);
+    let value = match get(
         client,
         key,
-        &format!("/{}/{tmdb_id}/images", tmdb_kind(kind)),
+        &format!("/{kind}/{tmdb_id}/images"),
         &[("include_image_language", "en,null")],
     )
     .await
-    .ok()?;
+    {
+        Ok(value) => value,
+        // Swallowing this made a wrong path look like "TMDB has no art", which
+        // is how shows silently lost their title art for so long.
+        Err(error) => {
+            eprintln!("tmdb: no title art for {kind}/{tmdb_id}: {error}");
+            return None;
+        }
+    };
     best_logo(&value)
 }
 
