@@ -363,9 +363,11 @@ run("catch-up marking spans seasons", async () => {
     { id: "s3e1", season: 3, episode: 1 },
   ];
   const cases: Array<[string, { season: number; episode: number }, string[]]> = [
-    ["end of season 1", { season: 1, episode: 2 }, ["s1e1", "s0e1", "s1e2"]],
-    ["start of season 2", { season: 2, episode: 3 }, ["s2e3", "s1e1", "s0e1", "s1e2"]],
-    ["late season 6", { season: 6, episode: 2 }, ["s2e3", "s1e1", "s0e1", "s1e2", "s6e2", "s3e1"]],
+    ["end of season 1", { season: 1, episode: 2 }, ["s1e1", "s1e2"]],
+    ["start of season 2", { season: 2, episode: 3 }, ["s1e1", "s1e2", "s2e3"]],
+    ["late season 6", { season: 6, episode: 2 }, ["s1e1", "s1e2", "s2e3", "s3e1", "s6e2"]],
+    // A special only marks other specials, never the whole show.
+    ["a special", { season: 0, episode: 1 }, ["s0e1"]],
   ];
   for (const [label, target, want] of cases) {
     const got = fn(show, target).map((video) => video.id).sort();

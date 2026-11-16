@@ -89,13 +89,15 @@ export function airOrder(video: {
   return [video.season ?? 1, video.episode ?? video.number ?? 0];
 }
 
-/** Everything from the first episode through `target`, for catch-up marking. */
+/** Everything from the first episode through `target`, for catch-up marking.
+ *  Specials are only marked when the target itself is one. */
 export function episodesUpTo<
   T extends { season?: number | null; episode?: number | null; number?: number | null },
 >(videos: T[], target: T): T[] {
   const [targetSeason, targetEpisode] = airOrder(target);
   return videos.filter((video) => {
     const [season, episode] = airOrder(video);
+    if (season === 0 && targetSeason !== 0) return false;
     return season < targetSeason || (season === targetSeason && episode <= targetEpisode);
   });
 }
