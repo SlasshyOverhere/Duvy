@@ -475,6 +475,21 @@ run("sources sort biggest first, an unknown size sinks", async () => {
   return [];
 });
 
+run("a runtime over an hour reads in hours", async () => {
+  const { runtimeLabel } = (await import(pathToFileURL(root + "src/lib/format.ts").href)) as unknown as {
+    runtimeLabel: (value?: string | null) => string | null;
+  };
+  const cases: [string | null, string | null][] = [
+    ["101 min", "1h 41m"],
+    ["120 min", "2h"],
+    ["45 min", "45 min"],
+    ["1h 30m", "1h 30m"],
+    [null, null],
+  ];
+  const wrong = cases.filter(([input, want]) => runtimeLabel(input) !== want);
+  return wrong.map(([input, want]) => `runtimeLabel(${input}) is not ${want}`);
+});
+
 run("sentinel: source list is ordered by file size", () => {
   const out: string[] = [];
   if (!/sort\(byFileSize\)/.test(drawer)) out.push("StreamDrawer.tsx does not sort sources by size");

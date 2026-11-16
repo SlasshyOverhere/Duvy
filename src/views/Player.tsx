@@ -32,7 +32,15 @@ import type {
 import { ContextMenu, Icon, LogoMark, Spinner, useFocusTrap } from "../components/ui";
 import { WindowControls } from "../components/TitleBar";
 import { findSkip, type SkipEntry } from "../components/player/skip";
-import { bufferPercent, byFileSize, episodeCode, formatTime, progressPercent, seasonLabel } from "../lib/format";
+import {
+  bufferPercent,
+  byFileSize,
+  episodeCode,
+  formatTime,
+  progressPercent,
+  runtimeLabel,
+  seasonLabel,
+} from "../lib/format";
 import "../components/player/player.css";
 
 import {
@@ -2520,7 +2528,7 @@ export function PlayerView() {
   const nowMeta = [
     playingSource?.addon,
     playingSource?.quality,
-    duration > 0 ? formatTime(duration) : details?.runtime,
+    duration > 0 ? formatTime(duration) : runtimeLabel(details?.runtime),
   ]
     .filter(Boolean)
     .join(" · ");

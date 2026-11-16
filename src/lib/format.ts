@@ -122,6 +122,21 @@ export function placeholderGradient(seed: string): string {
   return `linear-gradient(145deg, hsl(32 6% ${lift}%), hsl(32 8% ${lift - 7}%))`;
 }
 
+/** "101 min" reads as "1h 41m" once it passes an hour; unparseable text stays. */
+export function runtimeLabel(value?: string | null): string | null {
+  if (!value) return null;
+  const parts = value.matchAll(/(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)\b/gi);
+  let minutes = 0;
+  for (const [, amount, unit] of parts) {
+    minutes += unit.toLowerCase().startsWith("h") ? Number(amount) * 60 : Number(amount);
+  }
+  if (minutes <= 0) return value;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 export function scoreLabel(value?: string | null): string | null {
   if (!value) return null;
   const number = Number(value);

@@ -11,7 +11,7 @@ import {
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
-import { placeholderGradient, progressPercent, remainingLabel } from "../lib/format";
+import { placeholderGradient, progressPercent, remainingLabel, runtimeLabel } from "../lib/format";
 import { ContextMenu, Icon, IconButton, type ContextAction } from "./ui";
 
 function initials(name: string) {
@@ -202,7 +202,7 @@ export const PosterCard = memo(function PosterCard({
             <span className="poster-hover-title">{item.name}</span>
           )}
           <span className="poster-hover-meta">
-            {[item.releaseInfo, item.runtime, item.imdbRating ? `${item.imdbRating} IMDb` : null]
+            {[item.releaseInfo, runtimeLabel(item.runtime), item.imdbRating ? `${item.imdbRating} IMDb` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -390,7 +390,7 @@ export function ContinueCard({
     (entry.metaId.startsWith("tt")
       ? `https://images.metahub.space/logo/medium/${entry.metaId}/img`
       : null);
-  const details = [meta?.releaseInfo, meta?.runtime, meta?.imdbRating ? `${meta.imdbRating} IMDb` : null]
+  const details = [meta?.releaseInfo, runtimeLabel(meta?.runtime), meta?.imdbRating ? `${meta.imdbRating} IMDb` : null]
     .filter(Boolean)
     .join(" · ");
 
@@ -631,10 +631,10 @@ export function Hero({
                     {item.releaseInfo}
                   </span>
                 ) : null,
-                item.runtime ? (
+                runtimeLabel(item.runtime) ? (
                   <span key="runtime" className="hero-meta-item">
                     <Icon name="clock" size={16} />
-                    {item.runtime}
+                    {runtimeLabel(item.runtime)}
                   </span>
                 ) : null,
                 ...(item.genres ?? [])

@@ -12,6 +12,7 @@ import {
   episodesUpTo,
   placeholderGradient,
   progressPercent,
+  runtimeLabel,
   scoreLabel,
   timeAgo,
 } from "../lib/format";
@@ -463,7 +464,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               <div className="detail-meta">
                 <span className="detail-kind">{details.type === "series" ? "Show" : "Movie"}</span>
                 {details.year ? <span>{details.year}</span> : null}
-                {details.runtime ? <span>{details.runtime}</span> : null}
+                {runtimeLabel(details.runtime) ? <span>{runtimeLabel(details.runtime)}</span> : null}
                 {rating ? (
                   <span className="detail-rating">
                     <span>{rating}</span>
