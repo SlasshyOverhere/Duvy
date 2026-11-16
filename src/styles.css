@@ -1240,7 +1240,7 @@ button.pill:hover {
 }
 
 /* Absolute, so a tall source image can never stretch the frame past its ratio. */
-.poster-frame img {
+.poster-frame > img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1249,12 +1249,12 @@ button.pill:hover {
   transition: filter 0.3s var(--ease);
 }
 
-.poster-frame:hover img,
-.poster-frame:has(:focus-visible) img {
+.poster-frame:hover > img,
+.poster-frame:has(:focus-visible) > img {
   filter: brightness(0.5);
 }
 
-.poster-frame:active img {
+.poster-frame:active > img {
   filter: brightness(0.42);
 }
 
@@ -1316,10 +1316,12 @@ button.pill:hover {
   max-width: 100%;
 }
 
+/* min-height: 0 or the flex item's auto minimum wins over max-height and a
+   tall logo swells past the frame. */
 .poster-hover-logo {
   max-width: 100%;
-  max-height: 44%;
-  object-fit: contain;
+  max-height: 42%;
+  min-height: 0;
   filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.55));
 }
 
