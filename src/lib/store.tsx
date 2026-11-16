@@ -452,6 +452,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const toggling = useRef(new Set<string>());
   const progressFails = useRef(0);
+  // Only the newest read may land: refreshes fire from marks, both player
+  // events, sync and the cards, and an older one finishing last loses.
+  const progressGen = useRef(0);
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
@@ -645,12 +648,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshProgress = useCallback(async () => {
+    const run = ++progressGen.current;
     try {
       const [rows, marks, keys] = await Promise.all([
         api.progress.list(),
         api.watched.list(),
         api.watched.keys(),
       ]);
+      if (run !== progressGen.current) return;
       setProgress(rows);
       setWatched(marks);
       setWatchedKeys(new Set(keys));
