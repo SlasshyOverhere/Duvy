@@ -225,6 +225,15 @@ fn catalog_url(path: &str) -> String {
     )
 }
 
+/// TMDB names shows `tv`; the app calls them `series`.
+fn tmdb_kind(media_type: &str) -> &'static str {
+    if media_type == "series" || media_type == "tv" {
+        "tv"
+    } else {
+        "movie"
+    }
+}
+
 /// Picks the clearest English logo from an images payload, falling back to the
 /// best rated one when TMDB has no English art.
 fn best_logo(value: &Value) -> Option<String> {
@@ -251,7 +260,7 @@ async fn logo_for(
     let value = get(
         client,
         key,
-        &format!("/{kind}/{tmdb_id}/images"),
+        &format!("/{}/{tmdb_id}/images", tmdb_kind(kind)),
         &[("include_image_language", "en,null")],
     )
     .await
@@ -486,11 +495,7 @@ pub async fn details(
     media_type: &str,
     tmdb_id: &str,
 ) -> Result<MetaDetails, String> {
-    let kind = if media_type == "series" || media_type == "tv" {
-        "tv"
-    } else {
-        "movie"
-    };
+    let kind = tmdb_kind(media_type);
     let value = get(
         client,
         key,
@@ -696,6 +701,15 @@ mod catalog_tests {
             Some("https://image.tmdb.org/t/p/original/en-high.png")
         );
         assert_eq!(best_logo(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn shows_are_asked_for_as_tv() {
+        // TMDB has no `/series` route, so a show asking under that name 404s
+        // and silently loses its title art.
+        assert_eq!(tmdb_kind("series"), "tv");
+        assert_eq!(tmdb_kind("tv"), "tv");
+        assert_eq!(tmdb_kind("movie"), "movie");
     }
 
     #[test]
