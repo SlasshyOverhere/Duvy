@@ -26,6 +26,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use url::Url;
 
 pub const DEFAULT_BASE: &str = "https://api.nuvio.tv";
 pub const DEFAULT_FALLBACK: &str = "https://api-two.nuvioapp.space";
@@ -149,17 +150,43 @@ pub fn status(conn: &Connection, settings: &Settings) -> Status {
         email: s.email,
         profile: s.profile,
         last_sync: s.last_sync,
-        base_url: base_url(settings),
+        base_url: base_url(settings).unwrap_or_else(|_| settings.nuvio_base_url.trim().to_string()),
     }
 }
 
-fn base_url(settings: &Settings) -> String {
-    let custom = settings.nuvio_base_url.trim().trim_end_matches('/');
+/// The sync base, or why it is refused. Every request carries the account's
+/// apikey and often its bearer token, and sign-in carries the password, so a
+/// base is only trusted over https (or plain http on this machine).
+fn base_url(settings: &Settings) -> Result<String, String> {
+    let custom = settings.nuvio_base_url.trim();
     if custom.is_empty() {
-        DEFAULT_BASE.to_string()
-    } else {
-        custom.to_string()
+        return Ok(DEFAULT_BASE.to_string());
     }
+    let url = Url::parse(custom)
+        .map_err(|_| "The Nuvio server URL is not a valid URL.".to_string())?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("The Nuvio server URL must not carry a username or password.".into());
+    }
+    let host = url
+        .host_str()
+        .ok_or("The Nuvio server URL has no host.")?;
+    match url.scheme() {
+        "https" => {}
+        "http" if crate::addons::is_loopback_host(host) => {}
+        _ => {
+            return Err(
+                "The Nuvio server URL must use https. Plain http is only accepted for localhost."
+                    .into(),
+            );
+        }
+    }
+    if crate::addons::is_blocked_host(host) {
+        return Err("The Nuvio server URL points at an internal address.".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("The Nuvio server URL must not carry a query or fragment.".into());
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
 fn api_key(settings: &Settings) -> String {
@@ -212,7 +239,7 @@ async fn request(
     body: Option<&Value>,
 ) -> Result<Value, String> {
     let key = api_key(settings);
-    let mut hosts = vec![base_url(settings)];
+    let mut hosts = vec![base_url(settings)?];
     // Only the official endpoint has a mirror. A self-hosted base must not have
     // the account's bearer token handed to Nuvio's hosts.
     if settings.nuvio_base_url.trim().is_empty() {
@@ -1156,5 +1183,32 @@ mod tests {
     fn error_text_is_extracted() {
         let msg = error_from(401, r#"{"message":"Invalid login credentials"}"#);
         assert!(msg.contains("Invalid login credentials"));
+    }
+
+    #[test]
+    fn sync_base_urls_are_https_or_local() {
+        let mut settings = Settings::default();
+        assert_eq!(base_url(&settings).unwrap(), DEFAULT_BASE);
+
+        settings.nuvio_base_url = "https://sync.example.com/".into();
+        assert_eq!(base_url(&settings).unwrap(), "https://sync.example.com");
+
+        settings.nuvio_base_url = "http://localhost:54321".into();
+        assert_eq!(base_url(&settings).unwrap(), "http://localhost:54321");
+
+        settings.nuvio_base_url = "http://127.0.0.1:54321".into();
+        assert!(base_url(&settings).is_ok());
+
+        for refused in [
+            "http://sync.example.com",
+            "http://192.168.1.10:8000",
+            "https://user:pass@sync.example.com",
+            "https://169.254.169.254",
+            "ftp://sync.example.com",
+            "not a url",
+        ] {
+            settings.nuvio_base_url = refused.into();
+            assert!(base_url(&settings).is_err(), "{refused} should be refused");
+        }
     }
 }

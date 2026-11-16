@@ -332,6 +332,14 @@ pub(crate) fn is_local_host(host: &str) -> bool {
         || host.parse::<IpAddr>().is_ok_and(local_ip)
 }
 
+/// Loopback only: the one place plain http is still a private conversation.
+pub(crate) fn is_loopback_host(host: &str) -> bool {
+    let host = host_key(host);
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.parse::<IpAddr>().is_ok_and(|ip| unmap(ip).is_loopback())
+}
+
 /// Every redirect hop gets what the first URL got. A hop may not introduce a
 /// new machine-local host, and may never reach a metadata address.
 pub(crate) fn redirect_allowed(previous: &[Url], next: &Url) -> Result<(), &'static str> {
