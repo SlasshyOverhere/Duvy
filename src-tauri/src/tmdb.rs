@@ -238,6 +238,100 @@ fn tmdb_kind(media_type: &str) -> &'static str {
     }
 }
 
+/// A TMDB list row has no IMDb score, genres, runtime or title art, and its
+/// `tmdb:` ids are not what stream addons key on. One detail call per item
+/// fills all of that in.
+async fn enrich(client: &reqwest::Client, key: &str, items: Vec<MetaPreview>) -> Vec<MetaPreview> {
+    let count = items.len();
+    let mut set = tokio::task::JoinSet::new();
+    for (slot, item) in items.into_iter().enumerate() {
+        let (client, key) = (client.clone(), key.to_string());
+        set.spawn(async move {
+            let Some((kind, tmdb_id)) = item
+                .id
+                .strip_prefix("tmdb:")
+                .and_then(|rest| rest.split_once(':'))
+                .map(|(kind, id)| (tmdb_kind(kind), id.to_string()))
+            else {
+                return (slot, item);
+            };
+            let detail = get(
+                &client,
+                &key,
+                &format!("/{kind}/{tmdb_id}"),
+                &[
+                    ("append_to_response", "images,external_ids"),
+                    ("language", "en-US"),
+                ],
+            )
+            .await;
+            match detail {
+                Ok(value) => (slot, with_detail(item, &value)),
+                Err(_) => (slot, item),
+            }
+        });
+    }
+    let mut slots: Vec<Option<MetaPreview>> = vec![None; count];
+    while let Some(joined) = set.join_next().await {
+        if let Ok((slot, item)) = joined {
+            slots[slot] = Some(item);
+        }
+    }
+    slots.into_iter().flatten().collect()
+}
+
+/// Folds a detail payload into a list row, preferring the IMDb id so the item
+/// can be streamed at all.
+fn with_detail(mut item: MetaPreview, detail: &Value) -> MetaPreview {
+    if let Some(imdb) = detail
+        .get("imdb_id")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            detail
+                .get("external_ids")
+                .and_then(|ids| ids.get("imdb_id"))
+                .and_then(Value::as_str)
+        })
+        .filter(|id| id.starts_with("tt"))
+    {
+        item.id = imdb.to_string();
+    }
+    if let Some(logo) = detail.get("images").and_then(best_logo) {
+        item.logo = Some(logo);
+    }
+    item.runtime = minutes(detail);
+    if let Some(genres) = genres_of(detail) {
+        item.genres = Some(genres);
+    }
+    item
+}
+
+/// Movies carry `runtime`; shows carry one entry per episode length.
+fn minutes(detail: &Value) -> Option<String> {
+    let raw = detail
+        .get("runtime")
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            detail
+                .get("episode_run_time")
+                .and_then(Value::as_array)
+                .and_then(|list| list.first())
+                .and_then(Value::as_i64)
+        })?;
+    (raw > 0).then(|| format!("{raw} min"))
+}
+
+fn genres_of(detail: &Value) -> Option<Vec<String>> {
+    let names: Vec<String> = detail
+        .get("genres")?
+        .as_array()?
+        .iter()
+        .filter_map(|genre| genre.get("name").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
 /// Picks the clearest English logo from an images payload, falling back to the
 /// best rated one when TMDB has no English art.
 fn best_logo(value: &Value) -> Option<String> {
@@ -461,7 +555,7 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
                 cinemeta_merged(&client, cinemeta_path).await
             };
             if items.is_empty() && available(&key) {
-                items = get(
+                let listed = get(
                     &client,
                     &key,
                     &format!("/{tmdb_path}"),
@@ -470,6 +564,7 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
                 .await
                 .map(|value| items_of(&value))
                 .unwrap_or_default();
+                items = enrich(&client, &key, listed).await;
             }
             if items.is_empty() {
                 return (index, None);
@@ -769,6 +864,47 @@ mod catalog_tests {
         ]);
         let ids: Vec<&str> = merged.iter().map(|item| item.id.as_str()).collect();
         assert_eq!(ids, ["a1", "b1", "a2", "a3"]);
+    }
+
+    #[test]
+    fn a_detail_payload_fills_in_a_list_row() {
+        let item = preview_from_item(&serde_json::json!({
+            "id": 1263337,
+            "title": "Heart of the Beast",
+            "media_type": "movie"
+        }))
+        .expect("preview");
+        let detail = serde_json::json!({
+            "imdb_id": "tt7526136",
+            "runtime": 101,
+            "genres": [{ "name": "Adventure" }, { "name": "Thriller" }],
+            "images": { "logos": [
+                { "file_path": "/en.png", "iso_639_1": "en", "vote_average": 7.0 }
+            ] }
+        });
+        let filled = with_detail(item, &detail);
+        assert_eq!(filled.id, "tt7526136");
+        assert_eq!(filled.runtime.as_deref(), Some("101 min"));
+        assert_eq!(
+            filled.genres.as_deref(),
+            Some(["Adventure".to_string(), "Thriller".to_string()].as_slice())
+        );
+        assert_eq!(
+            filled.logo.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/en.png")
+        );
+    }
+
+    #[test]
+    fn a_show_takes_its_episode_length() {
+        let item = preview_from_item(&serde_json::json!({
+            "id": 247718,
+            "name": "MobLand",
+            "media_type": "tv"
+        }))
+        .expect("preview");
+        let detail = serde_json::json!({ "episode_run_time": [47] });
+        assert_eq!(with_detail(item, &detail).runtime.as_deref(), Some("47 min"));
     }
 
     #[test]
