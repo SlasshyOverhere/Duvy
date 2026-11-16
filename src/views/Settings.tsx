@@ -512,14 +512,6 @@ export function SettingsView({ section }: { section?: string }) {
     void openExternal(url).catch(() => notify("Could not open that link", "error"));
   };
 
-  if (!settings) {
-    return (
-      <div className="page">
-        <Loading variant="list" label="Loading settings" count={6} />
-      </div>
-    );
-  }
-
   const update = async (patch: Parameters<typeof saveSettings>[0]) => {
     try {
       await saveSettings(patch);
@@ -575,6 +567,14 @@ export function SettingsView({ section }: { section?: string }) {
     void document.fonts?.ready.then(measure).catch(() => {});
     return () => window.removeEventListener("resize", measure);
   }, [tab, query, visible.length]);
+
+  if (!settings) {
+    return (
+      <div className="page">
+        <Loading variant="list" label="Loading settings" count={6} />
+      </div>
+    );
+  }
 
   return (
     <div className="page settings-page">
