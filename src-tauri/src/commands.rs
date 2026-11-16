@@ -351,12 +351,23 @@ async fn addon_meta(addons: &[StoredAddon], id: &str, media_type: &str) -> Optio
     }
 
     let mut best: Option<(usize, Meta)> = None;
+    let mut done: Vec<usize> = Vec::new();
     let drain = async {
         while let Some(joined) = set.join_next().await {
-            if let Ok((index, Some(meta))) = joined
-                && best.as_ref().is_none_or(|(first, _)| index < *first)
+            if let Ok((index, meta)) = joined {
+                done.push(index);
+                if let Some(meta) = meta
+                    && best.as_ref().is_none_or(|(first, _)| index < *first)
+                {
+                    best = Some((index, meta));
+                }
+            }
+            // Every addon ranked ahead of the winner has answered, so a slow
+            // one behind it cannot change the page.
+            if let Some((first, _)) = &best
+                && (0..*first).all(|index| done.contains(&index))
             {
-                best = Some((index, meta));
+                break;
             }
         }
     };
