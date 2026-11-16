@@ -987,7 +987,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         keep(
           await listen("player:ended", () => {
-            void refreshProgress();
+            // The ticker's final save lands after this event, so reading now
+            // would cache the previous checkpoint without the watched mark.
+            window.setTimeout(() => {
+              if (!disposed) void refreshProgress();
+            }, 750);
           }),
         );
       } catch {
