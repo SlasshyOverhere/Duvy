@@ -257,10 +257,20 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     [similar, navigate],
   );
 
+  // A title or episode is behind the viewer once it is marked or played out.
+  const finished = useCallback(
+    (key: string) => {
+      if (marks.has(key)) return true;
+      const entry = progressFor(key);
+      return Boolean(entry && progressPercent(entry.position, entry.duration) >= 90);
+    },
+    [marks, progressFor],
+  );
+
   const resumeTarget = useMemo(() => {
     if (!details) return { video: null as Video | null, position: 0, label: "Play" };
     if (details.type !== "series") {
-      const entry = progressFor(metaId);
+      const entry = finished(metaId) ? undefined : progressFor(metaId);
       return {
         video: null,
         position: entry?.position ?? 0,
@@ -274,12 +284,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     });
     // A finished episode is behind the viewer, so resume walks forward to the
     // first one still open instead of replaying it.
-    const done = (video: Video) => {
-      const key = buildSession(details, video).key;
-      if (marks.has(key)) return true;
-      const entry = progressFor(key);
-      return Boolean(entry && progressPercent(entry.position, entry.duration) >= 90);
-    };
+    const done = (video: Video) => finished(buildSession(details, video).key);
     const at = queue.findIndex(
       (candidate) =>
         candidate.season === seriesProgress?.season &&
@@ -294,7 +299,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       position: entry?.position ?? 0,
       label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
-  }, [details, seriesProgress, progressFor, buildSession, marks, metaId]);
+  }, [details, seriesProgress, progressFor, buildSession, finished]);
 
   // The check marks what the play button points at: the title for a movie, the
   // episode it would resume for a show.
@@ -303,25 +308,15 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     const video = details.type === "series" ? resumeTarget.video : null;
     if (details.type === "series" && !video) return null;
     const key = video ? buildSession(details, video).key : metaId;
-    const entry = progressFor(key);
-    return {
-      key,
-      watched:
-        marks.has(key) ||
-        Boolean(entry && progressPercent(entry.position, entry.duration) >= 90),
-    };
-  }, [details, resumeTarget.video, buildSession, metaId, marks, progressFor]);
+    return { key, watched: finished(key) };
+  }, [details, resumeTarget.video, buildSession, metaId, finished]);
 
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
     if (!details) return;
     const target = resumeTarget.video;
-    const entry =
-      details.type === "series"
-        ? target
-          ? progressFor(buildSession(details, target).key)
-          : null
-        : progressFor(metaId);
+    const key = target ? buildSession(details, target).key : metaId;
+    const entry = finished(key) ? undefined : progressFor(key);
     if (entry) {
       void resumeEntry(entry);
       return;
@@ -426,8 +421,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     const session = buildSession(details, drawer.video);
     const stored = settings?.autoResume ? progressFor(session.key) : undefined;
     // A finished session restarts instead of opening on its last seconds.
-    const resume =
-      stored && progressPercent(stored.position, stored.duration) < 90 ? stored.position : 0;
+    const resume = stored && !finished(session.key) ? stored.position : 0;
     const title = drawer.video
       ? `${details.name} · ${episodeCode(drawer.video)}`
       : details.name;
