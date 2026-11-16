@@ -43,8 +43,12 @@ Out of scope:
 
 - Credentials live in Windows Credential Manager through the OS keyring; the database stores only
   a marker, and rows from older builds are migrated on first read.
-- The WebView runs under a Content Security Policy.
-- Addon URLs are validated and response bodies are bounded.
+- Addon and stream traffic is checked before a request, on every redirect hop and at name
+  resolution, so a hostile addon cannot reach loopback, private or cloud-metadata addresses; reply
+  bodies are size-capped. URLs in logs and error text are reduced to scheme and host.
+- The WebView runs under a Content Security Policy and can call only the commands listed in its
+  capability file; the opener accepts `http(s)` URLs only.
+- The database and playback log are owner-only, and a second launch focuses the running instance.
 - Playback needs no local server: libmpv decodes in-process, and a stream comes from a configured
   backend or a local file.
 - Update bundles are signature-verified before install.

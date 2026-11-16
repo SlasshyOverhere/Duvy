@@ -41,13 +41,16 @@ checkout into `src-tauri/libmpv/`, and the build bundles both with the installer
 ## Frontend layout
 
 ```
-src/views/            Home, Search, Details, Library, Watched, Addons, Debrid,
-                      Onboarding, Player, Settings
+src/views/            Home, Search, Details, Person, Library, Watched, Addons, Debrid,
+                      Trakt, Onboarding, Player, Settings
 src/views/settings/   media servers, sync panels, updates
-src/components/       shell, title bar, poster rows, stream drawer, player HUD
+src/components/       shell, app menu, title bar, update prompt, consent gate,
+                      poster and continue cards, context menu, stream drawer, player HUD
 src/components/player/ HUD styles and skip helpers
 src/lib/bridge.ts     typed invoke() wrappers (mock fallback in browser)
-src/lib/store.tsx     routing, settings, library, progress, playback orchestration
+src/lib/store.tsx     routing, settings, library, progress, playback and sync orchestration
+src/lib/feed.ts       last home feed kept for an instant paint
+src/lib/art.ts        title logo cache
 src/lib/telemetry.ts  opt-in crash reports, scrubbing rules and the playback watchdog
 src/lib/analytics.ts  anonymous usage counts (PostHog capture, no SDK)
 ```
@@ -59,42 +62,50 @@ src/lib/analytics.ts  anonymous usage counts (PostHog capture, no SDK)
 | `addons.rs` | Addon protocol models, URL normalisation/builders, id shaping (`tt123:2:5`). Pure and tested. |
 | `streams.rs` | Turns free-form addon titles into ranked stream options: quality, size, seeders, languages, HDR and cached badges, playability. Tested. |
 | `meta.rs` | Cinemeta-first metadata (episodes, cast, artwork) with a TMDB-schema fallback, cast photo cache. Tested. |
-| `tmdb.rs` | Optional discovery rows, search, details and IMDb to TMDB resolution when a key is set. |
+| `tmdb.rs` | Optional discovery rows, search, details, person credits, collections and IMDb to TMDB resolution when a key is set. |
 | `player.rs` | libmpv handle, player options and cache buffers, property observers, first-frame gate, subtitle styling, ticker, progress persistence. |
 | `debrid.rs` | Real-Debrid, AllDebrid, Premiumize and TorBox key storage, cache checks, link unrestricting and pack-file selection. Tested parsers. |
 | `trakt.rs` | Device-code auth, scrobbling, watched/progress pull and push. Tested merge helpers. |
-| `*_sync.rs` | Cloud-account and addon-account sync: sign-in and pull/merge/push of profiles, progress, watched, library and addon collections, merged by normalised manifest URL. Tested helpers. |
+| `*_sync.rs` | `nuvio_sync.rs` and `stremio_sync.rs`: sign-in and pull/merge/push of profiles, progress, watched, library and addon collections against each provider's own backend, merged by timestamp and deduped by normalised manifest URL. Tested helpers. |
 | `servers.rs` | Jellyfin and Emby sign-in, library browsing, artwork and direct stream URLs. Tested URL builders. |
-| `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision. Tested. |
+| `skip.rs` | IntroDB lookup, per-show manual intro/outro markers and the skip decision, including the post-credits tail. Tested. |
+| `parental.rs` | IMDb parents guide per title, cached and capped, with severe categories ranked first. Tested parsers. |
 | `playback_log.rs` | Playback timeline written to `playback.log` beside the database (capped), exposed in Settings. Tested. |
 | `updates.rs` | Launch and 5-minute release checks, a cached answer for an instant corner card, signature-verified download and install on request. |
 | `frame.rs` | Seek-bar previews from a scratch in-process libmpv into the system temp folder, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
 | `secret.rs` | OS keyring storage (Windows Credential Manager, Keychain, Secret Service) with a `keyring:1` marker in the database and migration of legacy `enc1:` DPAPI rows. |
+| `redact.rs` | Credential-safe URLs for logs and error text: a URL reduces to scheme and host. Tested. |
 | `json.rs` | Small readers for untrusted JSON returned by account APIs. |
-| `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out with budgets, source resolution, metadata merge. |
+| `commands.rs` | All `#[tauri::command]` entry points, target validation, concurrent addon fan-out with budgets, source resolution, metadata merge. |
 | `models.rs` | Serde shapes shared by commands and events. |
-| `lib.rs` | State wiring, HTTP client, window helpers, background jobs (updates, Cinemeta seeding), command registration. |
+| `lib.rs` | State wiring, HTTP client with a guarded DNS resolver, redirect checks and a bounded body, window helpers, background jobs (updates, Cinemeta seeding), single-instance guard, command registration. |
 
 ## Addon and metadata flow
 
 1. `addons_install(url)` normalises the input (custom scheme, trailing slash, `manifest.json`),
    fetches, validates `id`/`name`, then upserts keyed by transport URL. Cinemeta is seeded through
    the same path on first launch, so a fresh install has metadata without setup.
-2. `home_feed` loads enabled addons and takes up to 4 catalogs per addon that are movie/series and
-   have no required extra. One Tokio task per catalog runs in a `JoinSet`; rows are ordered by
-   addon position, truncated to the configured home row limit, and duplicate names get a
-   `· Movies` / `· Shows` suffix. Optional TMDB discovery rows run in parallel with a 14s cap.
+2. `home_feed` starts from the six Discover rows (Cinemeta first, TMDB as the keyed fallback,
+   capped at 14s) and loads enabled addons alongside, taking up to 4 catalogs per addon that are
+   movie/series and have no required extra. Cinemeta's own catalogs are skipped because the
+   Discover rows already cover them. One Tokio task per catalog runs in a `JoinSet`; rows are
+   ordered by addon position, truncated to the configured home row limit, and duplicate names get
+   a `· Movies` / `· Shows` suffix.
 3. `search` asks catalogs whose manifest advertises a `search` extra, appends TMDB results when a
    key exists, and de-duplicates by `(id, type)`. Addon results are emitted as `search:addons` as
    each catalog answers, so the grid fills progressively instead of waiting for the slowest.
 4. `meta_details` tries Cinemeta first, then a TMDB-schema mirror for ids Cinemeta does not know.
-   `tmdb:*` ids are resolved through TMDB. Cast photos are fetched separately and cached in the
-   `people` table.
-5. `streams` builds `{type}:{imdb}:{season}:{episode}` ids, queries every stream-capable addon in
+   `tmdb:*` ids are resolved through TMDB, and a title opened from a card paints that card's name,
+   poster and art while the addons answer. Cast photos are fetched separately and cached in the
+   `people` table; TMDB-sent photos skip that call.
+5. `person_details` reads a TMDB person's biography and Popular / Latest / Upcoming credits, cached
+   per id so a revisited face paints from the last answer.
+6. `streams` builds `{type}:{imdb}:{season}:{episode}` ids, queries every stream-capable addon in
    parallel, normalises, de-duplicates by URL or info hash, and sorts by score.
-6. `subtitles` does the same for `/subtitles/...` addons.
+7. `subtitles` does the same for `/subtitles/...` addons.
+8. `parental_guide` asks IMDb's GraphQL for the title's parents guide; any failure means no card.
 
 A disabled addon is off, not merely hidden: every fan-out filters on `enabled`, so the app stops
 asking it for catalogs, metadata, streams and subtitles. The switch lives on the addon card and
@@ -142,21 +153,24 @@ The UI turns a stream row into a playable URL in this order:
    `track-list`, `eof-reached`, `media-title` and related fields. The snapshot reports `started`
    only after the first frame, so the UI never uncovers a black surface, and `buffering` while
    mpv waits for the network. On `file-loaded` and `video-reconfig` the snapshot also takes the
-   stream's own shape from `video-params`: resolution, aspect, frame rate, bitrate and codec.
+   stream's own shape from `video-params`: resolution, aspect, frame rate, bitrate, codec and HDR,
+   which the `I` panel shows.
 4. Property events update a shared snapshot. A ticker emits `player:tick` every 500ms and
    persists progress every 5s.
-5. At 92% the title is marked watched and the progress row is kept for the Watched list. Below
-   that, the position is upserted into `progress`. Continue Watching excludes rows at or above
-   90% and rows already marked watched.
+5. At 90% (`db::FINISHED_AT`) the title is marked watched and the progress row is kept for the
+   Watched list. Below that, the position is upserted into `progress`. Continue Watching excludes
+   rows at or above that share and rows already marked watched.
 6. `end-file` emits `player:ended`; the UI offers or auto-plays the next episode. A stream that
    dies with an error is reloaded once from the same position; if that fails, the UI re-resolves
    the source from its addon (debrid links expire) and reopens once more before surfacing the
    failure. Closing mpv emits `player:closed` and the UI returns to the title.
 7. Recap/intro/outro markers are read per meta id. Manual markers win; when none are stored, the UI
    asks IntroDB for community timestamps (`skip_lookup`) and caches the result. While the playhead
-   sits inside a marked segment the UI offers a skip button, and at the outro marker the up-next
-   card takes over.
-8. Subtitles come from addon tracks (`sub-add`), a file picker, or the track remembered for that
+   sits inside a marked segment the UI offers a labelled skip button, landing on the post-credits
+   scene when there is one, and at the outro marker the up-next card takes over.
+8. The IMDb parents guide for the title is shown once, as the picture starts, with a severity
+   meter; it is per title, so one fetch serves every episode.
+9. Subtitles come from addon tracks (`sub-add`), a file picker, or the track remembered for that
    episode. Style controls map to mpv subtitle properties and are persisted globally; an ASS track
    keeps its own styling until a control is touched. The delay is ±60s in 0.1s steps. Automatic
    sync is not implemented.
@@ -178,6 +192,8 @@ settings(key PK, value)
 `settings` stores the app settings under `app`, plus one JSON value each for `debrid`, `servers`,
 `trakt`, the sync accounts and `skip`. WAL and `synchronous=NORMAL`; one connection behind a
 mutex. Every query touches a small number of rows, so a pool would add latency, not remove it.
+Migrations are versioned with `PRAGMA user_version` and run in a transaction. Playheads older than
+a year are pruned; a finished row stays because the Watched list reads its name and art from it.
 Settings are cached in memory (`settings::load_cached`) and invalidated on write, so commands do
 not read SQLite per call.
 
@@ -205,14 +221,24 @@ not read SQLite per call.
   credentials so a reconnect does not need a re-paste. Signing out of an account session clears
   the stored tokens; the cloud sync keeps a non-secret account id so a later sign-in can tell
   accounts apart.
-- Addon URLs are validated and response bodies are bounded before parsing. The WebView runs under
-  a strict CSP (`default-src 'self'`, no frames or objects, images and media limited to the
-  schemes the UI needs).
+- Addon traffic is validated before a request, again on every redirect hop, and by the shared
+  client's resolver, which refuses names that point at loopback, private or cloud-metadata
+  addresses. Response bodies are capped (`MAX_BODY`, 16 MiB) before parsing, and path identifiers
+  are encoded before they reach an upstream URL.
+- The WebView can call only the commands listed in `src-tauri/capabilities/default.json`. The
+  opener plugin accepts `http(s)` URLs only, a local file is opened only after its path validates,
+  and the CSP allows no frames or objects, with images and media limited to the schemes the UI
+  needs.
+- Credentials never reach a log: `redact.rs` reduces a URL to scheme and host for error text and
+  server replies. `duvy.db` and `playback.log` are owner-only (mode `0600` on Unix; the per-user
+  app data directory provides the same on Windows), and a second launch hands focus to the
+  running instance instead of opening the database twice.
 - Outbound requests share one reqwest client with an 18s timeout and an 8s connect timeout, with
   tighter per-command budgets where a screen must not wait.
 - Updates are checked against GitHub and installed only after the updater signature verifies.
 - Skip lookups send an IMDb id plus season/episode to IntroDB. Account sync talks to each
-  provider's official backend using the user's own session.
+  provider's official backend using the user's own session, and a custom sync base is accepted
+  only over https (plain http on this machine). The parents guide sends the IMDb id to IMDb.
 
 ## Verification
 
@@ -226,13 +252,16 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 `bun run test` runs four script suites: `player.check.ts` guards the player HUD layout and
-control wiring, `regression.check.ts` guards the updater and player lifecycle wiring,
-`telemetry.check.ts` guards crash-report scrubbing, deduplication and the playback watchdog, and
-`analytics.check.ts` guards the usage-count payload, the install id and the off switch.
+control wiring, `regression.check.ts` guards the updater, player lifecycle, skip segments and
+settings wiring, `telemetry.check.ts` guards crash-report scrubbing, deduplication and the
+playback watchdog, and `analytics.check.ts` guards the usage-count payload, the install id and
+the off switch. CI also runs `cargo clippy -- -D warnings` and the PowerShell self-tests for the
+libmpv fetch and release-notes scripts.
 
-The Rust unit tests cover addon URL/id building, stream parsing and ranking, metadata helpers,
-SQLite round-trips, settings merge/reset, debrid parsers, Trakt and account-sync merge
-helpers, server URL builders, IntroDB segment mapping and skip decisions.
+The Rust unit tests cover addon URL/id building and redirect checks, stream parsing and ranking,
+metadata helpers, SQLite round-trips and migrations, settings merge/reset, debrid parsers, Trakt
+and account-sync merge helpers, server URL builders, IntroDB segment mapping, skip decisions,
+parents-guide parsing and credential redaction.
 
 Not covered by automated tests, and not a support guarantee: playback against real streams,
 hardware decoding, HDR, debrid accounts, Trakt and account sync, Jellyfin/Emby
@@ -248,9 +277,12 @@ have.
   dedicated Discover browser.
 - Crash reports need a release build with a Sentry DSN; a local build has no endpoint and sends
   nothing even when reports are switched on.
-- Intro/outro skipping is a button, never automatic, and only recap, intro and outro segments are
-  understood (no credits or post-credits taxonomy).
+- Intro/outro skipping is a button, never automatic, and only recap, intro, outro, credits and
+  post-credits segments are understood. There is no auto-skip setting.
+- The parents guide comes from IMDb's keyless GraphQL, which only answers browser-shaped
+  requests; when it fails the card is simply absent, and there is no local guide data.
 - The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
   configuration pages, addon permissions and addon collections are not implemented.
 - Player options are explicit (`no-config`), so a user's `mpv.conf` is ignored.
-- `tmdb:*` ids need a TMDB key even to open details.
+- `tmdb:*` ids need a TMDB key even to open details, and person pages, collections and studios
+  come from TMDB, so they are empty without one.

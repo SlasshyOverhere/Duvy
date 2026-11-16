@@ -13,9 +13,10 @@ cannot save one.
 
 The workflow writes the version into `package.json`, `src-tauri/Cargo.toml` and
 `tauri.conf.json`, so they cannot disagree, then builds the MSI and NSIS installers, signs the
-updater bundles, publishes the GitHub release and uploads `latest.json` (the manifest the in-app
-updater reads). The installers carry `libmpv-2.dll` beside the executable, so playback works
-offline.
+updater bundles, writes the release body from merged pull requests and the mainline commits
+(`scripts/release-notes.ps1`), publishes the GitHub release and uploads `latest.json` (the
+manifest the in-app updater reads). The installers carry `libmpv-2.dll` beside the executable,
+so playback works offline.
 
 ## One-time setup
 
@@ -38,6 +39,16 @@ gh variable set VITE_SENTRY_DSN --body "https://<key>@<host>/<project>"
 
 Leave it unset and the released build ships with reporting off; the consent prompt is never
 shown.
+
+Usage counts are compiled in only when a PostHog project key is configured. The key and host are
+public write-only values, so they are repository variables too:
+
+```bash
+gh variable set VITE_POSTHOG_KEY --body "phc_..."
+gh variable set VITE_POSTHOG_HOST --body "https://us.i.posthog.com"
+```
+
+A build without a key counts nothing.
 
 ## Local builds
 

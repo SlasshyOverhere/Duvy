@@ -27,14 +27,15 @@ path native:
 
 ## What it does
 
-- Addon protocol browsing, global search, details with cast and episodes, and a stream picker that
-  ranks quality, size, seeders, cache and HDR.
+- Addon protocol browsing, global search, details with cast, studios and franchise rails, person
+  pages, and a stream picker that ranks quality, size, seeders, cache and HDR.
 - Library, Continue Watching, Watched, and resume per episode.
 - In-app libmpv playback: hardware decoding, cache buffers, audio/subtitle tracks, subtitle styling
   and delay, intro/outro skipping, seek-bar previews, speed and volume.
 - Sources: direct HTTP(S), local files, four debrid providers, and Jellyfin or Emby. Torrent rows
   play through a connected debrid account only.
-- Optional TMDB enrichment, Trakt scrobbling and account sync; signed updates.
+- Optional TMDB enrichment, IMDb parents guide, Trakt scrobbling, and Nuvio Cloud or Stremio
+  account sync; signed updates.
 - Four accent themes, settings with grouped navigation and search.
 
 Status per feature, including what is narrower or not built, is in
@@ -75,12 +76,13 @@ production install.
 ```bash
 bun run check      # tsc --noEmit
 bun run build      # tsc && vite build
-bun run test       # player HUD, regression and crash-report checks
+bun run test       # player HUD, regression, crash-report and usage-count checks
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI runs all four on Windows. Interactive playback and third-party services are not covered by
-automated tests.
+CI runs all of these on Windows, plus a self-test of the libmpv fetch and release-notes scripts.
+Interactive playback and third-party services are not covered by automated tests.
 
 ## Bring your own content
 
@@ -90,8 +92,8 @@ add, servers you connect, or files you open:
 - **Metadata and catalogs:** Cinemeta is installed on first launch; add more from the Addons panel.
 - **Streams:** an addon returning HTTP(S) links, magnets or info hashes. A magnet or info hash is
   resolved by a connected debrid account; with none connected the row is reported as unplayable.
-- **Optional keys and accounts:** TMDB, a debrid provider, Trakt, or an account for cloud and
-  addon-account sync. Each uses that provider's backend and may break without notice.
+- **Optional keys and accounts:** TMDB, a debrid provider, Trakt, a Nuvio Cloud account or a
+  Stremio account. Each uses that provider's backend and may break without notice.
 
 Addon support follows the documented protocol: `manifest.json`, `/catalog/{type}/{id}`, `/meta`,
 `/stream`, `/subtitles`, including `skip`/`search` extras and `tt123:1:2` episode ids.
@@ -111,7 +113,8 @@ accounts have their own terms.
 - Credentials are written to Windows Credential Manager, not to the database, so a copied
   `duvy.db` carries no secret values.
 - Network requests go to the addons and services you configure, plus IntroDB for skip markers,
-  GitHub for the update feed, PostHog for usage counts and Sentry when crash reports are on.
+  IMDb for the parents guide, GitHub for the update feed, PostHog for usage counts and Sentry when
+  crash reports are on.
 - Data lives in `%APPDATA%\app.duvy.desktop`: `duvy.db`, `mpv.log` and `playback.log`. Seek-bar
   preview frames go to the system temp directory. Delete the database to reset the app.
 
