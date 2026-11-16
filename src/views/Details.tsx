@@ -7,6 +7,7 @@ import { StreamDrawer } from "../components/StreamDrawer";
 import { PosterCard, Row, menuFromKey } from "../components/media";
 import { Button, ContextMenu, EmptyState, Icon, ImdbMark, Loading } from "../components/ui";
 import {
+  airOrder,
   episodeCode,
   episodesUpTo,
   placeholderGradient,
@@ -239,21 +240,34 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         label: entry ? `Resume ${timeAgo(entry.updatedAt)}` : "Play",
       };
     }
-    const stored =
-      seriesProgress &&
-      details.videos.find(
-        (candidate) =>
-          candidate.season === seriesProgress.season &&
-          (candidate.episode ?? candidate.number) === seriesProgress.episode,
-      );
-    const video = stored || firstEpisode(details);
+    const queue = [...details.videos].sort((a, b) => {
+      const [aSeason, aEpisode] = airOrder(a);
+      const [bSeason, bEpisode] = airOrder(b);
+      return aSeason - bSeason || aEpisode - bEpisode;
+    });
+    // A finished episode is behind the viewer, so resume walks forward to the
+    // first one still open instead of replaying it.
+    const done = (video: Video) => {
+      const key = buildSession(details, video).key;
+      if (marks.has(key)) return true;
+      const entry = progressFor(key);
+      return Boolean(entry && progressPercent(entry.position, entry.duration) >= 90);
+    };
+    const at = queue.findIndex(
+      (candidate) =>
+        candidate.season === seriesProgress?.season &&
+        (candidate.episode ?? candidate.number) === seriesProgress?.episode,
+    );
+    const start = at < 0 ? 0 : at;
+    const video =
+      queue.slice(start).find((candidate) => !done(candidate)) ?? firstEpisode(details);
     const entry = video ? progressFor(buildSession(details, video).key) : undefined;
     return {
       video,
       position: entry?.position ?? 0,
       label: video ? `${entry ? "Resume" : "Play"} ${episodeCode(video)}` : "Play",
     };
-  }, [details, seriesProgress, progressFor, buildSession]);
+  }, [details, seriesProgress, progressFor, buildSession, marks]);
 
   /** Resume goes straight back to what was playing; the drawer is for picking anew. */
   const playOrResume = () => {
