@@ -59,5 +59,7 @@ opt-level = 2
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# A panicking thread must not take the whole app down: the mutex handlers
+# already recover from poisoning, which only exists when unwinding is on.
+panic = "unwind"
 strip = true
