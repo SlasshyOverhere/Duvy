@@ -431,6 +431,26 @@ fn adopting_an_imdb_id_folds_the_tmdb_rows() {
 }
 
 #[test]
+fn adopting_a_mark_beats_a_tombstone_at_the_same_instant() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    for (key, meta_id, watched) in [
+        ("tmdb:series:5:1:2", "tmdb:series:5", 1),
+        ("tt9:1:2", "tt9", 0),
+    ] {
+        conn.execute(
+            "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES (?1, ?2, ?3, 5)",
+            rusqlite::params![key, meta_id, watched],
+        )
+        .expect("mark");
+    }
+
+    db::adopt_meta(&conn, "tmdb:series:5", "tt9").expect("adopt");
+
+    assert_eq!(db::list_watched(&conn).unwrap(), vec!["tt9:1:2".to_string()]);
+}
+
+#[test]
 fn continue_watching_stops_exactly_at_the_finish_line() {
     let temp = TempDb::new();
     let conn = temp.open();

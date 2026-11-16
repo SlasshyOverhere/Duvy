@@ -584,7 +584,10 @@ pub fn adopt_meta(conn: &Connection, stale: &str, real: &str) -> rusqlite::Resul
            episode = excluded.episode, episode_title = excluded.episode_title,
            position = excluded.position, duration = excluded.duration,
            updated_at = excluded.updated_at
-         WHERE excluded.updated_at > progress.updated_at",
+         -- A tie goes to the real playhead, not the zero-duration placeholder.
+         WHERE excluded.updated_at > progress.updated_at
+            OR (excluded.updated_at = progress.updated_at
+                AND excluded.duration > progress.duration)",
         params![stale, real],
     )?;
     tx.execute("DELETE FROM progress WHERE meta_id = ?1", params![stale])?;
@@ -594,7 +597,10 @@ pub fn adopt_meta(conn: &Connection, stale: &str, real: &str) -> rusqlite::Resul
          FROM watched WHERE meta_id = ?1
          ON CONFLICT(key) DO UPDATE SET
            meta_id = ?2, watched = excluded.watched, updated_at = excluded.updated_at
-         WHERE excluded.updated_at > watched.updated_at",
+         -- A tie goes to the mark; a tombstone only blocks an older remote one.
+         WHERE excluded.updated_at > watched.updated_at
+            OR (excluded.updated_at = watched.updated_at
+                AND excluded.watched > watched.watched)",
         params![stale, real],
     )?;
     tx.execute("DELETE FROM watched WHERE meta_id = ?1", params![stale])?;
