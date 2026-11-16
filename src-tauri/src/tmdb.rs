@@ -211,7 +211,11 @@ fn preview_from_cinemeta(item: &Value) -> Option<MetaPreview> {
                 .filter_map(|g| g.as_str().map(str::to_string))
                 .collect::<Vec<String>>()
         }),
-        runtime: None,
+        runtime: item
+            .get("runtime")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -301,6 +305,38 @@ async fn attach_logos(client: &reqwest::Client, key: &str, items: &mut [MetaPrev
     }
 }
 
+/// `a+b` fetches both catalogs and interleaves them, so a mixed row alternates
+/// movies and shows instead of filling up with one kind first.
+async fn cinemeta_merged(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
+    let parts: Vec<&str> = path.split('+').collect();
+    let mut set = tokio::task::JoinSet::new();
+    for (slot, part) in parts.iter().enumerate() {
+        let (client, part) = (client.clone(), part.to_string());
+        set.spawn(async move { (slot, cinemeta_catalog(&client, &part).await) });
+    }
+    let mut lists = vec![Vec::new(); parts.len()];
+    while let Some(joined) = set.join_next().await {
+        if let Ok((slot, items)) = joined {
+            lists[slot] = items;
+        }
+    }
+    interleave(lists)
+}
+
+/// Round-robin merge, so the first slice of a mixed row holds both kinds.
+fn interleave(lists: Vec<Vec<MetaPreview>>) -> Vec<MetaPreview> {
+    let longest = lists.iter().map(Vec::len).max().unwrap_or(0);
+    let mut out = Vec::new();
+    for index in 0..longest {
+        for list in &lists {
+            if let Some(item) = list.get(index) {
+                out.push(item.clone());
+            }
+        }
+    }
+    out
+}
+
 async fn cinemeta_catalog(client: &reqwest::Client, path: &str) -> Vec<MetaPreview> {
     match fetch(client, &catalog_url(path)).await {
         Ok(value) => value
@@ -382,7 +418,7 @@ pub async fn similar(
 const ROWS: &[(&str, &str, &str, &str)] = &[
     (
         "/popular/all",
-        "",
+        "movie/trending+series/top",
         "trending/all/week",
         "Trending this week",
     ),
@@ -422,7 +458,7 @@ pub async fn home_rows(client: &reqwest::Client, key: &str) -> Result<Vec<HomeRo
             let mut items = if cinemeta_path.is_empty() {
                 Vec::new()
             } else {
-                cinemeta_catalog(&client, cinemeta_path).await
+                cinemeta_merged(&client, cinemeta_path).await
             };
             if items.is_empty() && available(&key) {
                 items = get(
@@ -719,6 +755,36 @@ mod catalog_tests {
         assert_eq!(tmdb_kind("series"), "tv");
         assert_eq!(tmdb_kind("tv"), "tv");
         assert_eq!(tmdb_kind("movie"), "movie");
+    }
+
+    #[test]
+    fn a_mixed_row_alternates_its_kinds() {
+        let preview = |id: &str| MetaPreview {
+            id: id.into(),
+            ..Default::default()
+        };
+        let merged = interleave(vec![
+            vec![preview("a1"), preview("a2"), preview("a3")],
+            vec![preview("b1")],
+        ]);
+        let ids: Vec<&str> = merged.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, ["a1", "b1", "a2", "a3"]);
+    }
+
+    #[test]
+    fn cinemeta_rows_keep_the_free_details() {
+        let item = serde_json::json!({
+            "imdb_id": "tt0468569",
+            "name": "The Dark Knight",
+            "type": "movie",
+            "imdbRating": "9.1",
+            "runtime": "152 min",
+            "releaseInfo": "2008"
+        });
+        let preview = preview_from_cinemeta(&item).expect("preview");
+        assert_eq!(preview.imdb_rating.as_deref(), Some("9.1"));
+        assert_eq!(preview.runtime.as_deref(), Some("152 min"));
+        assert_eq!(preview.release_info.as_deref(), Some("2008"));
     }
 
     #[test]
