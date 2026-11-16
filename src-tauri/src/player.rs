@@ -1265,13 +1265,16 @@ fn end_stream(
     crate::playback_log::mark(format!("stream ended ({reason})"));
     let _ = app.emit("player:ended", reason.to_string());
     // An episode or a dead source keeps its player: the epilogue on screen is
-    // the viewer's to act on, and closing is never our call.
-    if reason != "eof" && reason != "error" {
-        // Whichever handle goes last ends the core, so the picture and the
-        // audio go with the stream.
-        let _ = mpv.command("quit", &[]);
-        close(app, snapshot, stop);
+    // the viewer's to act on, and closing is never our call. Only the ticker
+    // stops, so the snapshot behind the end card survives.
+    if reason == "eof" || reason == "error" {
+        stop.store(true, Ordering::Relaxed);
+        return;
     }
+    // Whichever handle goes last ends the core, so the picture and the audio go
+    // with the stream.
+    let _ = mpv.command("quit", &[]);
+    close(app, snapshot, stop);
 }
 
 /// The tail every exit path shares: silence the ticker and give the slot back.
