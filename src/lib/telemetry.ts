@@ -50,8 +50,14 @@ function start(release?: string): void {
         integrations: (defaults) => [
           ...defaults,
           Sentry.browserTracingIntegration(),
-          // A recording of a private player: blank the words, block the picture.
-          Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
+          // A recording of a private player: blank the words, block the picture,
+          // and record no addon or debrid request.
+          Sentry.replayIntegration({
+            maskAllText: true,
+            blockAllMedia: true,
+            networkDetailAllowUrls: [],
+            networkCaptureBodies: false,
+          }),
         ],
         beforeSend(event) {
           return scrubValue(event) as typeof event;

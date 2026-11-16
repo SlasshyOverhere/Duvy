@@ -4,10 +4,10 @@
 const ART_KEY = "duvy:logos";
 const ART_LIMIT = 300;
 
-/** Remote art is only ever an image URL; anything else is dropped on the way in. */
+/** Remote art is only ever a raster image; anything else is dropped on the way in. */
 function usableLogo(logo: string | null | undefined): logo is string {
   if (!logo) return false;
-  return /^(https?:\/\/|data:image\/)/i.test(logo);
+  return /^(https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|avif)[;,])/i.test(logo);
 }
 
 // Session copy: the player asks for a logo on every tick, and re-parsing the

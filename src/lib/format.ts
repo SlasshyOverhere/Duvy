@@ -44,7 +44,7 @@ export function byFileSize(
 
 /** MiB rounded to one decimal, for update sizes and progress. */
 export function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
 
 /** "1h 12m left" style label from the seconds still to play. */

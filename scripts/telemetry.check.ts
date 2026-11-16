@@ -38,10 +38,28 @@ check("a magnet loses every parameter", () => {
 });
 
 check("a home directory loses the account name", () => {
-  const out = cleanText(String.raw`cannot open C:\Users\suman\AppData\Roaming\duvy.db`);
   const bad: string[] = [];
-  if (out.includes("suman")) bad.push(`account name survived: ${out}`);
-  if (!out.includes("[home]")) bad.push(`path not marked: ${out}`);
+  for (const path of [
+    String.raw`cannot open C:\Users\suman\AppData\Roaming\duvy.db`,
+    String.raw`cannot open D:\Benutzer\suman\duvy.db`,
+    "cannot open /home/suman/.config/duvy.db",
+    "cannot open /Users/suman/Library/duvy.db",
+  ]) {
+    const out = cleanText(path);
+    if (out.includes("suman")) bad.push(`account name survived: ${out}`);
+    if (!out.includes("[home]")) bad.push(`path not marked: ${out}`);
+  }
+  return bad;
+});
+
+check("an e-mail address is blanked wherever it appears", () => {
+  const out = cleanText("signed in as suman@example.com");
+  const key = scrubValue({ email: "suman@example.com", keep: "visible" }) as Record<string, unknown>;
+  const bad: string[] = [];
+  if (out.includes("suman@example.com")) bad.push(`address survived: ${out}`);
+  if (!out.includes("[email]")) bad.push(`address not marked: ${out}`);
+  if (JSON.stringify(key).includes("suman@example.com")) bad.push("address survived in a value");
+  if (key.keep !== "visible") bad.push("plain value was lost");
   return bad;
 });
 

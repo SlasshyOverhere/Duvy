@@ -123,6 +123,7 @@ let settings: Settings = {
   traktScrobble: true,
   autoUpdateCheck: true,
   ignoredUpdateVersion: "",
+  defaultsSeeded: true,
   onboarded: true,
   telemetry: null,
   analytics: true,
@@ -140,8 +141,8 @@ let addons: AddonInfo[] = [
     types: ["movie", "series"],
     resources: ["catalog", "meta"],
     catalogs: [
-      { type: "movie", id: "top", name: "Popular" },
-      { type: "series", id: "top", name: "Popular" },
+      { type: "movie", id: "top", name: "Popular", extra: [], genres: null },
+      { type: "series", id: "top", name: "Popular", extra: [], genres: null },
     ],
   },
   {
@@ -372,13 +373,18 @@ function snapshot(): PlayerSnapshot | null {
   return {
     playing: true,
     paused: player.paused,
+    started: elapsed > 0,
     position: Math.min(elapsed, player.duration),
     duration: player.duration,
+    buffered: 0,
+    buffering: false,
     title: player.title,
     volume: 100,
     muted: false,
     speed: 1,
     ended: elapsed >= player.duration,
+    cutShort: false,
+    error: null,
     audioTracks: [{ id: 1, label: "English · 5.1", lang: "eng", selected: true, external: false }],
     subTracks: [
       { id: 1, label: "English", lang: "eng", selected: true, external: false },
@@ -386,7 +392,10 @@ function snapshot(): PlayerSnapshot | null {
     ],
     activeAudio: 1,
     activeSub: 1,
+    chapters: [],
+    media: null,
     session: player.session ?? null,
+    generation: 1,
   };
 }
 
@@ -448,7 +457,7 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
         enabled: true,
         types: ["movie", "series"],
         resources: ["catalog", "meta", "stream"],
-        catalogs: [{ type: "movie", id: "top", name: "Popular" }],
+        catalogs: [{ type: "movie", id: "top", name: "Popular", extra: [], genres: null }],
       };
       addons = [installed, ...addons];
       return installed;

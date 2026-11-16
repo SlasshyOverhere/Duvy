@@ -5,13 +5,16 @@
  * checked from a plain script: see scripts/telemetry.check.ts.
  */
 
-/** Keys that only ever hold a credential, or geography nobody needs to ship. */
+/** Keys that only ever hold a credential, an identity, or geography nobody needs. */
 const SECRET_KEY =
-  /token|secret|password|authorization|cookie|api[-_]?key|info[-_]?hash|magnet|timezone|culture/i;
+  /token|secret|password|authorization|cookie|api[-_]?key|info[-_]?hash|magnet|timezone|culture|e-?mail|user-?name/i;
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>\\]+/gi;
 const MAGNET_IN_TEXT = /magnet:\?[^\s"'<>]+/gi;
-const HOME_IN_TEXT = /[A-Za-z]:\\Users\\[^\\\s"']+/g;
+// Any absolute Windows path and the two POSIX home roots: the segment after the
+// root is the account name, localized Windows folder or not.
+const HOME_IN_TEXT = /[A-Za-z]:\\[^\\\s"']+\\[^\\\s"']+|\/(?:home|Users)\/[^/\s"']+/g;
+const EMAIL_IN_TEXT = /[^\s@"'<>]+@[^\s@"'<>]+\.[A-Za-z]{2,}/g;
 
 /** Nothing useful ever hides past this; it only inflates the event. */
 const MAX_TEXT = 500;
@@ -20,7 +23,8 @@ const MAX_ITEMS = 50;
 
 /**
  * Drop the query string and fragment, which is where debrid, Trakt and
- * torrent-tracker credentials ride, and the account name in a local path.
+ * torrent-tracker credentials ride, blank e-mail addresses and the account name
+ * in a local path.
  */
 export function cleanText(text: string): string {
   return text
@@ -33,6 +37,7 @@ export function cleanText(text: string): string {
       }
     })
     .replace(MAGNET_IN_TEXT, "magnet:?[redacted]")
+    .replace(EMAIL_IN_TEXT, "[email]")
     .replace(HOME_IN_TEXT, "[home]")
     .slice(0, MAX_TEXT);
 }
@@ -45,7 +50,8 @@ export function scrubValue(value: unknown, depth = 0): unknown {
     return value.slice(0, MAX_ITEMS).map((item) => scrubValue(item, depth + 1));
   }
   if (value && typeof value === "object") {
-    const clean: Record<string, unknown> = {};
+    // A null prototype keeps `__proto__` in a payload from reaching anything.
+    const clean: Record<string, unknown> = Object.create(null);
     for (const [key, item] of Object.entries(value).slice(0, MAX_ITEMS)) {
       clean[key] = SECRET_KEY.test(key) ? "[redacted]" : scrubValue(item, depth + 1);
     }

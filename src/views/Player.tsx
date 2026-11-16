@@ -1288,8 +1288,8 @@ export function PlayerView() {
   const failed = retryError ?? (dead && recoverable ? null : local?.error);
   // mpv drained its cache: the picture is frozen on the network, not on us.
   const buffering = Boolean(local?.buffering) && !paused && !failed;
-  // The first painted frame; older snapshots omit the field.
-  const firstFrame = (local as (PlayerSnapshot & { started?: boolean }) | null)?.started === true;
+  // The first painted frame; every snapshot carries the flag.
+  const firstFrame = local?.started === true;
   // A live stream never reports a duration, so only silence before the first
   // frame counts as loading.
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
