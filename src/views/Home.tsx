@@ -375,12 +375,13 @@ export function HomeView() {
               }
               position={entry.position}
               duration={entry.duration}
-              onOpen={() => void resumeEntry(entry)}
+              onOpen={() => navigate({ name: "details", id: entry.metaId, type: entry.type })}
+              onPlay={() => void resumeEntry(entry)}
             />
           ))}
         </Row>
       ),
-    [continuing, resumeEntry, metaById],
+    [continuing, resumeEntry, metaById, navigate],
   );
 
   const ambient = cssImage(hero?.background);

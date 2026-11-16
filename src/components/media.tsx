@@ -364,6 +364,7 @@ export function ContinueCard({
   duration,
   next = false,
   onOpen,
+  onPlay,
 }: {
   entry: ProgressItem;
   poster?: string | null;
@@ -375,6 +376,7 @@ export function ContinueCard({
   duration: number;
   next?: boolean;
   onOpen: () => void;
+  onPlay: () => void;
 }) {
   const [still, setStill] = useState(background ?? poster ?? null);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -406,7 +408,7 @@ export function ContinueCard({
   };
 
   const actions: ContextAction[] = [
-    { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onOpen },
+    { label: next ? "Play next episode" : "Resume", icon: "play", onSelect: onPlay },
     {
       label: "Start from beginning",
       icon: "replay10",
@@ -440,7 +442,7 @@ export function ContinueCard({
       <button
         type="button"
         className="continue-card"
-        aria-label={next ? `${name}, next up` : `Resume ${name}`}
+        aria-label={`${name}${next ? ", next up" : ""}`}
         onClick={onOpen}
         onContextMenu={(event) => {
           event.preventDefault();
