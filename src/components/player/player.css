@@ -702,18 +702,15 @@
   color: var(--pv-faint);
 }
 
+/* Wrap instead of scrolling: a hidden horizontal scrollbar with no drag
+   gesture left every addon past the first few unreachable. */
 .pv .pv-filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
   padding: 2px 2px 2px;
-  scrollbar-width: none;
   flex: none;
-}
-
-.pv .pv-filters::-webkit-scrollbar {
-  display: none;
 }
 
 .pv .pv-filter {
@@ -1415,10 +1412,9 @@
   top: 104px;
   left: 28px;
   z-index: 3;
-  /* Sized to the longest row so the severities sit close to their labels
-     instead of drifting to the right edge of a fixed column. */
-  width: max-content;
-  max-width: min(17rem, calc(100vw - 3.5rem));
+  /* Fixed width so the meters line up in a column instead of stepping in and
+     out with each label's length. */
+  width: min(15rem, calc(100vw - 3.5rem));
   pointer-events: none;
   /* The artwork behind it is unpredictable, so the type carries its own
      contrast instead of a plate. */
@@ -1447,16 +1443,35 @@
   animation-delay: calc(90ms + var(--row, 0) * 70ms);
 }
 
-/* The dot carries the severity; the word repeats it for anyone who cannot
-   read the colour. */
-.pv .pv-guide-row::before {
-  content: "";
+/* The meter carries the severity: one tick for mild, two for moderate, three
+   for severe. Colour names the tone, the count repeats it. */
+.pv .pv-guide-meter {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--guide-tone, var(--pv-faint));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--guide-tone, transparent) 22%, transparent);
+  display: flex;
+  gap: 3px;
+}
+
+.pv .pv-guide-meter i {
+  width: 13px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pv .pv-guide-meter i:nth-child(-n + 1) {
+  background: var(--guide-tone);
+  box-shadow: 0 0 8px -1px var(--guide-tone);
+}
+
+.pv .pv-guide-row[data-severity="moderate"] .pv-guide-meter i:nth-child(-n + 2),
+.pv .pv-guide-row[data-severity="severe"] .pv-guide-meter i:nth-child(-n + 3) {
+  background: var(--guide-tone);
+  box-shadow: 0 0 8px -1px var(--guide-tone);
+}
+
+/* A clean category is a green tick, not a hole in the list. */
+.pv .pv-guide-row[data-severity="none"] {
+  --guide-tone: #4cc38a;
 }
 
 .pv .pv-guide-row[data-severity="severe"] {
@@ -1471,28 +1486,20 @@
   --guide-tone: #e3c46a;
 }
 
-/* A clean category keeps its line so nothing looks omitted, but it recedes:
-   a hollow dot and a muted label, no severity word. */
-.pv .pv-guide-row[data-severity="none"]::before {
-  background: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34);
-}
-
-.pv .pv-guide-row[data-severity="none"] .pv-guide-label {
-  color: rgba(255, 255, 255, 0.42);
-}
-
 .pv .pv-guide-label {
   flex: 1;
   min-width: 0;
   color: rgba(255, 255, 255, 0.94);
 }
 
-.pv .pv-guide-severity {
-  flex: none;
-  font-size: 0.73rem;
-  text-transform: capitalize;
-  color: var(--guide-tone, var(--pv-muted));
+/* The word is only for screen readers; the ticks are the sighted reading. */
+.pv .pv-guide-say {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Leaving: the rows peel away from the bottom up, then the block lifts out.
@@ -1951,14 +1958,26 @@
 
 /* ---- paused card -------------------------------------------------------- */
 
+/* The skip offer and the paused card share this corner, so the column keeps
+   them apart instead of letting one cover the other. */
+.pv .pv-corner {
+  position: absolute;
+  left: 2rem;
+  bottom: 132px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
+  /* Settles both ways on the compositor: translate, never bottom. */
+  transition: translate 0.24s var(--ease);
+}
+
 /* A paused frame is a still. Name it: art, the episode, one line of meta, and
    the resume the click would have done anyway. No panel, only a scrim, so the
    photograph still reads. */
 .pv .pv-now {
-  position: absolute;
-  left: 2rem;
-  bottom: 132px;
-  z-index: 3;
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 1.1rem;
@@ -1970,8 +1989,6 @@
   text-align: left;
   cursor: pointer;
   animation: pv-now-in 0.26s var(--ease) both;
-  /* Settles both ways on the compositor: translate, never bottom. */
-  transition: translate 0.24s var(--ease);
 }
 
 @keyframes pv-now-in {
@@ -1996,19 +2013,10 @@
   pointer-events: none;
 }
 
-/* The skip offer owns this corner: step up rather than cover it. */
-.pv .pv-now--above {
-  bottom: 190px;
-}
-
-/* With the controls gone the card is the only thing left on the frame, so it
+/* With the controls gone the stack is the only thing left on the frame, so it
    settles to the edge instead of hovering over empty space. */
-.pv:not(.pv--awake) .pv-now {
+.pv:not(.pv--awake) .pv-corner {
   translate: 0 96px;
-}
-
-.pv:not(.pv--awake) .pv-now--above {
-  translate: 0 102px;
 }
 
 .pv .pv-now-art {
@@ -2310,10 +2318,6 @@
 /* ---- skip intro / outro -------------------------------------------------- */
 
 .pv .pv-skip {
-  position: absolute;
-  left: 2rem;
-  bottom: 132px;
-  z-index: 4;
   height: 2.6rem;
   padding: 0 1.2rem;
   border: 0;
@@ -2330,11 +2334,7 @@
   background-color: color-mix(in srgb, var(--pv-panel), #ffffff 12%);
 }
 
-.pv--panel .pv-skip {
-  display: none;
-}
-
-.pv--panel .pv-now {
+.pv--panel .pv-corner {
   display: none;
 }
 
@@ -2364,28 +2364,18 @@
     translate: 0 84px;
   }
 
-  .pv .pv-skip {
+  .pv .pv-corner {
     left: 12px;
     bottom: 116px;
   }
 
   .pv .pv-now {
-    left: 12px;
-    bottom: 116px;
     gap: 0.8rem;
     max-width: calc(100vw - 24px);
   }
 
-  .pv:not(.pv--awake) .pv-now {
+  .pv:not(.pv--awake) .pv-corner {
     translate: 0 80px;
-  }
-
-  .pv .pv-now--above {
-    bottom: 172px;
-  }
-
-  .pv:not(.pv--awake) .pv-now--above {
-    translate: 0 84px;
   }
 
   .pv .pv-now-art {
