@@ -1446,6 +1446,10 @@ pub async fn watched_set(
     watched: bool,
     app: AppHandle,
 ) -> Result<(), String> {
+    // A blank key would land as a nameless row nothing can ever clear.
+    if key.trim().is_empty() || meta_id.trim().is_empty() {
+        return Err("A mark needs a title and a key".into());
+    }
     crate::db_blocking(app, move |state| {
         let conn = state.db.conn();
         db::set_watched(&conn, &key, &meta_id, watched).map_err(|e| e.to_string())
