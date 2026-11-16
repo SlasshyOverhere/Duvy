@@ -2,6 +2,7 @@
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { findSkip } from "../src/components/player/skip";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel: string) => readFileSync(root + rel, "utf8");
@@ -178,6 +179,46 @@ run("skip markers only offer a button", () => {
   }
   if (!/pv-skip/.test(playerView)) {
     out.push("Player.tsx has no skip button");
+  }
+  return out;
+});
+
+run("outro lands on the post-credits scene when there is one", () => {
+  const out: string[] = [];
+  const duration = 3000;
+  const at = (entry: Parameters<typeof findSkip>[0], position = duration - 100) =>
+    findSkip(entry, position, duration);
+  // A marked scene wins and the button names it.
+  const scene = { outroStart: 2900, outroEnd: 2950, postCreditsStart: 2950 };
+  const landed = at(scene);
+  if (landed?.at !== 2950 || landed.label !== "Skip to post-credits") {
+    out.push("skip.ts does not offer the post-credits scene");
+  }
+  // TV has no post-credits marker, so runtime left after the credits is the hint.
+  const tv = at({ outroStart: 2900, outroEnd: 2950 });
+  if (tv?.at !== 2950 || tv.label !== "Skip to post-credits") {
+    out.push("skip.ts ignores the runtime left after the credits");
+  }
+  // Credits that run to the end leave nothing to offer but the end of the file.
+  const plain = at({ outroStart: 2900, outroEnd: duration - 5 });
+  if (plain?.at !== duration - 1 || plain.label !== "Skip outro") {
+    out.push("skip.ts does not fall back to the end of the file");
+  }
+  if (at({ outroStart: 2900 })?.at !== duration - 1) {
+    out.push("skip.ts skips past the end with no credits end");
+  }
+  if (at({ outroStart: 2900, postCreditsStart: 2000 })?.at !== duration - 1) {
+    out.push("skip.ts lands on a post-credits marker before the credits");
+  }
+  // The offer ends where it lands, so the same click cannot replay the scene.
+  if (at(scene, 2950) != null) {
+    out.push("skip.ts keeps offering the outro after the seek");
+  }
+  // Credits after the scene are the only thing left to skip.
+  const tail = { outroStart: 2900, postCreditsStart: 2950, postCreditsEnd: 2960 };
+  const after = at(tail, 2965);
+  if (after?.kind !== "credits" || after.at !== duration - 1) {
+    out.push("skip.ts does not offer the credits after the scene");
   }
   return out;
 });
