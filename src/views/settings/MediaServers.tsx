@@ -186,7 +186,6 @@ export function MediaServers() {
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm("Remove this media server? Its saved sign-in is deleted.")) return;
     setBusy(id);
     setError(null);
     try {

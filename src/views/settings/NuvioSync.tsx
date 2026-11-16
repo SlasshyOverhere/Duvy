@@ -80,7 +80,6 @@ export function NuvioSync() {
   };
 
   const signOut = async () => {
-    if (!window.confirm("Sign out of Nuvio Cloud? Local history stays on this machine.")) return;
     setBusy("out");
     setError(null);
     setNote(null);

@@ -74,7 +74,6 @@ export function StremioSync() {
   };
 
   const signOut = async () => {
-    if (!window.confirm("Sign out of Stremio? Local history stays on this machine.")) return;
     setBusy("out");
     setError(null);
     setNote(null);
