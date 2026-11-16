@@ -469,6 +469,8 @@ fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
     } else {
         p.position
     };
+    // A caller that stamped the row keeps its stamp; the ticker passes its own.
+    let updated_at = if p.updated_at > 0 { p.updated_at } else { now() };
     conn.execute(
         "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
                                episode, episode_title, position, duration, updated_at)
