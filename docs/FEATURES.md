@@ -1,6 +1,6 @@
 # Features
 
-What works in Duvy 0.1.11 beta, and where each area stops. This is a per-area snapshot, not
+What works in Duvy 0.1.14 beta, and where each area stops. This is a per-area snapshot, not
 a delivery promise. Planned work lives in [`ROADMAP.md`](./ROADMAP.md).
 
 Legend: **Done** works in the beta · **Partial** works but is narrower · **Planned** not built.
@@ -77,15 +77,16 @@ Legend: **Done** works in the beta · **Partial** works but is narrower · **Pla
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Windows | **Done** | MSI and NSIS built, signed and released by CI on tag |
+| Windows | **Done** | MSI and NSIS built and released by CI on tag; updater bundles are signed, the installers carry no Authenticode signature |
 | Player | **Done** | libmpv bundled with the app, no download and no external player |
 | macOS / Linux | Untested | libmpv's own window fallback, no packaging support |
 | Android / iOS / TV | Out of scope | Desktop only |
 
 ## Design choices
 
-- **No account required, no usage tracking, no bundled content.** Every integration is optional
-  and uses credentials the user supplies; crash reports are off until the user opts in.
+- **No account required, no bundled content.** Every integration is optional and uses credentials
+  the user supplies. Anonymous usage counts are on by default in release builds and can be switched
+  off in Settings, Privacy; crash reports are off until the user opts in.
 - **Rust owns I/O.** Addon fan-out runs in parallel Tokio tasks; the UI never parses stream
   strings.
 - **libmpv is linked in, not spawned.** Video decodes in-process and paints into the app window's

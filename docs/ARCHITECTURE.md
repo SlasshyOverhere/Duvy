@@ -41,7 +41,7 @@ checkout into `src-tauri/libmpv/`, and the build bundles both with the installer
 ## Frontend layout
 
 ```
-src/views/            Home, Search, Details, Library, Watched, Addons, Debrid, Torrent,
+src/views/            Home, Search, Details, Library, Watched, Addons, Debrid,
                       Onboarding, Player, Settings
 src/views/settings/   media servers, sync panels, updates
 src/components/       shell, title bar, poster rows, stream drawer, player HUD
@@ -71,7 +71,7 @@ src/lib/analytics.ts  anonymous usage counts (PostHog capture, no SDK)
 | `frame.rs` | Seek-bar previews from a scratch in-process libmpv into the system temp folder, bucketed and capped. |
 | `db.rs` | SQLite schema, migrations, WAL, queries for addons, library, progress, watched, settings, people. Tested. |
 | `settings.rs` | Defaults, JSON merge patch (`null` resets a field), persistence and the in-memory settings cache. |
-| `secret.rs` | DPAPI `enc1:` encoding for stored credentials, with legacy plaintext pass-through. |
+| `secret.rs` | OS keyring storage (Windows Credential Manager, Keychain, Secret Service) with a `keyring:1` marker in the database and migration of legacy `enc1:` DPAPI rows. |
 | `json.rs` | Small readers for untrusted JSON returned by account APIs. |
 | `commands.rs` | All `#[tauri::command]` entry points, concurrent addon fan-out with budgets, source resolution, metadata merge. |
 | `models.rs` | Serde shapes shared by commands and events. |
@@ -198,10 +198,9 @@ not read SQLite per call.
   blanked, payloads are truncated, duplicates are dropped and a session is capped. Any replay is
   masked and media is blocked. A Rust panic is forwarded as `app:error` and reported the same way;
   `playback.log` stays local in every build.
-- Credential values in the local settings table are encrypted with Windows DPAPI for the current
-  user before they are written, and legacy plaintext rows are upgraded when the database opens.
-  A database copied to another Windows account or machine cannot be decrypted. The app can still
-  read them while the user is signed in, so the data directory is a credential store.
+- Credential values go to the OS protected store (Windows Credential Manager) through `keyring`;
+  the settings table holds only a `keyring:1` marker. Rows written by older builds (`enc1:`,
+  DPAPI) are migrated on first read, so a copied database carries no secret values.
 - Disconnecting Trakt revokes the token best effort and clears it locally, keeping the API app
   credentials so a reconnect does not need a re-paste. Signing out of an account session clears
   the stored tokens; the cloud sync keeps a non-secret account id so a later sign-in can tell
@@ -243,14 +242,13 @@ have.
 
 - Windows is the supported platform. The in-window player path is Windows-specific; other
   platforms fall back to libmpv's own window and are untested.
-- One player and one torrent at a time.
+- One player session at a time.
 - No downloads/offline library, local profiles or PIN, translations, app icon packs or a
   dedicated Discover browser.
 - Crash reports need a release build with a Sentry DSN; a local build has no endpoint and sends
   nothing even when reports are switched on.
 - Intro/outro skipping is a button, never automatic, and only recap, intro and outro segments are
   understood (no credits or post-credits taxonomy).
-- Torrent stats expose peers and live speed, but not a seeder count, so the engine reports 0.
 - The addon implementation supports the documented catalog/meta/stream/subtitle subset. Addon
   configuration pages, addon permissions and addon collections are not implemented.
 - Player options are explicit (`no-config`), so a user's `mpv.conf` is ignored.

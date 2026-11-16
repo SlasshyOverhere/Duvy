@@ -20,9 +20,10 @@ path native:
   no video through the WebView, so a large remux cannot stall the interface.
 - **Rust owns I/O and parsing.** Streams are ranked in a tested native module, and addon catalogs,
   search, streams and subtitles fan out on parallel Tokio tasks.
-- **One local SQLite file in WAL mode** holds addons, library, progress, settings and credentials,
-  with the credentials encrypted for the current Windows user. No account is required, and
-  nothing leaves the machine unless you opt in to crash reports.
+- **One local SQLite file in WAL mode** holds addons, library, progress and settings, while
+  credentials go to Windows Credential Manager through the OS keyring. No account is required.
+  Release builds send anonymous usage counts, which can be switched off, and crash reports are
+  opt-in.
 
 ## What it does
 
@@ -31,7 +32,8 @@ path native:
 - Library, Continue Watching, Watched, and resume per episode.
 - In-app libmpv playback: hardware decoding, cache buffers, audio/subtitle tracks, subtitle styling
   and delay, intro/outro skipping, seek-bar previews, speed and volume.
-- Sources: direct HTTP(S), local files, opt-in P2P, four debrid providers, and Jellyfin or Emby.
+- Sources: direct HTTP(S), local files, four debrid providers, and Jellyfin or Emby. Torrent rows
+  play through a connected debrid account only.
 - Optional TMDB enrichment, Trakt scrobbling and account sync; signed updates.
 - Four accent themes, settings with grouped navigation and search.
 
@@ -86,8 +88,8 @@ Duvy ships no media, no catalogs, no addons and no scrapers. Everything comes fr
 add, servers you connect, or files you open:
 
 - **Metadata and catalogs:** Cinemeta is installed on first launch; add more from the Addons panel.
-- **Streams:** an addon returning HTTP(S) links, magnets or info hashes. Torrent sources stay
-  disabled until P2P is allowed in Settings.
+- **Streams:** an addon returning HTTP(S) links, magnets or info hashes. A magnet or info hash is
+  resolved by a connected debrid account; with none connected the row is reported as unplayable.
 - **Optional keys and accounts:** TMDB, a debrid provider, Trakt, or an account for cloud and
   addon-account sync. Each uses that provider's backend and may break without notice.
 
@@ -95,8 +97,9 @@ Addon support follows the documented protocol: `manifest.json`, `/catalog/{type}
 `/stream`, `/subtitles`, including `skip`/`search` extras and `tt123:1:2` episode ids.
 
 You are responsible for the addons, servers, accounts and sources you configure, and for
-complying with the law and the terms of those services where you live. P2P playback makes your IP
-address visible to the swarm. Debrid accounts have their own terms.
+complying with the law and the terms of those services where you live. Duvy runs no torrent engine
+and never joins a swarm, so playing a torrent source does not expose your address to peers. Debrid
+accounts have their own terms.
 
 ## Privacy and local data
 
@@ -105,13 +108,12 @@ address visible to the swarm. Debrid accounts have their own terms.
   counts, and how many requests each backend host answered, plus a random install id. Never a
   title, an account, a link or a request path. The switch is in Settings, Privacy, and a build
   without a key counts nothing. Crash reports are opt-in and off by default.
-- Credentials are encrypted with Windows DPAPI for the current user before they are written, so a
-  copied database cannot be read by another Windows account or machine.
+- Credentials are written to Windows Credential Manager, not to the database, so a copied
+  `duvy.db` carries no secret values.
 - Network requests go to the addons and services you configure, plus IntroDB for skip markers,
-  GitHub for the update feed, PostHog for usage counts and Sentry when crash reports are on. P2P
-  traffic goes directly to other peers while a torrent source plays.
-- Data lives in `%APPDATA%\app.duvy.desktop`: `duvy.db`, `mpv.log`, `playback.log` and the
-  temporary `torrent-cache` folder. Delete the database to reset the app.
+  GitHub for the update feed, PostHog for usage counts and Sentry when crash reports are on.
+- Data lives in `%APPDATA%\app.duvy.desktop`: `duvy.db`, `mpv.log` and `playback.log`. Seek-bar
+  preview frames go to the system temp directory. Delete the database to reset the app.
 
 What a crash report carries, and how it is scrubbed, is described in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#privacy-and-trust-boundaries).
@@ -130,8 +132,9 @@ The module-by-module breakdown is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 ## Releasing
 
 Releases are built and published by CI only: dispatch the release workflow with a version (or
-push a `v*` tag) and it builds, signs and publishes the installers and `latest.json`. Setup and
-the signing key are covered in [docs/RELEASING.md](docs/RELEASING.md).
+push a `v*` tag) and it builds and publishes the installers and `latest.json`, signing the updater
+bundles so in-app updates verify. The installers themselves carry no Authenticode signature. Setup
+and the signing key are covered in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Contributing
 
