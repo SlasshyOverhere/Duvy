@@ -13,9 +13,16 @@ let feedSig = "";
 
 /** Next episode after a finished one, or null when the show is over. The sig is
  *  the title's newest mark, so a fresh mark re-resolves its next up. */
-const nextUpCache = new Map<string, { sig: string; entry: ProgressItem | null }>();
+const nextUpCache = new Map<
+  string,
+  { sig: string; gen: number; entry: ProgressItem | null }
+>();
 const NEXT_UP_CACHE_MAX = 120;
 const NEXT_UP_BATCH = 6;
+// One generation per effect run, so a slower older run cannot overwrite the
+// answer a fresher one already cached.
+let nextUpGen = 0;
+const nextUpInFlight = new Set<string>();
 
 /** The cache is a session memo, not a history: the oldest titles drop first. */
 function pruneNextUp(): void {
@@ -198,9 +205,12 @@ export function HomeView() {
         rows.push({ entry: row, next: false });
         continue;
       }
+      // A finished movie belongs in Watched, not here.
       if (row.type !== "series") continue;
       const next = nextUp.get(row.key);
-      if (next) rows.push({ entry: next, next: true });
+      // While the next episode is still being resolved the finished one stays,
+      // so the show never drops off the row.
+      rows.push(next ? { entry: next, next: true } : { entry: row, next: false });
     }
     return rows.slice(0, 30);
   }, [latestRows, watchedKeys, nextUp]);
@@ -209,75 +219,89 @@ export function HomeView() {
   // progress row. Cache per episode so a refresh never refetches a known title,
   // keyed by the title's marks so a new mark re-resolves the card.
   useEffect(() => {
-    const pending = latestRows.filter(
-      (row) =>
-        row.type === "series" &&
-        (watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90) &&
-        nextUpCache.get(row.key)?.sig !== sigOf(row.metaId),
-    );
+    pruneNextUp();
+    const pending = latestRows.filter((row) => {
+      if (row.type !== "series") return false;
+      const finished =
+        watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90;
+      if (!finished) return false;
+      const sig = sigOf(row.metaId);
+      if (nextUpCache.get(row.key)?.sig === sig) return false;
+      // A lookup already running for this exact mark must not be duplicated on
+      // every progress tick.
+      return !nextUpInFlight.has(`${row.key}|${sig}`);
+    });
     if (pending.length === 0) {
       setNextUp(cachedNextUp(sigOf));
       return;
     }
-    let alive = true;
+    const gen = ++nextUpGen;
     const resolve = async (row: ProgressItem) => {
-      const details = await api.details(row.metaId, row.type);
-      const queue = [...details.videos].sort(
-        (a, b) =>
-          (a.season ?? 0) - (b.season ?? 0) ||
-          (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
-      );
-      const at = queue.findIndex(
-        (video) =>
-          video.season === row.season &&
-          (video.episode ?? video.number) === row.episode,
-      );
-      // An episode already marked watched is behind the viewer, not next up.
-      const after = at < 0 ? [] : queue.slice(at + 1);
-      const video = after.find((candidate) => {
-        const season = candidate.season;
-        const episode = candidate.episode ?? candidate.number;
-        return (
-          season != null &&
-          episode != null &&
-          !watchedKeys.has(`${row.metaId}:${season}:${episode}`)
+      const sig = sigOf(row.metaId);
+      const flight = `${row.key}|${sig}`;
+      nextUpInFlight.add(flight);
+      try {
+        const details = await api.details(row.metaId, row.type);
+        const queue = [...details.videos].sort(
+          (a, b) =>
+            (a.season ?? 0) - (b.season ?? 0) ||
+            (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
         );
-      });
-      const season = video?.season ?? null;
-      const episode = video ? (video.episode ?? video.number ?? null) : null;
-      nextUpCache.set(row.key, {
-        sig: sigOf(row.metaId),
-        entry:
-          video && season != null && episode != null
-            ? {
-                key: `${row.metaId}:${season}:${episode}`,
-                metaId: row.metaId,
-                type: row.type,
-                name: row.name,
-                poster: row.poster,
-                background: video.thumbnail ?? row.background ?? row.poster,
-                season,
-                episode,
-                episodeTitle: video.title ?? null,
-                position: 0,
-                duration: 0,
-                updatedAt: row.updatedAt,
-              }
-            : null,
-      });
+        const at = queue.findIndex(
+          (video) =>
+            video.season === row.season &&
+            (video.episode ?? video.number) === row.episode,
+        );
+        // An episode already marked watched is behind the viewer, not next up.
+        const after = at < 0 ? [] : queue.slice(at + 1);
+        const video = after.find((candidate) => {
+          const season = candidate.season;
+          const episode = candidate.episode ?? candidate.number;
+          return (
+            season != null &&
+            episode != null &&
+            !watchedKeys.has(`${row.metaId}:${season}:${episode}`)
+          );
+        });
+        const season = video?.season ?? null;
+        const episode = video ? (video.episode ?? video.number ?? null) : null;
+        // A run that started before a newer one has the older answer.
+        if (gen < (nextUpCache.get(row.key)?.gen ?? -1)) return;
+        nextUpCache.set(row.key, {
+          sig,
+          gen,
+          entry:
+            video && season != null && episode != null
+              ? {
+                  key: `${row.metaId}:${season}:${episode}`,
+                  metaId: row.metaId,
+                  type: row.type,
+                  name: row.name,
+                  poster: row.poster,
+                  background: video.thumbnail ?? row.background ?? row.poster,
+                  season,
+                  episode,
+                  episodeTitle: video.title ?? null,
+                  position: 0,
+                  duration: 0,
+                  updatedAt: row.updatedAt,
+                }
+              : null,
+        });
+      } catch {
+        // Leave it uncached so a later run retries; the finished episode stays
+        // on the row in the meantime.
+      } finally {
+        nextUpInFlight.delete(flight);
+      }
     };
     void (async () => {
       // Bounded: a long history must not fire one details call per title.
       for (let i = 0; i < pending.length; i += NEXT_UP_BATCH) {
         await Promise.allSettled(pending.slice(i, i + NEXT_UP_BATCH).map(resolve));
-        if (!alive) return;
+        setNextUp(cachedNextUp(sigOf));
       }
-      pruneNextUp();
-      setNextUp(cachedNextUp(sigOf));
     })();
-    return () => {
-      alive = false;
-    };
   }, [latestRows, watchedKeys, sigOf]);
 
   // One map for the card progress bars, so a row of cards costs no scans.
