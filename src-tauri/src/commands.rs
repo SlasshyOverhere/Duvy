@@ -241,7 +241,8 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     if base.genres.is_empty() {
         base.genres = rich.genres;
     }
-    if base.cast.is_empty() {
+    // TMDB's cast carries the person ids the addon rows lack, so it wins.
+    if !rich.cast.is_empty() {
         base.cast = rich.cast;
     }
     if base.director.is_empty() {
@@ -1179,8 +1180,9 @@ pub async fn meta_details(
         .or_else(|| id.starts_with("tt").then(|| id.clone()));
     let needs_videos = details.videos.is_empty() && details.media_type == "series";
     let needs_cast = details.cast.is_empty();
+    // A cast without person ids cannot open a person page, so TMDB must run.
     let needs_tmdb = details.background.is_none()
-        || details.cast.is_empty()
+        || details.cast.iter().all(|member| member.person_id.is_none())
         || details.trailer.is_none()
         || details.trailers.is_empty()
         || (details.media_type == "series" && details.seasons.is_empty());

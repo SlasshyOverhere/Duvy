@@ -818,30 +818,28 @@ pub async fn person(
     )
     .await?;
 
-    // Popularity ranks one rail; the release date splits the other two.
-    let mut credits: Vec<(f64, String, MetaPreview)> = value
-        .get("combined_credits")
-        .and_then(|c| c.get("cast"))
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|credit| {
-                    let preview = preview_from_item(credit)?;
-                    let popularity = credit
-                        .get("popularity")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(0.0);
-                    let date = credit
-                        .get("release_date")
-                        .or_else(|| credit.get("first_air_date"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    Some((popularity, date, preview))
-                })
-                .collect()
+    // Popularity ranks one rail; the release date splits the other two. Crew
+    // credits count too, or a director's page would come up empty.
+    let mut credits: Vec<(f64, String, MetaPreview)> = ["cast", "crew"]
+        .iter()
+        .filter_map(|kind| value.get("combined_credits").and_then(|c| c.get(kind)))
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|credit| {
+            let preview = preview_from_item(credit)?;
+            let popularity = credit
+                .get("popularity")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let date = credit
+                .get("release_date")
+                .or_else(|| credit.get("first_air_date"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            Some((popularity, date, preview))
         })
-        .unwrap_or_default();
+        .collect();
     credits.sort_by(|a, b| a.2.id.cmp(&b.2.id));
     credits.dedup_by(|a, b| a.2.id == b.2.id);
     credits.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -906,6 +904,46 @@ pub async fn person(
     })
 }
 
+/// Shows answer under `aggregate_credits`; films only have `credits`.
+fn credits_block(value: &Value) -> Option<&Value> {
+    value
+        .get("credits")
+        .or_else(|| value.get("aggregate_credits"))
+}
+
+/// Aggregate cast nests the role under `roles`; a plain cast is flat.
+fn character_of(person: &Value) -> String {
+    person
+        .get("character")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            person
+                .get("roles")
+                .and_then(Value::as_array)
+                .and_then(|roles| roles.first())
+                .and_then(|role| role.get("character"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Aggregate crew lists every job per person; a plain crew lists one.
+fn crew_jobs(person: &Value) -> Vec<&str> {
+    if let Some(job) = person.get("job").and_then(Value::as_str) {
+        return vec![job];
+    }
+    person
+        .get("jobs")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|job| job.get("job").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Resolve a TMDB id into a full detail record.
 pub async fn details(
     client: &reqwest::Client,
@@ -914,10 +952,11 @@ pub async fn details(
     tmdb_id: &str,
 ) -> Result<MetaDetails, String> {
     let kind = tmdb_kind(media_type);
-    // Ratings live under `content_ratings` for shows and inside each country's
-    // `release_dates` for films; asking for both wastes a payload.
+    // Shows keep one row per actor with every season's role under
+    // `aggregate_credits`, so the cast list is the whole company. Ratings live
+    // under `content_ratings` for shows and inside `release_dates` for films.
     let append = if kind == "tv" {
-        "credits,videos,external_ids,content_ratings"
+        "aggregate_credits,videos,external_ids,content_ratings"
     } else {
         "credits,videos,external_ids,release_dates"
     };
@@ -966,25 +1005,19 @@ pub async fn details(
         })
         .map(|m| format!("{m} min"));
 
-    let cast: Vec<CastMember> = value
-        .get("credits")
+    let cast: Vec<CastMember> = credits_block(&value)
         .and_then(|c| c.get("cast"))
-        .and_then(|c| c.as_array())
+        .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .take(14)
                 .filter_map(|person| {
                     Some(CastMember {
                         name: person.get("name")?.as_str()?.to_string(),
-                        character: person
-                            .get("character")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
+                        character: character_of(person),
                         photo: person
                             .get("profile_path")
                             .and_then(|v| v.as_str())
-                            .map(|p| format!("{IMG}/w185{p}")),
+                            .map(|p| format!("{IMG}/w300{p}")),
                         person_id: person.get("id").and_then(Value::as_i64),
                     })
                 })
@@ -995,22 +1028,43 @@ pub async fn details(
     // Crew jobs worth naming on the page, one entry per person.
     let crew = |jobs: &[&str]| -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
-        if let Some(arr) = value
-            .get("credits")
+        let Some(arr) = credits_block(&value)
             .and_then(|c| c.get("crew"))
             .and_then(Value::as_array)
-        {
-            for person in arr {
-                let job = person.get("job").and_then(Value::as_str).unwrap_or("");
-                let Some(name) = person.get("name").and_then(Value::as_str) else {
-                    continue;
-                };
-                if jobs.contains(&job) && !names.iter().any(|n| n == name) {
-                    names.push(name.to_string());
-                }
+        else {
+            return names;
+        };
+        for person in arr {
+            let Some(name) = person.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if crew_jobs(person).iter().any(|job| jobs.contains(job))
+                && !names.iter().any(|n| n == name)
+            {
+                names.push(name.to_string());
             }
         }
         names
+    };
+
+    // A show names its creators where a film names a director.
+    let director = if kind == "tv" {
+        value
+            .get("created_by")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(|person| {
+                        person
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        crew(&["Director"])
     };
 
     let trailer = value
@@ -1067,7 +1121,7 @@ pub async fn details(
             .map(|s| s.to_string()),
         videos: vec![],
         cast,
-        director: crew(&["Director"]),
+        director,
         writer: crew(&["Writer", "Screenplay", "Story"]),
         country: country_names(&value),
         trailer,
