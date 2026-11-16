@@ -260,17 +260,13 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
     (audio, subs, active_audio, active_sub)
 }
 
-/// Rebuild the track list and the selected ids from mpv's current state.
-fn refresh_tracks(mpv: &Mpv, snap: &mut Snapshot) {
-    let (audio, subs, active_audio, active_sub) = parse_tracks(&read_tracks(mpv));
-    snap.audio_tracks = audio;
-    snap.sub_tracks = subs;
-    snap.active_audio = active_audio;
-    snap.active_sub = active_sub;
+/// The track list and the selected ids, read from mpv outside any lock.
+fn read_track_state(mpv: &Mpv) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i64>) {
+    parse_tracks(&read_tracks(mpv))
 }
 
 /// Describe the video stream. Read on load and on a reconfig, never per tick.
-fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
+fn read_media(mpv: &Mpv) -> Option<MediaInfo> {
     let int = |name: &str| mpv.get_property::<i64>(name).ok().unwrap_or(0);
     let num = |name: &str| mpv.get_property::<f64>(name).ok().filter(|v| *v > 0.0);
     let text = |name: &str| {
@@ -282,7 +278,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
     let (width, height) = (int("video-params/w"), int("video-params/h"));
     // Audio-only, or the video has not been initialised yet.
     if width <= 0 || height <= 0 {
-        return;
+        return None;
     }
     let gamma = text("video-params/gamma").unwrap_or_default();
     let hdr = match gamma.as_str() {
@@ -300,7 +296,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
         let runtime = num("duration").filter(|d| *d > 1.0)?;
         Some(size * 8.0 / runtime)
     });
-    snap.media = Some(MediaInfo {
+    Some(MediaInfo {
         width,
         height,
         aspect: num("video-params/aspect"),
@@ -308,7 +304,7 @@ fn refresh_media(mpv: &Mpv, snap: &mut Snapshot) {
         bitrate,
         video_codec: text("video-codec"),
         hdr,
-    });
+    })
 }
 
 /// mpv reports tracks as `eng`, `en`, `English` or `und`; all become a name.
@@ -1066,6 +1062,11 @@ fn spawn_events(
             };
             match event {
                 Event::PropertyChange { name, change, .. } => {
+                    // mpv is read before the lock: a wedged source must not pin it.
+                    let tracks = matches!(name, "track-list/count" | "aid" | "sid")
+                        .then(|| read_track_state(&mpv));
+                    let chapters = (name == "chapter-list/count")
+                        .then(|| parse_chapters(&read_chapters(&mpv)));
                     let mut snap = match snapshot.lock() {
                         Ok(snap) => snap,
                         Err(_) => break,
@@ -1116,16 +1117,24 @@ fn spawn_events(
                         // mpv reports a switch as an aid/sid change, not as a
                         // new track list, so re-read it or the UI never moves.
                         "track-list/count" | "aid" | "sid" => {
-                            refresh_tracks(&mpv, &mut snap);
+                            if let Some((audio, subs, active_audio, active_sub)) = tracks {
+                                snap.audio_tracks = audio;
+                                snap.sub_tracks = subs;
+                                snap.active_audio = active_audio;
+                                snap.active_sub = active_sub;
+                            }
                         }
                         "chapter-list/count" => {
-                            snap.chapters = parse_chapters(&read_chapters(&mpv))
+                            if let Some(chapters) = chapters {
+                                snap.chapters = chapters;
+                            }
                         }
                         _ => {}
                     }
                     drop(snap);
                 }
                 Event::FileLoaded => {
+                    let media = read_media(&mpv);
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
                         snap.paused = false;
@@ -1133,15 +1142,19 @@ fn spawn_events(
                         snap.cut_short = false;
                         snap.error = None;
                         snap.buffering = false;
-                        refresh_media(&mpv, &mut snap);
+                        if media.is_some() {
+                            snap.media = media;
+                        }
                     }
                     crate::playback_log::mark("demuxer opened the stream");
                 }
                 // The decoder settled on a size: this is the reliable moment for
                 // video-params, and it fires again if the stream switches.
                 Event::VideoReconfig => {
-                    if let Ok(mut snap) = snapshot.lock() {
-                        refresh_media(&mpv, &mut snap);
+                    if let Some(media) = read_media(&mpv)
+                        && let Ok(mut snap) = snapshot.lock()
+                    {
+                        snap.media = Some(media);
                     }
                 }
                 Event::EndFile(reason) => {
