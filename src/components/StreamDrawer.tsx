@@ -282,6 +282,9 @@ export function StreamDrawer({
   // Skeletons stand in for the current view, not the whole set: a filter that
   // is still loading must not render as a blank panel either.
   const shown = visible.reduce((sum, group) => sum + group.streams.length, 0);
+  const chipKeys = groups
+    .filter((group) => group.streams.length > 0 || group.state === "loading")
+    .map((group) => group.key);
 
   if (!open) return null;
 
@@ -300,7 +303,11 @@ export function StreamDrawer({
           <button
             type="button"
             className={`drawer-refresh${pending > 0 ? " is-loading" : ""}`}
-            onClick={() => targets.forEach((target) => load(target.key))}
+            onClick={() => {
+              // A refresh starts a new run, so answers from the old one are stale.
+              runId.current += 1;
+              targets.forEach((target) => load(target.key));
+            }}
             aria-label="Refresh sources"
             title="Refresh sources"
           >
@@ -314,6 +321,22 @@ export function StreamDrawer({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             onScroll={measure}
+            onKeyDown={(event) => {
+              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+              if (!step || !chipKeys.length) return;
+              event.preventDefault();
+              const at = chipKeys.indexOf(filter);
+              const next =
+                at < 0
+                  ? chipKeys[step > 0 ? 0 : chipKeys.length - 1]
+                  : chipKeys[(at + step + chipKeys.length) % chipKeys.length];
+              setFilter(next);
+              const chip = filtersRef.current?.querySelector<HTMLElement>(
+                `[data-chip="${CSS.escape(next)}"]`,
+              );
+              chip?.focus();
+              chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+            }}
             title="Drag sideways for more addons"
           >
             {groups
@@ -322,6 +345,7 @@ export function StreamDrawer({
                 <button
                   key={group.key}
                   type="button"
+                  data-chip={group.key}
                   className={`chip${filter === group.key ? " is-active" : ""}`}
                   aria-pressed={filter === group.key}
                   onClick={() => chooseFilter(group.key)}

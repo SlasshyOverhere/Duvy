@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/bridge";
+import { errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
 import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
 
@@ -10,7 +11,14 @@ import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
  */
 export function CrashReporting() {
   const { settings, appInfo, saveSettings } = useApp();
+  const [error, setError] = useState<string | null>(null);
   const choice = settings?.telemetry ?? null;
+
+  const decide = (telemetry: boolean) => {
+    setError(null);
+    // A failed save keeps the dialog open, so the answer is never lost silently.
+    void saveSettings({ telemetry }).catch((e) => setError(errorMessage(e)));
+  };
 
   useEffect(() => {
     if (!appInfo) return;
@@ -60,18 +68,23 @@ export function CrashReporting() {
             type="button"
             className="btn btn-primary"
             autoFocus
-            onClick={() => void saveSettings({ telemetry: true })}
+            onClick={() => decide(true)}
           >
             Send reports
           </button>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void saveSettings({ telemetry: false })}
+            onClick={() => decide(false)}
           >
             No thanks
           </button>
         </div>
+        {error ? (
+          <p className="form-error" role="alert" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   );

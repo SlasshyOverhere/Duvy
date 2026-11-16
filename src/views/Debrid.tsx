@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
 import type { DebridProvider } from "../lib/types";
 import { errorMessage } from "../lib/format";
-import { Badge, Button, Icon, Loading } from "../components/ui";
+import { Badge, Button, EmptyState, Icon, Loading } from "../components/ui";
 
 const HINTS: Record<string, string> = {
   realdebrid: "Private API token from real-debrid.com/apitoken.",
@@ -117,6 +117,14 @@ export function DebridView() {
         <p className="form-error" role="alert">
           {loadError}
         </p>
+      ) : null}
+
+      {!loading && !loadError && providers.length === 0 ? (
+        <EmptyState
+          icon="key"
+          title="No debrid providers"
+          body="This build lists none, so torrent sources play without a cached HTTPS link."
+        />
       ) : null}
 
       {providers.map((provider) => {

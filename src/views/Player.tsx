@@ -1051,6 +1051,8 @@ export function PlayerView() {
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // The player generation that failed, so only a newer picture clears the card.
+  const retryGen = useRef(-1);
 
   const [hud, setHud] = useState<Hud | null>(null);
   // Stremio's centre card: the level moved, so show it big for a moment.
@@ -1861,6 +1863,7 @@ export function PlayerView() {
     if ((!dropped && !dead) || retrying.current) return;
     const now = Date.now();
     if (now - lastRetry.current < 60_000) {
+      retryGen.current = local?.generation ?? -1;
       setRetryError("The stream keeps dropping. Choose another source.");
       return;
     }
@@ -1869,15 +1872,19 @@ export function PlayerView() {
     void resumeDropped().then((ok) => {
       retrying.current = false;
       if (!ok) {
+        retryGen.current = local?.generation ?? -1;
         setRetryError("The stream ended early and could not be resumed. Choose another source.");
       }
     });
   }, [dead, dropped, resumeDropped]);
 
-  // A new picture clears the retry failure, however it was opened.
+  // A retry failure stays until a newer player reports a healthy picture.
   useEffect(() => {
-    if (retryError && !local?.ended && !local?.error) setRetryError(null);
-  }, [local?.ended, local?.error, retryError]);
+    if (!retryError) return;
+    if ((local?.generation ?? -1) === retryGen.current) return;
+    if (local?.error || local?.cutShort) return;
+    setRetryError(null);
+  }, [local?.generation, local?.error, local?.cutShort, retryError]);
 
   // While a control holds keyboard focus the chrome stays, so the focus ring
   // does not vanish mid-keyboard navigation.

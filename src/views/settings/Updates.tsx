@@ -65,7 +65,9 @@ export function Updates() {
   };
 
   const share =
-    progress?.total != null ? Math.min(100, (progress.got / progress.total) * 100) : null;
+    progress?.total != null && progress.total > 0
+      ? Math.min(100, (progress.got / progress.total) * 100)
+      : null;
   const desktop = isTauri();
 
   return (
@@ -119,7 +121,7 @@ export function Updates() {
               aria-valuemax={100}
               aria-valuenow={share ?? undefined}
             >
-              <span style={share == null ? undefined : { transform: `scaleX(${share / 100})` }} />
+              <span style={{ transform: `scaleX(${(share ?? 0) / 100})` }} />
             </div>
           ) : null}
           {installing && progress ? (

@@ -39,7 +39,10 @@ export function TraktView() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api.trakt.status());
+      const next = await api.trakt.status();
+      setStatus(next);
+      // A code issued before a restart is still pending: resume waiting on it.
+      if (!next.connected && next.userCode) setCode(next.userCode);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -196,6 +199,21 @@ export function TraktView() {
         <p className="form-error" role="alert">
           {error}
         </p>
+      ) : null}
+
+      {/* Without a status the screen has nothing to act on, so offer the retry. */}
+      {!status && error ? (
+        <div className="field-row">
+          <Button
+            icon="refresh"
+            onClick={() => {
+              setError(null);
+              void refresh();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
       ) : null}
 
       {status && !status.connected && code ? (
