@@ -34,6 +34,7 @@
     "allow-catalog",
     "allow-search",
     "allow-meta-details",
+    "allow-person-details",
     "allow-cast-photos",
     "allow-recommendations",
     "allow-similar",

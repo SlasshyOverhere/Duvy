@@ -20,6 +20,7 @@ const COMMANDS: &[&str] = &[
     "catalog",
     "search",
     "meta_details",
+    "person_details",
     "cast_photos",
     "recommendations",
     "similar",
