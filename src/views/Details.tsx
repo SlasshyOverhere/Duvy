@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
 import type { Details, MetaPreview, StreamOption, Video } from "../lib/types";
 import { StreamDrawer } from "../components/StreamDrawer";
-import { PosterCard, Row, menuFromKey } from "../components/media";
+import { PosterCard, Row, menuFromKey, useDragScroll } from "../components/media";
 import { Button, ContextMenu, EmptyState, Icon, IconButton, ImdbMark, Loading, type ContextAction } from "../components/ui";
 import {
   airOrder,
@@ -84,6 +84,10 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
   const details = loaded?.key === cacheKey ? loaded.details : null;
   // A TMDB id and its IMDb twin are the same title, so one id owns its rows.
   const metaId = details?.imdbId ?? id;
+  const episodeRail = useRef<HTMLDivElement>(null);
+  const castRail = useRef<HTMLDivElement>(null);
+  useDragScroll(episodeRail, details);
+  useDragScroll(castRail, details);
 
   useEffect(() => {
     let alive = true;
@@ -118,12 +122,11 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     if (!details) return;
     let alive = true;
     const cast = details.cast ?? [];
-    if (cast.length > 0) {
+    // TMDB already sent a face per cast member; only the gaps need a lookup.
+    const faceless = cast.filter((member) => !member.photo).map((member) => member.name);
+    if (faceless.length > 0) {
       api
-        .castPhotos(
-          cast.map((member) => member.name),
-          details.name,
-        )
+        .castPhotos(faceless, details.name)
         .then((map) => {
           if (alive) setPhotos(map);
         })
@@ -672,7 +675,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
             </div>
           ) : null}
 
-          <div className="episode-list">{episodeRows}</div>
+          <div className="episode-list" ref={episodeRail}>{episodeRows}</div>
         </section>
       ) : null}
 
@@ -696,7 +699,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
       {(details.cast ?? []).length ? (
         <section className="detail-shell detail-section cast-section">
           <h2>Cast</h2>
-          <div className="cast-grid">
+          <div className="cast-grid" ref={castRail}>
             {(details.cast ?? []).map((member, index) => {
               const photo = brokenPhotos[member.name]
                 ? undefined
