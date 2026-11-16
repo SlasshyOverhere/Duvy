@@ -88,11 +88,7 @@ fn load_keys(state: &AppState) -> serde_json::Map<String, Value> {
 }
 
 fn store_keys(state: &AppState, keys: &serde_json::Map<String, Value>) -> Result<(), String> {
-    let conn = state
-        .db
-        .0
-        .lock()
-        .map_err(|_| "The local database is locked.".to_string())?;
+    let conn = state.db.conn();
     db::write_secret_kv(&conn, KEY_BLOB, &Value::Object(keys.clone())).map_err(|e| e.to_string())
 }
 
@@ -1654,5 +1650,40 @@ mod tests {
             ),
             Vec::new()
         );
+    }
+
+    /// F-022: a poisoned database lock must not brick the debrid keys.
+    #[test]
+    fn a_poisoned_database_still_serves_the_debrid_keys() {
+        let path = std::env::temp_dir().join(format!("duvy-debrid-test-{}.db", std::process::id()));
+        let state = AppState {
+            db: db::Db(std::sync::Mutex::new(
+                db::open(&path).expect("test database opens"),
+            )),
+            http: reqwest::Client::new(),
+            player: crate::PlayerSlot::new(),
+            settings: std::sync::RwLock::new(None),
+        };
+
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.db.0.lock().expect("lock");
+            panic!("poison the database lock");
+        }));
+        assert!(poisoned.is_err());
+
+        let mut keys = serde_json::Map::new();
+        keys.insert("realdebrid".into(), json!("key-1"));
+        store_keys(&state, &keys).expect("the keys still write");
+        assert_eq!(
+            load_keys(&state).get("realdebrid").and_then(Value::as_str),
+            Some("key-1")
+        );
+
+        drop(state);
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.clone().into_os_string();
+            file.push(suffix);
+            let _ = std::fs::remove_file(std::path::PathBuf::from(file));
+        }
     }
 }
