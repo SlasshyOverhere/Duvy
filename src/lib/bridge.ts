@@ -251,7 +251,7 @@ function readSubtitles(value: unknown): SubtitleTrack[] {
 /** A release notice the UI can render; anything without a version is dropped. */
 export function validUpdate(value: unknown): UpdateInfo | null {
   const update = dict(value);
-  const version = text(update.version);
+  const version = text(update.version).trim();
   if (!version) return null;
   return shaped<UpdateInfo>(update, {
     version,

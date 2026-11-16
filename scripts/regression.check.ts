@@ -85,7 +85,8 @@ run("untrusted payloads are read before they reach render", () => {
   if (
     validUpdate(null) !== null ||
     validUpdate({ version: 4 }) !== null ||
-    validUpdate({ version: "" }) !== null
+    validUpdate({ version: "" }) !== null ||
+    validUpdate({ version: "   " }) !== null
   ) {
     out.push("an update without a version string was accepted");
   }
