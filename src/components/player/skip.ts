@@ -19,6 +19,9 @@ export interface SkipEntry {
 
 export type SkipKind = "recap" | "intro" | "outro" | "credits";
 
+/** Seconds of runtime after the credits that count as something still playing. */
+const TAIL_GAP = 20;
+
 interface SkipSegment {
   kind: SkipKind;
   /** Timestamp to seek to. */
@@ -67,8 +70,14 @@ export function findSkip(
   // A marker behind the credits would rewind the playhead.
   const later = (at: number | null | undefined, after: number) =>
     at != null && at > after + 2 && at < duration - 1 ? at : null;
-  const scene = later(postCreditsStart, outroStart);
-  const to = scene ?? later(outroEnd, outroStart) ?? duration - 1;
+  // IntroDB only files post-credits for movies, so on TV the only hint that a
+  // scene follows the credits is runtime left after them.
+  const marked = later(postCreditsStart, outroStart);
+  const creditsEnd = later(outroEnd, outroStart);
+  const scene =
+    marked ??
+    (creditsEnd != null && duration - creditsEnd > TAIL_GAP ? creditsEnd : null);
+  const to = scene ?? duration - 1;
 
   // The offer ends where it lands, so a second click cannot replay the scene.
   // The second of slack absorbs a seek that lands a frame short.
@@ -80,7 +89,7 @@ export function findSkip(
     };
   }
   // Credits left after the scene: the tail of the file is all that is left.
-  const tail = scene != null ? later(postCreditsEnd, scene) : null;
+  const tail = marked != null ? later(postCreditsEnd, marked) : null;
   if (tail != null && position >= tail) {
     return { kind: "credits", at: duration - 1, label: "Skip credits" };
   }
