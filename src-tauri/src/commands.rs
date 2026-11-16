@@ -452,9 +452,17 @@ pub async fn seed_default_addons(handle: AppHandle) {
         match fetch_manifest(&state.http, base).await {
             Ok((value, manifest)) => match store_addon(&state, base, &manifest, &value) {
                 Ok(_) => installed += 1,
-                Err(e) => eprintln!("[startup] cannot store {base}: {e}"),
+                Err(e) => eprintln!(
+                    "[startup] cannot store {}: {}",
+                    crate::redact::url(base),
+                    crate::redact::text(&e)
+                ),
             },
-            Err(e) => eprintln!("[startup] cannot install {base}: {e}"),
+            Err(e) => eprintln!(
+                "[startup] cannot install {}: {}",
+                crate::redact::url(base),
+                crate::redact::text(&e)
+            ),
         }
     }
     if installed == 0 {
@@ -466,7 +474,10 @@ pub async fn seed_default_addons(handle: AppHandle) {
         let mut settings = Settings::load(&conn);
         settings.defaults_seeded = true;
         if let Err(e) = settings.save(&conn) {
-            eprintln!("[startup] cannot record default addons: {e}");
+            eprintln!(
+                "[startup] cannot record default addons: {}",
+                crate::redact::text(&e)
+            );
         }
     }
     crate::settings::invalidate(&state);
@@ -1471,17 +1482,16 @@ pub async fn player_open(
     if let Ok(dir) = app.path().app_data_dir() {
         crate::playback_log::init(&dir);
     }
-    // Only the host is logged: stream URLs carry tokens in their path.
-    let source = request
-        .url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .unwrap_or("local file");
-    crate::playback_log::begin(format!(
-        "play requested: {} [{source}]",
-        request.title.chars().take(64).collect::<String>()
-    ));
+    // Only the host is logged: stream URLs carry tokens and userinfo.
+    let source = crate::redact::origin(&request.url).unwrap_or_else(|| "local file".into());
+    // Control characters would let a title forge its own log line.
+    let title: String = request
+        .title
+        .chars()
+        .take(64)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    crate::playback_log::begin(format!("play requested: {title} [{source}]"));
     let settings = load_settings(&state);
     let host = crate::video_host(&app);
     // The slot is not held across the spawn: every other player command would

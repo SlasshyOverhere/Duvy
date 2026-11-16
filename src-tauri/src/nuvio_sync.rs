@@ -175,6 +175,7 @@ fn api_key(settings: &Settings) -> String {
 
 fn error_from(status: u16, body: &str) -> String {
     let parsed: Option<Value> = serde_json::from_str(body).ok();
+    // Known keys only: a raw body can echo the request, bearer token included.
     let detail = parsed
         .as_ref()
         .and_then(|v| {
@@ -184,8 +185,13 @@ fn error_from(status: u16, body: &str) -> String {
                 .or_else(|| v.get("error"))
         })
         .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| body.chars().take(200).collect());
+        .map(|text| {
+            crate::redact::text(text)
+                .chars()
+                .take(200)
+                .collect::<String>()
+        })
+        .unwrap_or_else(|| "the server sent no message".to_string());
     match status {
         401 | 403 => format!("Nuvio rejected the credentials ({status}): {detail}"),
         404 => format!("Nuvio endpoint not found ({status}): {detail}"),
@@ -685,7 +691,10 @@ async fn pull(
         match get(http, settings, &addons_path(pid), token).await {
             Ok(value) => as_rows(value),
             Err(error) => {
-                eprintln!("nuvio: addon list unavailable: {error}");
+                eprintln!(
+                    "nuvio: addon list unavailable: {}",
+                    crate::redact::text(&error)
+                );
                 Vec::new()
             }
         }

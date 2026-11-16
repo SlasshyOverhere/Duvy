@@ -15,6 +15,7 @@ mod nuvio_sync;
 mod parental;
 mod playback_log;
 mod player;
+mod redact;
 mod secret;
 mod servers;
 mod settings;
