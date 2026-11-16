@@ -27,6 +27,10 @@ const SESSION_KEY: &str = "stremio";
 const LIBRARY_COLLECTION: &str = "libraryItem";
 const UA: &str = "Duvy/0.1";
 
+/// One pull/merge/push at a time: two overlapping passes would push the same
+/// rows twice and merge each other's half-written state.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // ---------------------------------------------------------------------------
 // Session + status
 // ---------------------------------------------------------------------------
@@ -228,11 +232,13 @@ async fn pull(http: &reqwest::Client, key: &str) -> Result<Pulled, String> {
         &json!({ "type": "AddonCollectionGet", "authKey": key, "update": true }),
     )
     .await?;
+    // A success without the collection must not read as "no addons": the push
+    // would then replace the account's list with this machine's.
     let addons = collection
         .get("addons")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .ok_or("Stremio returned no addon collection.")?;
 
     let library = api(
         http,
@@ -435,6 +441,7 @@ fn merge_all(conn: &Connection, pulled: &Pulled) -> Result<SyncReport, String> {
 }
 
 pub async fn pull_and_merge(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -448,6 +455,7 @@ pub async fn pull_and_merge(state: &AppState) -> Result<SyncReport, String> {
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -490,6 +498,7 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
 /// Pushes the local union without pulling first. Used by `sync_all` after the
 /// Nuvio pass so Nuvio's rows reach Stremio in the same sync.
 pub async fn push(state: &AppState) -> Result<i64, String> {
+    let _sync = SYNC.lock().await;
     let session = {
         let conn = state.db.conn();
         load_session(&conn)
@@ -518,12 +527,10 @@ pub async fn push(state: &AppState) -> Result<i64, String> {
     Ok(pushed)
 }
 
-async fn push_addons(
-    http: &reqwest::Client,
-    key: &str,
-    addons: &[db::StoredAddon],
-    remote: &[Value],
-) -> Result<i64, String> {
+/// Local addons become descriptors; a disabled one is flagged rather than
+/// dropped. Remote entries this machine does not have are kept, so a push can
+/// never delete them from the account.
+fn addon_descriptors(addons: &[db::StoredAddon], remote: &[Value]) -> Vec<Value> {
     let mut by_url: HashMap<String, Value> = HashMap::new();
     for row in remote {
         if let Some(url) = descriptor_url(row) {
@@ -535,11 +542,7 @@ async fn push_addons(
     let mut descriptors = Vec::new();
     for addon in addons {
         let url = crate::addons::normalize_addon_url(&addon.url);
-        if url.is_empty()
-            || !addon.enabled
-            || !seen.insert(url.clone())
-            || !addon.manifest.is_object()
-        {
+        if url.is_empty() || !seen.insert(url.clone()) || !addon.manifest.is_object() {
             continue;
         }
         let mut descriptor = by_url.remove(&url).unwrap_or_else(|| {
@@ -560,11 +563,22 @@ async fn push_addons(
             if let Some(flags) = flags.as_object_mut() {
                 flags.entry("official").or_insert(json!(false));
                 flags.entry("protected").or_insert(json!(false));
+                flags.insert("disabled".into(), json!(!addon.enabled));
             }
         }
         descriptors.push(descriptor);
     }
+    descriptors.extend(by_url.into_values());
+    descriptors
+}
 
+async fn push_addons(
+    http: &reqwest::Client,
+    key: &str,
+    addons: &[db::StoredAddon],
+    remote: &[Value],
+) -> Result<i64, String> {
+    let descriptors = addon_descriptors(addons, remote);
     if descriptors.is_empty() {
         return Ok(0);
     }
@@ -610,11 +624,15 @@ async fn push_library(
             .map(|row| time_ms(row.get("_mtime").unwrap_or(&Value::Null)))
             .unwrap_or(0);
         let progress = newest.get(&item.id).copied();
-        match progress {
-            Some(p) if remote_updated <= p.updated_at => {}
-            Some(_) => continue,
-            None if remote_row.is_some() => continue,
-            None => {}
+        // A tombstoned remote row for a title kept here must be revived, even
+        // when the remote timestamp is the newer one.
+        let remote_tombstoned = remote_row.is_some_and(tombstoned);
+        let push = match progress {
+            Some(p) => remote_updated <= p.updated_at || remote_tombstoned,
+            None => remote_row.is_none() || remote_tombstoned,
+        };
+        if !push {
+            continue;
         }
         changes.push(library_record(
             remote_row,
@@ -673,6 +691,13 @@ async fn push_library(
         .await?;
     }
     Ok(changes.len() as i64)
+}
+
+/// A remote row the account has removed, or one that was never confirmed.
+fn tombstoned(row: &Value) -> bool {
+    ["removed", "temp"]
+        .iter()
+        .any(|key| row.get(*key).and_then(Value::as_bool).unwrap_or(false))
 }
 
 struct LibraryFields<'a> {
@@ -850,6 +875,36 @@ mod tests {
         ];
         let urls: HashSet<String> = rows.iter().filter_map(descriptor_url).collect();
         assert_eq!(urls.len(), 1);
+    }
+
+    #[test]
+    fn disabled_addons_are_pushed_flagged_and_remote_ones_survive() {
+        let addons = vec![db::StoredAddon {
+            url: "https://example.com/off".into(),
+            addon_id: "off".into(),
+            name: "Off".into(),
+            manifest: json!({ "id": "off", "name": "Off" }),
+            enabled: false,
+            position: 0,
+        }];
+        let remote = vec![json!({
+            "transportUrl": "https://remote.example/addon",
+            "manifest": { "id": "remote", "name": "Remote" },
+        })];
+        let descriptors = addon_descriptors(&addons, &remote);
+        assert_eq!(descriptors.len(), 2, "the remote-only addon is kept");
+
+        let off = descriptors
+            .iter()
+            .find(|row| row["transportUrl"] == "https://example.com/off")
+            .expect("a disabled addon is still pushed");
+        assert_eq!(off["flags"]["disabled"], json!(true));
+        assert!(
+            descriptors
+                .iter()
+                .any(|row| row["transportUrl"] == "https://remote.example/addon"),
+            "a push must not delete the account's other addons"
+        );
     }
 
     #[test]

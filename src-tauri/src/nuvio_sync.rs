@@ -37,6 +37,10 @@ const UA: &str = "Duvy/0.1";
 // A sync installs at most this many addons; one fetch each, never unbounded.
 const MAX_ADDONS_PER_SYNC: usize = 50;
 
+/// One pull/merge/push at a time: two overlapping passes would push the same
+/// rows twice and merge each other's half-written state.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // ---------------------------------------------------------------------------
 // Session + status
 // ---------------------------------------------------------------------------
@@ -483,14 +487,16 @@ pub async fn sign_in(
     apply_session(&mut session, &value)?;
 
     let conn = state.db.conn();
+    // One transaction: a failure must not leave the old account's rows cleared.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     match (previous, current) {
         (Some(previous), Some(current)) if previous != current => {
             // These rows belong to the account that was signed in before.
-            db::clear_history(&conn).map_err(|e| e.to_string())?;
+            db::clear_history(&tx).map_err(|e| e.to_string())?;
             session.last_sync = 0;
         }
         (None, _)
-            if !db::touched_ids(&conn)
+            if !db::touched_ids(&tx)
                 .map_err(|e| e.to_string())?
                 .is_empty() =>
         {
@@ -498,7 +504,8 @@ pub async fn sign_in(
         }
         _ => {}
     }
-    save_session(&conn, &session)?;
+    save_session(&tx, &session)?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(status(&conn, &settings))
 }
 
@@ -520,6 +527,7 @@ pub fn sign_out(state: &AppState) -> Result<(), String> {
 /// Switches the active profile. The current profile's history is pushed first,
 /// so a failed push aborts the switch and leaves local rows alone.
 pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
+    let _sync = SYNC.lock().await;
     let target = index.max(1);
     let (settings, mut session) = {
         let conn = state.db.conn();
@@ -552,9 +560,12 @@ pub async fn set_profile(state: &AppState, index: i64) -> Result<(), String> {
     session.last_sync = db::now();
     {
         let conn = state.db.conn();
-        db::clear_history(&conn).map_err(|e| e.to_string())?;
-        merge_pulled(&conn, &pulled)?;
-        save_session(&conn, &session)?;
+        // One transaction: a failed merge must not leave the history cleared.
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        db::clear_history(&tx).map_err(|e| e.to_string())?;
+        merge_pulled(&tx, &pulled)?;
+        save_session(&tx, &session)?;
+        tx.commit().map_err(|e| e.to_string())?;
     }
     merge_addons(state, &pulled.addons).await?;
     enrich(state).await
@@ -611,6 +622,7 @@ fn local_key(content_id: &str, season: i64, episode: i64) -> String {
 }
 
 pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
+    let _sync = SYNC.lock().await;
     let (settings, mut session) = {
         let conn = state.db.conn();
         (Settings::load(&conn), load_session(&conn))
@@ -628,9 +640,16 @@ pub async fn sync_now(state: &AppState) -> Result<SyncReport, String> {
     };
     report.addons = merge_addons(state, &pulled.addons).await?;
     // Best-effort: a read-only addons table must not cost the history push.
-    let addons_pushed = push_addons(state, &settings, &token, pid, &pulled.addons)
-        .await
-        .unwrap_or(0);
+    let addons_pushed = match push_addons(state, &settings, &token, pid, &pulled.addons).await {
+        Ok(pushed) => pushed,
+        Err(error) => {
+            eprintln!(
+                "nuvio: addons were not pushed: {}",
+                crate::redact::text(&error)
+            );
+            0
+        }
+    };
 
     // ---- push -------------------------------------------------------------
     let history = local_history(state)?;
@@ -672,15 +691,22 @@ async fn pull(
     pid: i64,
 ) -> Result<Pulled, String> {
     let progress = async {
+        const LIMIT: usize = 1000;
         let value = rpc(
             http,
             settings,
             token,
             "sync_pull_watch_progress",
-            json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": 1000 }),
+            json!({ "p_profile_id": pid, "p_since_last_watched": 0, "p_limit": LIMIT }),
         )
         .await?;
-        Ok::<_, String>(as_rows(value))
+        let rows = as_rows(value);
+        // The RPC takes no offset, so a full page is the most that can be read:
+        // say so instead of dropping the rest in silence.
+        if rows.len() >= LIMIT {
+            eprintln!("nuvio: watch progress filled the {LIMIT}-row page, older rows were not read");
+        }
+        Ok::<_, String>(rows)
     };
 
     let watched = async {
@@ -789,6 +815,7 @@ async fn merge_addons(state: &AppState, rows: &[Value]) -> Result<i64, String> {
         }
         // The same target check and body cap as a manual install.
         let Ok((value, manifest)) = crate::commands::fetch_manifest(&url).await else {
+            eprintln!("nuvio: addon {url} could not be fetched, skipped");
             continue;
         };
         let enabled = row.get("enabled").and_then(Value::as_bool).unwrap_or(true);
