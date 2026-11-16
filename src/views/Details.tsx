@@ -29,6 +29,15 @@ function firstSeason(details: Details): number | null {
   return seasons.find((value) => value > 0) ?? seasons[0] ?? null;
 }
 
+/** TMDB sends a language code; the table reads better as its name. */
+function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 /** The first episode of the default season, so Specials never lead. */
 function firstEpisode(details: Details): Video | null {
   const season = firstSeason(details);
@@ -146,6 +155,16 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     () => [...new Set((details?.videos ?? []).map((video) => video.season ?? 1))].sort((a, b) => a - b),
     [details],
   );
+
+  // TMDB art for the seasons we can actually play; a missing poster falls back
+  // to the chip picker instead of an empty tile.
+  const seasonArt = useMemo(() => {
+    const art = new Map<number, string>();
+    for (const season of details?.seasons ?? []) {
+      if (season.poster) art.set(season.number, season.poster);
+    }
+    return art;
+  }, [details]);
 
   // Explicit marks for this title, so an episode can be ticked off without
   // playing it first. The store's watched list keeps one row per title, so the
@@ -464,6 +483,19 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
     });
   }
   const logo = details.logo ?? rememberedLogo(metaId);
+  const origin = (details.originCountry ?? []).length
+    ? details.originCountry ?? []
+    : details.country ?? [];
+  const factRows = (
+    [
+      ["Status", details.status ?? ""],
+      ["Release info", details.releaseInfo ?? ""],
+      ["Runtime", runtimeLabel(details.runtime) ?? ""],
+      ["Certification", details.certification ?? ""],
+      ["Origin country", origin.join(", ")],
+      ["Original language", details.originalLanguage ? languageName(details.originalLanguage) : ""],
+    ] as Array<[string, string]>
+  ).filter(([, value]) => value);
 
   return (
     <div className="page detail-page">
@@ -570,12 +602,6 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                     <dd>{(details.writer ?? []).join(", ")}</dd>
                   </div>
                 ) : null}
-                {(details.country ?? []).length ? (
-                  <div className="detail-fact">
-                    <dt>Country</dt>
-                    <dd>{(details.country ?? []).join(", ")}</dd>
-                  </div>
-                ) : null}
               </dl>
               {details.source === "tmdb" ? (
                 <p className="detail-source">Metadata from TMDB</p>
@@ -589,22 +615,70 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
         <section className="detail-shell detail-section episodes">
           <div className="episodes-head">
             <h2>Episodes</h2>
-            <div className="season-tabs" role="group" aria-label="Seasons">
-              {seasons.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`chip${season === value ? " is-active" : ""}`}
-                  aria-pressed={season === value}
-                  onClick={() => setPicked({ key: cacheKey, season: value })}
-                >
-                  {value === 0 ? "Specials" : `Season ${value}`}
-                </button>
-              ))}
-            </div>
+            {seasonArt.size === 0 ? (
+              <div className="season-tabs" role="group" aria-label="Seasons">
+                {seasons.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`chip${season === value ? " is-active" : ""}`}
+                    aria-pressed={season === value}
+                    onClick={() => setPicked({ key: cacheKey, season: value })}
+                  >
+                    {value === 0 ? "Specials" : `Season ${value}`}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
+          {seasonArt.size > 0 ? (
+            <div className="season-rail" role="group" aria-label="Seasons">
+              {seasons.map((value) => {
+                const poster = seasonArt.get(value);
+                const active = season === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`season-card${active ? " is-active" : ""}`}
+                    aria-pressed={active}
+                    onClick={() => setPicked({ key: cacheKey, season: value })}
+                  >
+                    <span className="season-poster">
+                      {poster ? (
+                        <img src={poster} alt="" loading="lazy" />
+                      ) : (
+                        <span className="season-fallback">{value === 0 ? "S" : value}</span>
+                      )}
+                    </span>
+                    <span className="season-name">
+                      {value === 0 ? "Specials" : `Season ${value}`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
           <div className="episode-list">{episodeRows}</div>
+        </section>
+      ) : null}
+
+      {(details.networks ?? []).length ? (
+        <section className="detail-shell detail-section production-section">
+          <h2>Network</h2>
+          <div className="network-row">
+            {(details.networks ?? []).map((network) => (
+              <span className="network" key={network.name}>
+                {network.logo ? (
+                  <img src={network.logo} alt={network.name} loading="lazy" />
+                ) : (
+                  network.name
+                )}
+              </span>
+            ))}
+          </div>
         </section>
       ) : null}
 
@@ -616,9 +690,10 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
               const photo = brokenPhotos[member.name]
                 ? undefined
                 : member.photo ?? photos[member.name];
-              return (
-                <div className="cast-card" key={`${member.name}:${index}`}>
-                  <div className="cast-photo">
+              const personId = member.personId;
+              const face = (
+                <>
+                  <span className="cast-photo">
                     {photo ? (
                       <img
                         src={photo}
@@ -631,13 +706,70 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
                     ) : (
                       <span>{member.name.slice(0, 1)}</span>
                     )}
-                  </div>
+                  </span>
                   <span className="cast-name">{member.name}</span>
                   {member.character ? <span className="cast-role">{member.character}</span> : null}
+                </>
+              );
+              // A face with a TMDB id opens the person behind it.
+              return personId ? (
+                <button
+                  key={`${member.name}:${index}`}
+                  type="button"
+                  className="cast-card is-link"
+                  onClick={() => navigate({ name: "person", id: personId })}
+                >
+                  {face}
+                </button>
+              ) : (
+                <div className="cast-card" key={`${member.name}:${index}`}>
+                  {face}
                 </div>
               );
             })}
           </div>
+        </section>
+      ) : null}
+
+      {(details.trailers ?? []).length ? (
+        <section className="detail-shell detail-section">
+          <Row title="Trailers">
+            {(details.trailers ?? []).map((link) => (
+              <button
+                key={link.url}
+                type="button"
+                className="trailer-card"
+                onClick={() =>
+                  void openExternal(link.url).catch(() =>
+                    notify("Could not open the trailer", "error"),
+                  )
+                }
+              >
+                <span className="trailer-thumb">
+                  {link.thumbnail ? <img src={link.thumbnail} alt="" loading="lazy" /> : null}
+                  <span className="trailer-play">
+                    <Icon name="play" size={16} />
+                  </span>
+                </span>
+                <span className="trailer-name">{link.name}</span>
+                {link.year ? <span className="trailer-year">{link.year}</span> : null}
+              </button>
+            ))}
+          </Row>
+        </section>
+      ) : null}
+
+      {factRows.length ? (
+        <section className="detail-shell detail-section">
+          <h2>Details</h2>
+          <dl className="detail-table">
+            {factRows.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
       ) : null}
 
@@ -649,6 +781,7 @@ export function DetailsView({ id, type }: { id: string; type: string }) {
           >
             {similarRow}
           </Row>
+          {details.source === "tmdb" ? <p className="detail-source">Powered by TMDB</p> : null}
         </section>
       ) : null}
 

@@ -2441,6 +2441,187 @@ button.pill:hover {
   gap: 8px;
 }
 
+/* Season art replaces the chips when TMDB has it. */
+.season-rail {
+  display: flex;
+  gap: 12px;
+  margin: 0 -6px 18px;
+  padding: 2px 6px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.season-rail::-webkit-scrollbar {
+  height: 0;
+}
+
+.season-card {
+  flex: 0 0 auto;
+  width: 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.season-poster {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+  display: grid;
+  place-items: center;
+}
+
+.season-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.season-fallback {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.season-name {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--faint);
+}
+
+.season-card.is-active .season-poster {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.season-card.is-active .season-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.network-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 28px;
+}
+
+.network {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.network img {
+  height: 26px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+  /* One quiet treatment: any brand colour would fight the dark surface. */
+  filter: brightness(0) invert(1);
+  opacity: 0.85;
+}
+
+.trailer-card {
+  flex: 0 0 auto;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trailer-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+}
+
+.trailer-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.trailer-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.trailer-card:hover .trailer-play {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.trailer-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trailer-year {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.detail-table {
+  margin: 0;
+  max-width: 760px;
+}
+
+.detail-table > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--glass-edge-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.detail-table > div:first-child {
+  border-top: 1px solid var(--glass-edge-soft);
+}
+
+.detail-table dt {
+  color: var(--faint);
+}
+
+.detail-table dd {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .episode-list {
   display: flex;
   flex-direction: column;
@@ -2661,6 +2842,135 @@ button.pill:hover {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* A face with a TMDB id is a link to that person. */
+.cast-card.is-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cast-card.is-link:hover .cast-photo {
+  outline-color: var(--line-strong);
+}
+
+/* ---------------------------------------------------------------------------
+   Person page
+   --------------------------------------------------------------------------- */
+
+.person-page {
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+/* Facts on the left, credits on the right, the way Nuvio splits the page. */
+.person-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: clamp(28px, 3vw, 52px);
+  align-items: start;
+}
+
+.person-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.person-portrait {
+  width: min(100%, 190px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surface-2);
+  outline: 1px solid var(--glass-edge-soft);
+  outline-offset: -1px;
+  display: grid;
+  place-items: center;
+}
+
+.person-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-portrait span {
+  font-size: 3rem;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-sidebar h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 2.6vw, 2.4rem);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.person-role {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.person-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin: 0;
+}
+
+.person-facts dt {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-facts dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.person-bio h2 {
+  margin: 0 0 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.person-bio p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.person-content {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 3vw, 40px);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .person-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .person-sidebar {
+    gap: 14px;
+  }
 }
 
 /* ---------------------------------------------------------------------------

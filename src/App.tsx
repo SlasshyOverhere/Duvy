@@ -16,6 +16,7 @@ const Onboarding = lazy(() => import("./views/Onboarding").then((m) => ({ defaul
 const PlayerView = lazy(() => import("./views/Player").then((m) => ({ default: m.PlayerView })));
 const SearchView = lazy(() => import("./views/Search").then((m) => ({ default: m.SearchView })));
 const DetailsView = lazy(() => import("./views/Details").then((m) => ({ default: m.DetailsView })));
+const PersonView = lazy(() => import("./views/Person").then((m) => ({ default: m.PersonView })));
 const LibraryView = lazy(() => import("./views/Library").then((m) => ({ default: m.LibraryView })));
 const WatchedView = lazy(() => import("./views/Watched").then((m) => ({ default: m.WatchedView })));
 const SettingsView = lazy(() =>
@@ -180,7 +181,13 @@ function Screen() {
     );
   }
 
-  const viewKey = `${route.name}-${"id" in route ? `${route.id}-${route.type}` : ""}`;
+  const viewKey = `${route.name}-${
+    route.name === "details"
+      ? `${route.id}-${route.type}`
+      : route.name === "person"
+        ? route.id
+        : ""
+  }`;
 
   return (
     <div className="app">
@@ -202,6 +209,7 @@ function Screen() {
                 {route.name === "watched" ? <WatchedView /> : null}
                 {route.name === "settings" ? <SettingsView section={route.section} /> : null}
                 {route.name === "details" ? <DetailsView id={route.id} type={route.type} /> : null}
+                {route.name === "person" ? <PersonView id={route.id} /> : null}
               </Suspense>
             </ErrorBoundary>
             <SiteFooter />

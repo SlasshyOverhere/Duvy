@@ -12,7 +12,8 @@ const DOCK: { route: Route; label: string; icon: IconName }[] = [
 
 // A title page keeps Home lit, and watched history lives inside Library.
 function isActive(route: Route, target: Route) {
-  if (target.name === "home") return route.name === "home" || route.name === "details";
+  if (target.name === "home")
+    return route.name === "home" || route.name === "details" || route.name === "person";
   if (target.name === "library") return route.name === "library" || route.name === "watched";
   return route.name === target.name;
 }

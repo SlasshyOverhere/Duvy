@@ -47,6 +47,7 @@ export type Route =
   | { name: "watched" }
   | { name: "settings"; section?: string }
   | { name: "details"; id: string; type: string }
+  | { name: "person"; id: number }
   | { name: "player" };
 
 type ToastTone = "info" | "success" | "error";
@@ -161,6 +162,7 @@ const ROUTE_NAMES = new Set<Route["name"]>([
   "watched",
   "settings",
   "details",
+  "person",
   "player",
 ]);
 
@@ -169,6 +171,7 @@ function validRoute(value: unknown): value is Route {
   if (!value || typeof value !== "object") return false;
   const route = value as Route;
   if (!ROUTE_NAMES.has(route.name)) return false;
+  if (route.name === "person") return Number.isFinite(route.id) && route.id > 0;
   return route.name !== "details" || (Boolean(route.id) && Boolean(route.type));
 }
 
@@ -179,6 +182,7 @@ function sameRoute(a: Route, b: Route): boolean {
   if (a.name === "settings" && b.name === "settings")
     return (a.section ?? "") === (b.section ?? "");
   if (a.name === "details" && b.name === "details") return a.id === b.id && a.type === b.type;
+  if (a.name === "person" && b.name === "person") return a.id === b.id;
   return true;
 }
 
