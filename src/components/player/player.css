@@ -702,18 +702,15 @@
   color: var(--pv-faint);
 }
 
+/* Wrap instead of scrolling: a hidden horizontal scrollbar with no drag
+   gesture left every addon past the first few unreachable. */
 .pv .pv-filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
   padding: 2px 2px 2px;
-  scrollbar-width: none;
   flex: none;
-}
-
-.pv .pv-filters::-webkit-scrollbar {
-  display: none;
 }
 
 .pv .pv-filter {
