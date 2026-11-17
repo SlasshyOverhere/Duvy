@@ -271,6 +271,72 @@ fn clear_progress_removes_the_watched_mark() {
 }
 
 #[test]
+fn a_cleared_playhead_survives_the_sync_upsert() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    let item = db::ProgressItem {
+        key: "tt9:1:2".into(),
+        meta_id: "tt9".into(),
+        media_type: "series".into(),
+        name: "A Show".into(),
+        poster: None,
+        background: None,
+        season: Some(1),
+        episode: Some(2),
+        episode_title: Some("The One".into()),
+        position: 600.0,
+        duration: 3600.0,
+        updated_at: 1_000,
+    };
+    db::save_progress(&conn, &item).expect("progress");
+    db::set_watched(&conn, "tt9:1:2", "tt9", true).expect("mark");
+    db::clear_progress(&conn, "tt9:1:2").expect("clear");
+    assert!(db::list_progress(&conn).unwrap().is_empty());
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    assert!(db::cleared_at(&conn, "tt9:1:2").unwrap().is_some());
+
+    // The upsert both sync merges use, fed the rows from before the clear.
+    conn.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, poster, background, season,
+                               episode, episode_title, position, duration, updated_at)
+         VALUES ('tt9:1:2', 'tt9', 'series', 'A Show', NULL, NULL, 1, 2, NULL, 600, 3600, 1000)
+         ON CONFLICT(key) DO UPDATE SET position = excluded.position,
+                                        duration = excluded.duration,
+                                        updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= progress.updated_at",
+        [],
+    )
+    .expect("merge progress");
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES ('tt9:1:2', 'tt9', 1, 1000)
+         ON CONFLICT(key) DO UPDATE SET watched = 1, updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= watched.updated_at",
+        [],
+    )
+    .expect("merge watched");
+    assert!(
+        db::list_continue_watching(&conn).unwrap().is_empty(),
+        "an older remote playhead must not bring the card back"
+    );
+    assert!(db::list_progress(&conn).unwrap().is_empty());
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+
+    // Watching it again is what revives the title.
+    db::save_progress(
+        &conn,
+        &db::ProgressItem {
+            position: 30.0,
+            updated_at: 0,
+            ..item
+        },
+    )
+    .expect("resume");
+    assert!(db::cleared_at(&conn, "tt9:1:2").unwrap().is_none());
+    assert_eq!(db::list_continue_watching(&conn).unwrap().len(), 1);
+}
+
+#[test]
 fn save_progress_clamps_position_into_the_duration() {
     let temp = TempDb::new();
     let conn = temp.open();
