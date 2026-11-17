@@ -280,6 +280,7 @@ function detailsFor(id: string): Details {
     ],
     director: ["J. Marchetti"],
     writer: ["J. Marchetti", "Lena Hart"],
+    composer: ["Iris Vane"],
     country: ["United States"],
     trailer: null,
     trailers: [],

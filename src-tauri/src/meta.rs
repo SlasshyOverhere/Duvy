@@ -210,6 +210,7 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Loo
         cast,
         director,
         writer,
+        composer: Vec::new(),
         country,
         trailer,
         trailers: vec![],

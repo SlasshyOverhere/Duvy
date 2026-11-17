@@ -71,6 +71,7 @@ export interface Details {
   cast: CastMember[];
   director: string[];
   writer: string[];
+  composer: string[];
   country: string[];
   trailer?: string | null;
   trailers: TrailerLink[];

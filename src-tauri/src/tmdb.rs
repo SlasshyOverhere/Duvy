@@ -1165,6 +1165,7 @@ pub async fn details(
         cast,
         director,
         writer: crew(&["Writer", "Screenplay", "Story"]),
+        composer: crew(&["Original Music Composer", "Music"]),
         country: country_names(&value),
         trailer,
         trailers: trailer_links(&value),

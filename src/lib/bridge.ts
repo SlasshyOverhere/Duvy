@@ -208,6 +208,7 @@ function readDetails(value: unknown): Details {
     }),
     director: strings(details.director),
     writer: strings(details.writer),
+    composer: strings(details.composer),
     country: strings(details.country),
     trailers: arr(details.trailers)
       .map((entry) => {

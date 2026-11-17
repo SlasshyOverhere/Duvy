@@ -67,6 +67,7 @@ function seededDetails(preview: MetaPreview): Details {
     cast: [],
     director: [],
     writer: [],
+    composer: [],
     country: [],
     trailers: [],
     seasons: [],
@@ -552,6 +553,13 @@ export function DetailsView({
       ? details.companies ?? []
       : details.networks ?? [];
   const collection = details.collectionItems ?? [];
+  const crewRows = (
+    [
+      [isSeries ? "Creator" : "Director", (details.director ?? []).join(", ")],
+      ["Writer", (details.writer ?? []).join(", ")],
+      ["Music", (details.composer ?? []).join(", ")],
+    ] as Array<[string, string]>
+  ).filter(([, value]) => value);
 
   return (
     <div className="page detail-page">
@@ -651,28 +659,8 @@ export function DetailsView({
                   <Icon name="more" size={19} />
                 </button>
               </div>
-
-            <div className="detail-credits">
-              <dl className="detail-facts">
-                {(details.director ?? []).length ? (
-                  <div className="detail-fact">
-                    <dt>Director</dt>
-                    <dd>{(details.director ?? []).join(", ")}</dd>
-                  </div>
-                ) : null}
-                {(details.writer ?? []).length ? (
-                  <div className="detail-fact">
-                    <dt>Writer</dt>
-                    <dd>{(details.writer ?? []).join(", ")}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              {details.source === "tmdb" ? (
-                <p className="detail-source">Metadata from TMDB</p>
-              ) : null}
             </div>
           </div>
-        </div>
       </section>
 
       {details.type === "series" && details.videos.length > 0 ? (
@@ -735,11 +723,17 @@ export function DetailsView({
           <div className="network-row">
             {studios.slice(0, 6).map((studio) => (
               <span className="network" key={studio.name}>
-                {studio.logo ? (
-                  <img src={studio.logo} alt={studio.name} loading="lazy" />
-                ) : (
-                  studio.name
-                )}
+                {studio.logo && !brokenPhotos[studio.name] ? (
+                  <img
+                    src={studio.logo}
+                    alt=""
+                    loading="lazy"
+                    onError={() =>
+                      setBrokenPhotos((current) => ({ ...current, [studio.name]: true }))
+                    }
+                  />
+                ) : null}
+                <span className="network-name">{studio.name}</span>
               </span>
             ))}
           </div>
@@ -792,6 +786,20 @@ export function DetailsView({
               );
             })}
           </div>
+        </section>
+      ) : null}
+
+      {crewRows.length ? (
+        <section className="detail-shell detail-section crew-section">
+          <h2>Crew</h2>
+          <dl className="detail-table">
+            {crewRows.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
       ) : null}
 
