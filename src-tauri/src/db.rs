@@ -520,13 +520,25 @@ pub fn clear_progress(conn: &Connection, key: &str) -> rusqlite::Result<()> {
             })
             .optional()?,
     };
-    tx.execute(
-        "UPDATE progress
-            SET position = 0, duration = 0, episode_title = NULL, updated_at = ?2
-          WHERE key = ?1",
-        params![key, now()],
-    )?;
     if let Some(meta_id) = meta_id {
+        // A watched row can arrive without a playhead, so the tombstone is
+        // inserted rather than only updated.
+        let (season, episode) = episode_of(key);
+        tx.execute(
+            "INSERT INTO progress (key, meta_id, media_type, name, season, episode,
+                                   position, duration, updated_at)
+             VALUES (?1, ?2, ?3, ?2, ?4, ?5, 0, 0, ?6)
+             ON CONFLICT(key) DO UPDATE SET
+               position = 0, duration = 0, episode_title = NULL, updated_at = ?6",
+            params![
+                key,
+                meta_id,
+                if season.is_some() { "series" } else { "movie" },
+                season,
+                episode,
+                now()
+            ],
+        )?;
         unwatch(&tx, key, &meta_id)?;
     }
     tx.commit()

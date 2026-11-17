@@ -337,6 +337,38 @@ fn a_cleared_playhead_survives_the_sync_upsert() {
 }
 
 #[test]
+fn clearing_a_mark_with_no_playhead_still_tombstones_it() {
+    let temp = TempDb::new();
+    let conn = temp.open();
+    // Stremio can import a watched episode before it ever has a playhead.
+    conn.execute(
+        "INSERT INTO watched (key, meta_id, watched, updated_at) VALUES ('tt7:1:2', 'tt7', 1, 1000)",
+        [],
+    )
+    .expect("mark");
+    db::clear_progress(&conn, "tt7:1:2").expect("clear");
+    assert!(db::list_watched(&conn).unwrap().is_empty());
+    assert!(
+        db::cleared_at(&conn, "tt7:1:2").unwrap().is_some(),
+        "a mark without a playhead must still leave a clear timestamp"
+    );
+
+    // A pull carrying the playhead from before the clear must not revive it.
+    conn.execute(
+        "INSERT INTO progress (key, meta_id, media_type, name, season, episode,
+                               position, duration, updated_at)
+         VALUES ('tt7:1:2', 'tt7', 'series', 'A Show', 1, 2, 600, 3600, 1000)
+         ON CONFLICT(key) DO UPDATE SET position = excluded.position,
+                                        duration = excluded.duration,
+                                        updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= progress.updated_at",
+        [],
+    )
+    .expect("merge progress");
+    assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+}
+
+#[test]
 fn save_progress_clamps_position_into_the_duration() {
     let temp = TempDb::new();
     let conn = temp.open();
