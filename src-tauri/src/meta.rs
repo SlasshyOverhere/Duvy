@@ -78,7 +78,7 @@ async fn json(client: &reqwest::Client, url: &str) -> Result<Value, String> {
 /// Three outcomes: a record, an id the source does not know, and a source that
 /// could not answer. Only the last one may count against the source.
 enum Lookup {
-    Found(MetaDetails),
+    Found(Box<MetaDetails>),
     Missing,
     Failed,
 }
@@ -178,7 +178,7 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Loo
         .and_then(|t| text(t.get("source")))
         .map(|id| format!("https://www.youtube.com/watch?v={id}"));
 
-    Lookup::Found(MetaDetails {
+    Lookup::Found(Box::new(MetaDetails {
         id: imdb.to_string(),
         media_type: match text(meta.get("type")).as_deref() {
             Some("series") => "series".into(),
@@ -225,7 +225,7 @@ async fn cinemeta(client: &reqwest::Client, imdb: &str, media_type: &str) -> Loo
         imdb_id: Some(imdb.to_string()),
         tmdb_id: None,
         source: "cinemeta".into(),
-    })
+    }))
 }
 
 /// The other side of the movie/series split, for when an id was labelled wrong.
@@ -245,7 +245,7 @@ async fn lookup(
     // Synced rows sometimes carry the wrong kind; the id is what counts.
     for kind in [media_type, other(media_type)] {
         match tokio::time::timeout(cap, cinemeta(client, imdb, kind)).await {
-            Ok(Lookup::Found(found)) => return Ok(Some(found)),
+            Ok(Lookup::Found(found)) => return Ok(Some(*found)),
             Ok(Lookup::Missing) => {}
             Ok(Lookup::Failed) | Err(_) => failed = true,
         }

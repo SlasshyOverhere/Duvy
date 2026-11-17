@@ -14,9 +14,9 @@
 //!
 //! ponytail: addons are pull-only, so this can never wipe the account's list;
 //! add `sync_push_addons` when editing addons here should reach the phone.
-//! Deletions are not propagated to the server yet either (local clear/remove
-//! just comes back on the next pull). Add tombstone pushes when sync_delete_*
-//! is wired to the library/progress commands.
+//! Deletions are not pushed to the server, so another device keeps its row. A
+//! local clear leaves a timestamped tombstone, which stops the pull from
+//! bringing it back here. Add sync_delete_* pushes to clear the server too.
 
 use crate::AppState;
 use crate::db;
@@ -987,6 +987,13 @@ fn merge_progress(conn: &Connection, rows: &[Value]) -> Result<i64, String> {
         }
         // A remote position past the end would resume beyond the file.
         let position = position.clamp(0.0, duration);
+        // A local clear is a tombstone: only a strictly newer playhead revives it.
+        if db::cleared_at(conn, &key)
+            .map_err(|e| e.to_string())?
+            .is_some_and(|cleared| updated <= cleared)
+        {
+            continue;
+        }
         // The upsert already skips a local row that is ahead, so one write
         // replaces the read-then-write round trip.
         let changed = conn
@@ -1191,6 +1198,42 @@ fn local_library(conn: &Connection) -> Result<Vec<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cleared_playhead_survives_a_remote_pull() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE progress (
+               key TEXT PRIMARY KEY, meta_id TEXT NOT NULL, media_type TEXT NOT NULL,
+               name TEXT NOT NULL, poster TEXT, background TEXT, season INTEGER,
+               episode INTEGER, episode_title TEXT, position REAL NOT NULL DEFAULT 0,
+               duration REAL NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
+             CREATE TABLE watched (
+               key TEXT PRIMARY KEY, meta_id TEXT NOT NULL,
+               watched INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);",
+        )
+        .unwrap();
+        let entry = |at: i64| {
+            json!({
+                "content_id": "tt1", "media_type": "series", "season": 1, "episode": 2,
+                "position": 600_000, "duration": 3_600_000, "last_watched": at
+            })
+        };
+        merge_progress(&conn, &[entry(1_700_000_000_000)]).unwrap();
+        db::clear_progress(&conn, "tt1:1:2").unwrap();
+        assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+
+        // The pull re-sends the playhead from before the clear.
+        merge_progress(&conn, &[entry(1_700_000_000_000)]).unwrap();
+        assert!(
+            db::list_continue_watching(&conn).unwrap().is_empty(),
+            "a cleared card must not come back"
+        );
+
+        // Playback after the clear is real progress again.
+        merge_progress(&conn, &[entry(db::now() + 60_000)]).unwrap();
+        assert_eq!(db::list_continue_watching(&conn).unwrap().len(), 1);
+    }
 
     #[test]
     fn keys_round_trip_to_nuvio_shape() {

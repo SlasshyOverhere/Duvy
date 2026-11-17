@@ -602,13 +602,13 @@ mod tests {
     fn redirects_may_not_pivot_onto_the_local_network() {
         let origin = Url::parse("https://addon.example/stream").expect("url");
         let ok = Url::parse("https://cdn.example/stream").expect("url");
-        assert!(redirect_allowed(&[origin.clone()], &ok).is_ok());
+        assert!(redirect_allowed(std::slice::from_ref(&origin), &ok).is_ok());
 
         let metadata = Url::parse("http://169.254.169.254/latest/meta-data").expect("url");
-        assert!(redirect_allowed(&[origin.clone()], &metadata).is_err());
+        assert!(redirect_allowed(std::slice::from_ref(&origin), &metadata).is_err());
 
         let local = Url::parse("http://127.0.0.1:8080/").expect("url");
-        assert!(redirect_allowed(&[origin.clone()], &local).is_err());
+        assert!(redirect_allowed(std::slice::from_ref(&origin), &local).is_err());
 
         let downgrade = Url::parse("http://addon.example/stream").expect("url");
         assert!(redirect_allowed(&[origin], &downgrade).is_err());

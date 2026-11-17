@@ -356,6 +356,12 @@ fn merge_library(conn: &Connection, rows: &[Value]) -> Result<(i64, i64, i64), S
         }
         .max(1);
 
+        // A local clear is a tombstone: only a strictly newer playhead revives it.
+        let cleared = db::cleared_at(conn, &key).map_err(|e| e.to_string())?;
+        if cleared.is_some_and(|at| updated <= at) {
+            continue;
+        }
+
         let mut progress_current = false;
         if duration > 0 && offset > 0 {
             let changed = conn
@@ -877,6 +883,50 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cleared_playhead_survives_a_library_pull() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE library (
+               id TEXT PRIMARY KEY, media_type TEXT NOT NULL, name TEXT NOT NULL,
+               poster TEXT, background TEXT, added_at INTEGER NOT NULL, meta TEXT);
+             CREATE TABLE progress (
+               key TEXT PRIMARY KEY, meta_id TEXT NOT NULL, media_type TEXT NOT NULL,
+               name TEXT NOT NULL, poster TEXT, background TEXT, season INTEGER,
+               episode INTEGER, episode_title TEXT, position REAL NOT NULL DEFAULT 0,
+               duration REAL NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
+             CREATE TABLE watched (
+               key TEXT PRIMARY KEY, meta_id TEXT NOT NULL,
+               watched INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);",
+        )
+        .unwrap();
+        let row = |at: &str| {
+            json!({
+                "_id": "tt1", "name": "A Show", "type": "series",
+                "_mtime": at,
+                "state": {
+                    "timeOffset": 600_000, "duration": 3_600_000,
+                    "lastWatched": at, "video_id": "tt1:1:2"
+                }
+            })
+        };
+        let before = iso8601(1_700_000_000_000);
+        merge_library(&conn, &[row(&before)]).unwrap();
+        db::clear_progress(&conn, "tt1:1:2").unwrap();
+        assert!(db::list_continue_watching(&conn).unwrap().is_empty());
+
+        // The pull re-sends the playhead from before the clear.
+        merge_library(&conn, &[row(&before)]).unwrap();
+        assert!(
+            db::list_continue_watching(&conn).unwrap().is_empty(),
+            "a cleared card must not come back"
+        );
+
+        // Playback after the clear is real progress again.
+        merge_library(&conn, &[row(&iso8601(db::now() + 60_000))]).unwrap();
+        assert_eq!(db::list_continue_watching(&conn).unwrap().len(), 1);
+    }
 
     #[test]
     fn the_same_addon_on_every_source_stays_one_row() {

@@ -131,12 +131,12 @@ fn copy_runtime(lib: &Path) {
         (Ok(src), Ok(copy)) => src.len() == copy.len() && copy.modified().ok() >= src.modified().ok(),
         _ => false,
     };
-    if !up_to_date {
-        if let Err(error) = std::fs::copy(&dll, &dst) {
-            println!(
-                "cargo:warning=could not copy libmpv-2.dll to {}: {error}",
-                dst.display()
-            );
-        }
+    if !up_to_date
+        && let Err(error) = std::fs::copy(&dll, &dst)
+    {
+        println!(
+            "cargo:warning=could not copy libmpv-2.dll to {}: {error}",
+            dst.display()
+        );
     }
 }

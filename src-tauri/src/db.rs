@@ -504,11 +504,55 @@ fn write_progress(conn: &Connection, p: &ProgressItem) -> rusqlite::Result<()> {
 }
 
 pub fn clear_progress(conn: &Connection, key: &str) -> rusqlite::Result<()> {
-    // The finished mark has to go too, or the title reappears in Watched.
     let tx = conn.unchecked_transaction()?;
-    tx.execute("DELETE FROM progress WHERE key = ?1", params![key])?;
-    tx.execute("DELETE FROM watched WHERE key = ?1", params![key])?;
+    // The mark and the playhead both leave tombstones, not holes: the next
+    // Stremio, Nuvio or Trakt pull would otherwise put the remote rows back.
+    let meta_id: Option<String> = match tx
+        .query_row("SELECT meta_id FROM progress WHERE key = ?1", params![key], |row| {
+            row.get(0)
+        })
+        .optional()?
+    {
+        Some(meta_id) => Some(meta_id),
+        None => tx
+            .query_row("SELECT meta_id FROM watched WHERE key = ?1", params![key], |row| {
+                row.get(0)
+            })
+            .optional()?,
+    };
+    if let Some(meta_id) = meta_id {
+        // A watched row can arrive without a playhead, so the tombstone is
+        // inserted rather than only updated.
+        let (season, episode) = episode_of(key);
+        tx.execute(
+            "INSERT INTO progress (key, meta_id, media_type, name, season, episode,
+                                   position, duration, updated_at)
+             VALUES (?1, ?2, ?3, ?2, ?4, ?5, 0, 0, ?6)
+             ON CONFLICT(key) DO UPDATE SET
+               position = 0, duration = 0, episode_title = NULL, updated_at = ?6",
+            params![
+                key,
+                meta_id,
+                if season.is_some() { "series" } else { "movie" },
+                season,
+                episode,
+                now()
+            ],
+        )?;
+        unwatch(&tx, key, &meta_id)?;
+    }
     tx.commit()
+}
+
+/// When a local clear tombstoned `key`, so a pull can tell how old a remote
+/// row must be before it is allowed to bring the title back.
+pub fn cleared_at(conn: &Connection, key: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT updated_at FROM progress WHERE key = ?1 AND duration <= 0",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
 }
 
 /// Drops watching history only. Library, addons, settings and people stay, so

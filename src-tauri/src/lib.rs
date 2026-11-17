@@ -296,7 +296,9 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
         WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
     };
 
-    static SAVED: Mutex<Option<(isize, isize, isize, usize, WINDOWPLACEMENT)>> = Mutex::new(None);
+    type SavedPlacement = (isize, isize, isize, usize, WINDOWPLACEMENT);
+
+    static SAVED: Mutex<Option<SavedPlacement>> = Mutex::new(None);
 
     let hwnd = host as HWND;
     unsafe {
