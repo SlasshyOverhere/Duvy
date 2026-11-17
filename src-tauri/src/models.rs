@@ -81,6 +81,7 @@ pub struct MetaDetails {
     pub cast: Vec<CastMember>,
     pub director: Vec<String>,
     pub writer: Vec<String>,
+    pub composer: Vec<String>,
     pub country: Vec<String>,
     pub trailer: Option<String>,
     pub trailers: Vec<TrailerLink>,

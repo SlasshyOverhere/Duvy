@@ -205,6 +205,7 @@ fn meta_details_from_meta(meta: Meta, source: &str) -> MetaDetails {
             .iter()
             .map(|name| crate::meta::clean(name))
             .collect(),
+        composer: vec![],
         country: country
             .map(|name| crate::meta::clean(&name))
             .into_iter()
@@ -253,6 +254,9 @@ fn merge_details(base: &mut MetaDetails, rich: MetaDetails) {
     }
     if base.writer.is_empty() {
         base.writer = rich.writer;
+    }
+    if base.composer.is_empty() {
+        base.composer = rich.composer;
     }
     if base.country.is_empty() {
         base.country = rich.country;

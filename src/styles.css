@@ -2412,40 +2412,6 @@ button.pill:hover {
   transform: rotate(90deg);
 }
 
-/* Credits stay attached to the actions, directly under them. */
-.detail-credits {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 24px;
-  margin-top: clamp(20px, 2vw, 26px);
-}
-
-.detail-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 28px;
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-
-.detail-fact {
-  display: flex;
-  gap: 7px;
-  min-width: 0;
-}
-
-.detail-fact dt {
-  color: var(--faint);
-}
-
-.detail-fact dd {
-  margin: 0;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
 .detail-source {
   margin: 0;
   font-size: 11.5px;
@@ -2555,25 +2521,33 @@ button.pill:hover {
 .network-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 16px 28px;
+  align-items: flex-start;
+  gap: 18px 32px;
 }
 
 .network {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 180px;
   font-size: 13px;
   color: var(--muted);
 }
 
+/* Artwork keeps its own colour: inverting it flattened every mark to a white blob. */
 .network img {
-  height: 26px;
+  display: block;
+  height: 38px;
   width: auto;
-  max-width: 120px;
+  max-width: 100%;
   object-fit: contain;
-  /* One quiet treatment: any brand colour would fight the dark surface. */
-  filter: brightness(0) invert(1);
-  opacity: 0.85;
+}
+
+.network-name {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--faint);
 }
 
 .trailer-card {
@@ -2855,7 +2829,8 @@ button.pill:hover {
   background: var(--accent);
 }
 
-.cast-section h2 {
+.cast-section h2,
+.crew-section h2 {
   margin-bottom: 16px;
 }
 
@@ -5703,10 +5678,6 @@ input[type="range"]::-webkit-slider-thumb {
     min-height: 42px;
   }
 
-  .detail-credits {
-    margin-top: 18px;
-  }
-
   .cast-grid {
     grid-template-columns: repeat(auto-fill, minmax(96px, 118px));
     gap: 14px;
@@ -5767,10 +5738,6 @@ input[type="range"]::-webkit-slider-thumb {
     padding-top: 190px;
   }
 
-  .detail-credits {
-    margin-top: 0;
-  }
-
   .detail-logo {
     max-width: min(230px, 82%);
     max-height: 64px;
@@ -5782,10 +5749,6 @@ input[type="range"]::-webkit-slider-thumb {
 
   .detail-overview {
     font-size: 14.5px;
-  }
-
-  .detail-facts {
-    gap: 6px 22px;
   }
 
   .episode-thumb {
