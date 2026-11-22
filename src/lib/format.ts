@@ -58,6 +58,17 @@ export function remainingLabel(seconds: number): string {
   return minutes ? `${hours}h ${minutes}m left` : `${hours}h left`;
 }
 
+/** "Airs in 5 days" for an episode's release time, by calendar day; null once aired. */
+export function airsLabel(at: number, now = Date.now()): string | null {
+  if (!Number.isFinite(at)) return null;
+  const start = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.round((start(at) - start(now)) / 86_400_000);
+  if (days < 0) return null;
+  if (days === 0) return "Airs today";
+  if (days === 1) return "Airs tomorrow";
+  return `Airs in ${days} days`;
+}
+
 export function progressPercent(position: number, duration: number): number {
   if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) return 0;
   return Math.min(100, Math.max(0, (position / duration) * 100));

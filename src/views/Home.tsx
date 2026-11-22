@@ -11,11 +11,13 @@ const FEED_TTL = 60_000;
 // The signature of the addon set the cached feed was built from.
 let feedSig = "";
 
-/** Next episode after a finished one, or null when the show is over. The sig is
- *  the title's newest mark, so a fresh mark re-resolves its next up. */
-const nextUpCache = new Map<
+type SeriesInfo = { entry: ProgressItem | null; airAt: number | null };
+
+/** Next episode after the current one, and its air time when it is still to
+ *  come. The sig is the title's newest mark, so a fresh mark re-resolves it. */
+const seriesCache = new Map<
   string,
-  { sig: string; gen: number; metaId: string; entry: ProgressItem | null }
+  { sig: string; gen: number; metaId: string } & SeriesInfo
 >();
 const NEXT_UP_CACHE_MAX = 120;
 const NEXT_UP_BATCH = 6;
@@ -26,21 +28,27 @@ const nextUpInFlight = new Set<string>();
 
 /** The cache is a session memo, not a history: the oldest titles drop first. */
 function pruneNextUp(): void {
-  for (const key of nextUpCache.keys()) {
-    if (nextUpCache.size <= NEXT_UP_CACHE_MAX) break;
-    nextUpCache.delete(key);
+  for (const key of seriesCache.keys()) {
+    if (seriesCache.size <= NEXT_UP_CACHE_MAX) break;
+    seriesCache.delete(key);
   }
 }
 
 /** A null entry means the lookup finished and the show has no next episode. */
-function cachedNextUp(
+function cachedSeriesInfo(
   sigOf: (metaId: string) => string,
-): Map<string, ProgressItem | null> {
-  const map = new Map<string, ProgressItem | null>();
-  for (const [key, { sig, metaId, entry }] of nextUpCache) {
-    if (sig === sigOf(metaId)) map.set(key, entry);
+): Map<string, SeriesInfo> {
+  const map = new Map<string, SeriesInfo>();
+  for (const [key, { sig, metaId, entry, airAt }] of seriesCache) {
+    if (sig === sigOf(metaId)) map.set(key, { entry, airAt });
   }
   return map;
+}
+
+/** An episode's release time, or null when it has none or a junk one. */
+function releaseAt(video: { released?: string | null }): number | null {
+  const at = video.released ? Date.parse(video.released) : NaN;
+  return Number.isFinite(at) ? at : null;
 }
 
 // Six of the row's top twenty, drawn per feed, so a launch does not open on the
@@ -124,8 +132,8 @@ export function HomeView() {
     return map;
   }, [watched]);
   const sigOf = useCallback((metaId: string) => markSig.get(metaId) ?? "", [markSig]);
-  const [nextUp, setNextUp] = useState<Map<string, ProgressItem | null>>(() =>
-    cachedNextUp(sigOf),
+  const [seriesInfo, setSeriesInfo] = useState<Map<string, SeriesInfo>>(() =>
+    cachedSeriesInfo(sigOf),
   );
 
   useEffect(() => {
@@ -202,27 +210,27 @@ export function HomeView() {
   }, [feedRows]);
 
   const continuing = useMemo(() => {
-    const rows: { entry: ProgressItem; next: boolean }[] = [];
+    const rows: { entry: ProgressItem; next: boolean; airAt: number | null }[] = [];
     for (const row of latestRows) {
+      const info = seriesInfo.get(row.key);
       const finished =
         watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90;
       if (!finished) {
-        rows.push({ entry: row, next: false });
+        rows.push({ entry: row, next: false, airAt: info?.airAt ?? null });
         continue;
       }
       // A finished movie belongs in Watched, not here.
       if (row.type !== "series") continue;
-      const next = nextUp.get(row.key);
       // Unresolved keeps the finished episode so the show never flickers off
       // the row; resolved to nothing means the show is over, so it goes.
-      if (next === undefined) {
-        rows.push({ entry: row, next: false });
-      } else if (next) {
-        rows.push({ entry: next, next: true });
+      if (info === undefined) {
+        rows.push({ entry: row, next: false, airAt: null });
+      } else if (info.entry) {
+        rows.push({ entry: info.entry, next: true, airAt: info.airAt });
       }
     }
     return rows.slice(0, 30);
-  }, [latestRows, watchedKeys, nextUp]);
+  }, [latestRows, watchedKeys, seriesInfo]);
 
   // A finished episode needs the next one from the catalog; it is not in the
   // progress row. Cache per episode so a refresh never refetches a known title,
@@ -231,17 +239,14 @@ export function HomeView() {
     pruneNextUp();
     const pending = latestRows.filter((row) => {
       if (row.type !== "series") return false;
-      const finished =
-        watchedKeys.has(row.key) || progressPercent(row.position, row.duration) >= 90;
-      if (!finished) return false;
       const sig = sigOf(row.metaId);
-      if (nextUpCache.get(row.key)?.sig === sig) return false;
+      if (seriesCache.get(row.key)?.sig === sig) return false;
       // A lookup already running for this exact mark must not be duplicated on
       // every progress tick.
       return !nextUpInFlight.has(`${row.key}|${sig}`);
     });
     if (pending.length === 0) {
-      setNextUp(cachedNextUp(sigOf));
+      setSeriesInfo(cachedSeriesInfo(sigOf));
       return;
     }
     const gen = ++nextUpGen;
@@ -274,12 +279,25 @@ export function HomeView() {
         });
         const season = video?.season ?? null;
         const episode = video ? (video.episode ?? video.number ?? null) : null;
+        // Only a show the viewer has caught up on can be waiting on an air date.
+        const now = Date.now();
+        const behind = after.some((candidate) => {
+          const at = releaseAt(candidate);
+          return at !== null && at <= now;
+        });
+        const upcoming = behind
+          ? null
+          : (after.find((candidate) => {
+              const at = releaseAt(candidate);
+              return at !== null && at > now;
+            }) ?? null);
         // A run that started before a newer one has the older answer.
-        if (gen < (nextUpCache.get(row.key)?.gen ?? -1)) return;
-        nextUpCache.set(row.key, {
+        if (gen < (seriesCache.get(row.key)?.gen ?? -1)) return;
+        seriesCache.set(row.key, {
           sig,
           gen,
           metaId: row.metaId,
+          airAt: upcoming ? releaseAt(upcoming) : null,
           entry:
             video && season != null && episode != null
               ? {
@@ -309,7 +327,7 @@ export function HomeView() {
       // Bounded: a long history must not fire one details call per title.
       for (let i = 0; i < pending.length; i += NEXT_UP_BATCH) {
         await Promise.allSettled(pending.slice(i, i + NEXT_UP_BATCH).map(resolve));
-        setNextUp(cachedNextUp(sigOf));
+        setSeriesInfo(cachedSeriesInfo(sigOf));
       }
     })();
   }, [latestRows, watchedKeys, sigOf]);
@@ -359,11 +377,12 @@ export function HomeView() {
     () =>
       continuing.length === 0 ? null : (
         <Row title="Continue watching">
-          {continuing.map(({ entry, next }) => (
+          {continuing.map(({ entry, next, airAt }) => (
             <ContinueCard
               key={entry.key}
               entry={entry}
               next={next}
+              airAt={airAt}
               name={entry.name}
               poster={entry.poster}
               background={entry.background}
