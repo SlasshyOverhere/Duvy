@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
@@ -36,6 +36,34 @@ function languageName(code: string): string {
   } catch {
     return code;
   }
+}
+
+/** Episode still or trailer frame. Addons ship dead image URLs often enough
+ *  that a broken one falls back to the posterless gradient, not a torn icon. */
+function Thumb({
+  src,
+  seed,
+  className,
+  children,
+}: {
+  src?: string | null;
+  seed: string;
+  className: string;
+  children?: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const show = Boolean(src) && !failed;
+  return (
+    <span
+      className={className}
+      style={show ? undefined : ({ background: placeholderGradient(seed) } as CSSProperties)}
+    >
+      {show ? (
+        <img src={src as string} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : null}
+      {children}
+    </span>
+  );
 }
 
 /** The first episode of the default season, so Specials never lead. */
@@ -415,12 +443,11 @@ export function DetailsView({
             }}
             aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
           >
-            <span className="episode-thumb">
-              {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
+            <Thumb className="episode-thumb" src={video.thumbnail} seed={video.title ?? code}>
               <span className="episode-play">
                 <Icon name="play" size={16} />
               </span>
-            </span>
+            </Thumb>
             <span className="episode-body">
               <span className="episode-top">
                 <span className="episode-num">{code}</span>
@@ -817,12 +844,11 @@ export function DetailsView({
                   )
                 }
               >
-                <span className="trailer-thumb">
-                  {link.thumbnail ? <img src={link.thumbnail} alt="" loading="lazy" /> : null}
+                <Thumb className="trailer-thumb" src={link.thumbnail} seed={link.name}>
                   <span className="trailer-play">
                     <Icon name="play" size={16} />
                   </span>
-                </span>
+                </Thumb>
                 <span className="trailer-name">{link.name}</span>
                 {link.year ? <span className="trailer-year">{link.year}</span> : null}
               </button>

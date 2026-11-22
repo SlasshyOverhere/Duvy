@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readPayload, validUpdate } from "../src/lib/bridge.ts";
 import { findSkip } from "../src/components/player/skip.ts";
+import { airsLabel } from "../src/lib/format.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (rel: string) => readFileSync(root + rel, "utf8");
@@ -52,6 +53,24 @@ function rustFn(src: string, name: string): string {
 
 const checks: Array<{ name: string; fn: () => string[] | Promise<string[]> }> = [];
 const run = (name: string, fn: () => string[] | Promise<string[]>) => checks.push({ name, fn });
+
+run("air dates read as calendar days", () => {
+  const out: string[] = [];
+  // Midday local, so a DST shift cannot move the day count.
+  const noon = (days: number) => new Date(2026, 2, 10 + days, 12).getTime();
+  const cases: Array<[number, string | null]> = [
+    [noon(0), "Airs today"],
+    [noon(1), "Airs tomorrow"],
+    [noon(5), "Airs in 5 days"],
+    [noon(-1), null],
+  ];
+  for (const [at, want] of cases) {
+    const got = airsLabel(at, noon(0));
+    if (got !== want) out.push(`air date +${Math.round((at - noon(0)) / 86400000)}d read as ${got}, wanted ${want}`);
+  }
+  if (airsLabel(Number.NaN) !== null) out.push("a missing air date produced a label");
+  return out;
+});
 
 run("untrusted payloads are read before they reach render", () => {
   const out: string[] = [];
@@ -413,7 +432,7 @@ run("sentinel: continue watching advances a finished episode", () => {
   const home = read("src/views/Home.tsx");
   // A finished episode must resolve its next one, not vanish from the row, and
   // an episode already marked watched must be skipped.
-  if (!/nextUpCache/.test(home) || !/queue\.slice\(at \+ 1\)/.test(home)) {
+  if (!/seriesCache/.test(home) || !/queue\.slice\(at \+ 1\)/.test(home)) {
     out.push("Home.tsx drops a finished episode instead of resolving the next one");
   }
   if (!/!watchedKeys\.has\(`\$\{row\.metaId\}:\$\{season\}:\$\{episode\}`\)/.test(home)) {

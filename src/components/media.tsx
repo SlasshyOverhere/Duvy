@@ -12,7 +12,13 @@ import {
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import type { MetaPreview, ProgressItem } from "../lib/types";
-import { placeholderGradient, progressPercent, remainingLabel, runtimeLabel } from "../lib/format";
+import {
+  airsLabel,
+  placeholderGradient,
+  progressPercent,
+  remainingLabel,
+  runtimeLabel,
+} from "../lib/format";
 import { ContextMenu, Icon, IconButton, type ContextAction } from "./ui";
 
 function initials(name: string) {
@@ -369,6 +375,7 @@ export function ContinueCard({
   position,
   duration,
   next = false,
+  airAt = null,
   onDetails,
   onPlay,
 }: {
@@ -381,6 +388,8 @@ export function ContinueCard({
   position: number;
   duration: number;
   next?: boolean;
+  /** Release time of the next episode, when it has not aired yet. */
+  airAt?: number | null;
   onDetails: () => void;
   onPlay: () => void;
 }) {
@@ -398,6 +407,7 @@ export function ContinueCard({
     (entry.metaId.startsWith("tt")
       ? `https://images.metahub.space/logo/medium/${entry.metaId}/img`
       : null);
+  const airs = airAt == null ? null : airsLabel(airAt);
   const details = [meta?.releaseInfo, runtimeLabel(meta?.runtime), meta?.imdbRating ? `${meta.imdbRating} IMDb` : null]
     .filter(Boolean)
     .join(" · ");
@@ -473,6 +483,7 @@ export function ContinueCard({
             />
           ) : null}
           <span className="continue-veil" />
+          {airs ? <span className="continue-air">{airs}</span> : null}
           <span className="continue-hover">
             {logo && !logoFailed ? (
               <img
