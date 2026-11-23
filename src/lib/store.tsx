@@ -522,6 +522,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     else delete document.documentElement.dataset.fullscreen;
   }, [fullscreen]);
 
+  // The app opens filling the monitor. Going windowed is the user's call, so
+  // this runs once and never takes the choice back.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let alive = true;
+    void api.window
+      .fullscreen(true)
+      .then(() => {
+        if (alive) setFullscreen(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const clearFrameWatchdog = useCallback(() => {
     if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
     frameTimer.current = null;

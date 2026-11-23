@@ -1501,12 +1501,19 @@ export function PlayerView() {
     ],
   );
 
+  // Browser fullscreen would outlive the screen. The desktop window keeps
+  // whatever it had, so leaving the player never snaps back to a window.
+  const dropBrowserFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) return;
+    void document.exitFullscreen().catch(() => undefined);
+    setFullscreen(false);
+  }, [setFullscreen]);
+
   const leaveFullscreen = useCallback(() => {
-    // A browser fullscreen left set would outlive this screen.
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    dropBrowserFullscreen();
     setFullscreen(false);
     void api.window.fullscreen(false);
-  }, [setFullscreen]);
+  }, [dropBrowserFullscreen, setFullscreen]);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
   useEffect(() => {
@@ -1517,14 +1524,14 @@ export function PlayerView() {
 
   const stop = useCallback(() => {
     alive.current = false;
-    leaveFullscreen();
+    dropBrowserFullscreen();
     // Leave the screen first: a stuck IPC call must not trap the user.
     leavePlayer();
     stopPlayer();
-  }, [leaveFullscreen, leavePlayer, stopPlayer]);
+  }, [dropBrowserFullscreen, leavePlayer, stopPlayer]);
 
   // Never leave the window frameless after the overlay goes away.
-  useEffect(() => () => leaveFullscreen(), [leaveFullscreen]);
+  useEffect(() => () => dropBrowserFullscreen(), [dropBrowserFullscreen]);
 
   // mpv gets the target state, not a toggle: two senders can never cancel out.
   const togglePause = useCallback(() => {
