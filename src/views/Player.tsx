@@ -3126,6 +3126,10 @@ export function PlayerView() {
               <span className="pv-now-title">{title}</span>
               {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
               {overview ? <span className="pv-now-note">{overview}</span> : null}
+              <span className="pv-now-go">
+                <Icon name="play" size={13} />
+                Resume
+              </span>
             </span>
           </button>
         ) : null}

@@ -1999,8 +1999,8 @@
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 1.1rem;
-  max-width: min(30rem, calc(100vw - 4rem));
+  gap: 1.35rem;
+  width: min(42rem, calc(100vw - 5rem));
   padding: 0;
   border: 0;
   background: none;
@@ -2021,13 +2021,13 @@
 .pv .pv-now::before {
   content: "";
   position: absolute;
-  inset: -3rem -5rem -2.5rem -2.5rem;
+  inset: -5rem -8rem -3.5rem -4rem;
   z-index: -1;
   background: radial-gradient(
-    118% 118% at 6% 100%,
-    rgba(0, 0, 0, 0.66),
-    rgba(0, 0, 0, 0.3) 44%,
-    rgba(0, 0, 0, 0) 76%
+    130% 130% at 3% 100%,
+    rgba(0, 0, 0, 0.78),
+    rgba(0, 0, 0, 0.36) 46%,
+    rgba(0, 0, 0, 0) 80%
   );
   pointer-events: none;
 }
@@ -2039,12 +2039,15 @@
 }
 
 .pv .pv-now-art {
-  width: 5.4rem;
+  width: 7.8rem;
   aspect-ratio: 2 / 3;
   flex: none;
-  border-radius: 6px;
+  border-radius: 9px;
   object-fit: cover;
   background: var(--pv-control);
+  box-shadow:
+    0 20px 48px -20px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.09);
   transition: filter 0.15s ease;
 }
 
@@ -2055,41 +2058,69 @@
 .pv .pv-now-body {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
+  align-items: flex-start;
+  gap: 0.26rem;
   min-width: 0;
-  padding-bottom: 0.2rem;
+  padding-bottom: 0.3rem;
 }
 
 .pv .pv-now-ep {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.62);
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.66);
 }
 
 .pv .pv-now-title {
+  display: -webkit-box;
   overflow: hidden;
-  font-size: 1.42rem;
+  font-size: clamp(1.55rem, 1.1vw + 1.1rem, 2.1rem);
   font-weight: 650;
-  line-height: 1.14;
-  letter-spacing: -0.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .pv .pv-now-meta {
-  font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .pv .pv-now-note {
   display: -webkit-box;
-  margin-top: 0.2rem;
+  max-width: 44ch;
+  margin-top: 0.34rem;
   overflow: hidden;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.7);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+}
+
+/* The whole card resumes; the pill says so without a second target. */
+.pv .pv-now-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin-top: 0.72rem;
+  padding: 0.36rem 0.8rem 0.36rem 0.62rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pv .pv-now:hover .pv-now-go {
+  background-color: rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 /* ---- next episode card -------------------------------------------------- */
@@ -2390,7 +2421,7 @@
 
   .pv .pv-now {
     gap: 0.8rem;
-    max-width: calc(100vw - 24px);
+    width: calc(100vw - 24px);
   }
 
   .pv:not(.pv--awake) .pv-corner {
@@ -2398,15 +2429,15 @@
   }
 
   .pv .pv-now-art {
-    width: 4.2rem;
+    width: 5.6rem;
   }
 
   .pv .pv-now-title {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
   }
 
   .pv .pv-now-note {
-    -webkit-line-clamp: 1;
+    -webkit-line-clamp: 2;
   }
 }
 
