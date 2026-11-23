@@ -21,6 +21,20 @@ import {
 const DETAILS_CACHE = new Map<string, Details>();
 const DETAILS_CACHE_LIMIT = 40;
 
+const AIR_DATE = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** "Airs 12 Nov 2026" for an episode the catalogue has not caught up with. */
+function airsDateLabel(released?: string | null): string | null {
+  if (!released) return null;
+  const date = new Date(released);
+  if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
+  return `Airs ${AIR_DATE.format(date)}`;
+}
+
 function firstSeason(details: Details): number | null {
   const seasons = [...new Set(details.videos.map((video) => video.season ?? 1))].sort(
     (a, b) => a - b,
@@ -44,11 +58,13 @@ function Thumb({
   src,
   seed,
   className,
+  fallback,
   children,
 }: {
   src?: string | null;
   seed: string;
   className: string;
+  fallback?: ReactNode;
   children?: ReactNode;
 }) {
   const [failed, setFailed] = useState(false);
@@ -60,7 +76,9 @@ function Thumb({
     >
       {show ? (
         <img src={src as string} alt="" loading="lazy" onError={() => setFailed(true)} />
-      ) : null}
+      ) : (
+        fallback
+      )}
       {children}
     </span>
   );
@@ -424,6 +442,7 @@ export function DetailsView({
       const markedAt = marks.get(key);
       const done = markedAt != null || percent >= 90;
       const code = episodeCode(video);
+      const airs = airsDateLabel(video.released);
       return (
         <div
           key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
@@ -443,7 +462,18 @@ export function DetailsView({
             }}
             aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
           >
-            <Thumb className="episode-thumb" src={video.thumbnail} seed={video.title ?? code}>
+            <Thumb
+              className="episode-thumb"
+              src={video.thumbnail}
+              seed={key}
+              fallback={
+                // No still yet: the number on a plate reads as deliberate,
+                // where an empty box read as a broken card.
+                <span className="episode-plate" aria-hidden="true">
+                  {String(video.episode ?? video.number ?? 0).padStart(2, "0")}
+                </span>
+              }
+            >
               <span className="episode-play">
                 <Icon name="play" size={16} />
               </span>
@@ -460,7 +490,7 @@ export function DetailsView({
                   <span className="episode-seen">In progress</span>
                 ) : null}
               </span>
-              <span className="episode-overview">{video.overview ?? ""}</span>
+              <span className="episode-overview">{video.overview || airs || ""}</span>
               {percent > 0 && percent < 90 ? (
                 <span className="episode-progress">
                   <span style={{ width: `${percent}%` }} />

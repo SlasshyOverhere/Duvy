@@ -91,7 +91,10 @@ function Toasts() {
             name={toast.tone === "success" ? "check" : toast.tone === "error" ? "alert" : "info"}
             size={16}
           />
-          <span>{toast.text}</span>
+          <span className="toast-copy">
+            <span>{toast.text}</span>
+            {toast.detail ? <span className="toast-detail">{toast.detail}</span> : null}
+          </span>
           <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Dismiss">
             <Icon name="x" size={14} />
           </button>

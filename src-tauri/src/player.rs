@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -27,6 +27,8 @@ pub struct Track {
     pub lang: Option<String>,
     pub selected: bool,
     pub external: bool,
+    /// Signs and songs only, not the dialogue.
+    pub forced: bool,
     /// Channels and codec, e.g. "5.1 · Dolby Digital".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
@@ -216,6 +218,10 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 .get("external")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let forced = track
+                .get("forced")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let label = track_label(
                 kind,
                 if kind == "audio" {
@@ -242,6 +248,7 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 lang,
                 selected,
                 external,
+                forced,
                 details,
             };
             if kind == "audio" {
@@ -263,6 +270,42 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
 /// The track list and the selected ids, read from mpv outside any lock.
 fn read_track_state(mpv: &Mpv) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i64>) {
     parse_tracks(&read_tracks(mpv))
+}
+
+/// The embedded subtitle in one of the preferred languages, so it can be turned
+/// on at load instead of leaving the viewer to hunt for the track.
+fn preferred_sub(subs: &[Track], slang: &str) -> Option<i64> {
+    // "eng", "en-GB" and "en" all mean the same track.
+    let short = |code: &str| -> String {
+        code.split(['-', '_'])
+            .next()
+            .unwrap_or(code)
+            .chars()
+            .take(2)
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let wanted: Vec<String> = slang
+        .split(',')
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .map(short)
+        .collect();
+    let names: Vec<String> = wanted
+        .iter()
+        .filter_map(|code| language_name(code))
+        .map(str::to_lowercase)
+        .collect();
+    subs.iter()
+        .find(|track| {
+            if track.external || track.forced {
+                return false;
+            }
+            let lang = track.lang.as_deref().map(short).unwrap_or_default();
+            let label = track.label.to_lowercase();
+            wanted.contains(&lang) || names.iter().any(|name| label.contains(name))
+        })
+        .map(|track| track.id)
 }
 
 /// Describe the video stream. Read on load and on a reconfig, never per tick.
@@ -685,18 +728,29 @@ impl Player {
             if let Some(secs) = forward_secs {
                 let _ = init.set_option("cache-secs", secs.to_string());
             }
-            let _ = init.set_option("network-timeout", "60");
-            // A dropped socket is not the end of the film: let ffmpeg reconnect
-            // for up to 5s between attempts, streamed responses included.
+            // A socket that stops sending must not wait forever: ffmpeg only
+            // notices a stall when nothing arrives for this long.
+            let _ = init.set_option("network-timeout", "15");
+            // mpv's curl client does not retry HTTP errors yet, and a debrid CDN
+            // answers 5xx while a new connection comes up.
+            let _ = init.set_option("curl-enabled", "no");
+            // A dropped socket is not the end of the film: reconnect on a drop,
+            // on an early close and on the errors a CDN hands out while it
+            // swaps a connection.
             let _ = init.set_option(
                 "stream-lavf-o",
-                "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5",
+                "reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,reconnect_on_network_error=1,reconnect_on_http_error=#@408,429,500,502,503,504,reconnect_delay_max=15",
             );
             // Refill the cache before resuming, so an underrun does not become
             // a play-pause loop at the edge of the buffer.
             let _ = init.set_option("cache-pause-wait", "5");
             let _ = init.set_option("alang", language_arg(&settings.audio_language));
             let _ = init.set_option("slang", language_arg(&settings.subtitle_language));
+            // A forced or foreign track is worse than none: only subtitles that
+            // match the audio being played, and never a fallback.
+            let _ = init.set_option("subs-with-matching-audio", "yes");
+            let _ = init.set_option("subs-fallback", "no");
+            let _ = init.set_option("subs-fallback-forced", "no");
             let _ = init.set_option(
                 "hwdec",
                 if settings.hardware_decoding {
@@ -798,6 +852,8 @@ impl Player {
         let stop = Arc::new(AtomicBool::new(false));
         let session = Arc::new(Mutex::new(request.session.clone()));
         let final_saved = Arc::new(AtomicBool::new(false));
+        // One budget for every reopen, whichever thread asks for it.
+        let recovery = Arc::new(Mutex::new(Recovery::default()));
 
         spawn_events(
             app.clone(),
@@ -806,6 +862,7 @@ impl Player {
             Arc::clone(&stop),
             Arc::clone(&mpv),
             request.url.clone(),
+            Arc::clone(&recovery),
         );
         spawn_ticker(
             app.clone(),
@@ -814,6 +871,9 @@ impl Player {
             Arc::clone(&session),
             host,
             Arc::clone(&final_saved),
+            Arc::clone(&mpv),
+            request.url.clone(),
+            recovery,
         );
 
         Ok(Self {
@@ -1029,11 +1089,12 @@ fn spawn_events(
     stop: Arc<AtomicBool>,
     mpv: Arc<Mpv>,
     url: String,
+    recovery: Arc<Mutex<Recovery>>,
 ) {
     thread::spawn(move || {
         let mut ended = false;
-        // One silent reopen per playback: the same URL from the same spot.
-        let mut reopened = false;
+        // Read once: the language the app prefers for subtitles.
+        let slang = mpv.get_property::<String>("slang").unwrap_or_default();
         while !stop.load(Ordering::Relaxed) {
             let event = match events.wait_event(0.2) {
                 None => continue,
@@ -1047,8 +1108,7 @@ fn spawn_events(
                             if *code == libmpv2::mpv_error::LoadingFailed
                     );
                     if dead {
-                        if !reopened && reopen_stream(&mpv, &snapshot, &url) {
-                            reopened = true;
+                        if reopen(&recovery, &mpv, &snapshot, &url) {
                             continue;
                         }
                         end_stream(&app, &snapshot, &stop, &mpv, "error");
@@ -1135,6 +1195,19 @@ fn spawn_events(
                 }
                 Event::FileLoaded => {
                     let media = read_media(&mpv);
+                    // A file that carries the preferred subtitles has them on
+                    // already: nobody should have to go looking for the track.
+                    let (_, subs, _, active_sub) = read_track_state(&mpv);
+                    // An addon track the page handed over early is never better
+                    // synced than the file's own, so the file wins.
+                    let borrowed = active_sub
+                        .and_then(|id| subs.iter().find(|track| track.id == id))
+                        .is_some_and(|track| track.external);
+                    if (active_sub.is_none() || borrowed)
+                        && let Some(id) = preferred_sub(&subs, &slang)
+                    {
+                        let _ = mpv.set_property("sid", id);
+                    }
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
                         snap.paused = false;
@@ -1159,8 +1232,7 @@ fn spawn_events(
                 }
                 Event::EndFile(reason) => {
                     let reason = end_reason(reason);
-                    if reason == "error" && !reopened && reopen_stream(&mpv, &snapshot, &url) {
-                        reopened = true;
+                    if reason == "error" && reopen(&recovery, &mpv, &snapshot, &url) {
                         continue;
                     }
                     end_stream(&app, &snapshot, &stop, &mpv, reason);
@@ -1201,16 +1273,61 @@ fn ended_early(snap: &Snapshot) -> bool {
     snap.duration > 60.0 && snap.position / snap.duration < 0.85
 }
 
-/// Where a dropped source should be picked up again: anywhere but the opening
-/// seconds and the credits, where reopening would only fail or loop.
+/// A stall worth reopening from: anywhere but the opening seconds and the
+/// credits, where reopening would only fail or loop.
 fn reopen_position(snap: &Snapshot) -> Option<f64> {
     let past_the_start = snap.position > 5.0;
     let before_the_end = snap.duration <= 0.0 || snap.position / snap.duration < 0.98;
     (past_the_start && before_the_end).then_some(snap.position)
 }
 
-/// Reload the same URL from the position the stream died at, once. Returns false
-/// when this drop is not worth retrying (never started, already at the credits).
+/// One reopen budget per playback, shared by the event loop and the ticker.
+#[derive(Default)]
+struct Recovery {
+    last: Option<Instant>,
+    attempts: u32,
+}
+
+/// A dead CDN connection deserves a retry; a source that keeps dying does not.
+const RECOVER_GAP: Duration = Duration::from_secs(20);
+const RECOVER_LIMIT: u32 = 3;
+/// How long a frozen picture may sit before it counts as a stall.
+const STALL: Duration = Duration::from_secs(20);
+
+impl Recovery {
+    fn allow(&mut self) -> bool {
+        if self.attempts >= RECOVER_LIMIT {
+            return false;
+        }
+        let now = Instant::now();
+        if self.last.is_some_and(|at| now.duration_since(at) < RECOVER_GAP) {
+            return false;
+        }
+        self.last = Some(now);
+        self.attempts += 1;
+        true
+    }
+}
+
+/// Reopen through the shared budget, so two threads cannot reload at once.
+fn reopen(
+    recovery: &Arc<Mutex<Recovery>>,
+    mpv: &Mpv,
+    snapshot: &Arc<Mutex<Snapshot>>,
+    url: &str,
+) -> bool {
+    // Checked before the budget is spent: a source that never started is not
+    // worth one of the three attempts.
+    let worth_it = snapshot.lock().is_ok_and(|snap| reopen_position(&snap).is_some());
+    if !worth_it {
+        return false;
+    }
+    let allowed = recovery.lock().map(|mut budget| budget.allow()).unwrap_or(false);
+    allowed && reopen_stream(mpv, snapshot, url)
+}
+
+/// Reload the same URL from the position the stream died at. Returns false when
+/// this drop is not worth retrying (never started, already at the credits).
 fn reopen_stream(mpv: &Mpv, snapshot: &Arc<Mutex<Snapshot>>, url: &str) -> bool {
     let Some(at) = snapshot.lock().ok().and_then(|snap| reopen_position(&snap)) else {
         return false;
@@ -1425,12 +1542,19 @@ fn spawn_ticker(
     session: Arc<Mutex<Option<PlaybackSession>>>,
     host: Option<isize>,
     final_saved: Arc<AtomicBool>,
+    mpv: Arc<Mpv>,
+    url: String,
+    recovery: Arc<Mutex<Recovery>>,
 ) {
     thread::spawn(move || {
         let mut ticks: u64 = 0;
         let mut started = false;
         let mut last_emit: Option<Tick> = None;
         let mut last_saved: Option<(f64, bool, bool)> = None;
+        // A socket that stays open but sends nothing leaves mpv waiting with no
+        // error and no end, so the ticker is the only place that can notice.
+        let mut frozen: Option<(f64, Instant)> = None;
+        let mut waiting_since: Option<Instant> = None;
         while !stop.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(500));
             if stop.load(Ordering::Relaxed) {
@@ -1448,6 +1572,7 @@ fn spawn_ticker(
             // cloned on the ticks that will actually be emitted.
             let mut send: Option<Snapshot> = None;
             let state;
+            let mut stalled = false;
             let tick = match snapshot.lock() {
                 Ok(mut snap) => {
                     // The first tick with a real position is the moment the
@@ -1456,6 +1581,23 @@ fn spawn_ticker(
                         started = true;
                         snap.started = true;
                         crate::playback_log::mark(format!("first frame at {:.2}s", snap.position));
+                    }
+                    let now = Instant::now();
+                    if !snap.playing || snap.paused || snap.ended {
+                        frozen = None;
+                        waiting_since = None;
+                    } else {
+                        if snap.buffering {
+                            waiting_since.get_or_insert(now);
+                        } else {
+                            waiting_since = None;
+                        }
+                        let moved = frozen.is_some_and(|(at, _)| (snap.position - at).abs() >= 0.5);
+                        if frozen.is_none() || moved {
+                            frozen = Some((snap.position, now));
+                        }
+                        stalled = waiting_since.is_some_and(|since| now.duration_since(since) >= STALL)
+                            || frozen.is_some_and(|(_, since)| now.duration_since(since) >= STALL);
                     }
                     state = (snap.position, snap.paused, snap.ended);
                     let tick = Tick::of(&snap);
@@ -1466,6 +1608,21 @@ fn spawn_ticker(
                 }
                 Err(_) => break,
             };
+            if stalled {
+                if reopen(&recovery, &mpv, &snapshot, &url) {
+                    crate::playback_log::mark("picture frozen, reopened the stream");
+                    frozen = None;
+                    waiting_since = None;
+                } else if let Ok(mut snap) = snapshot.lock()
+                    && snap.error.is_none()
+                    && recovery.lock().is_ok_and(|budget| budget.attempts >= RECOVER_LIMIT)
+                {
+                    // Out of retries: say so, so the UI offers another source
+                    // instead of spinning forever.
+                    snap.buffering = false;
+                    snap.error = Some("The stream stopped responding.".into());
+                }
+            }
             if let Some(snap) = &send {
                 last_emit = Some(tick);
                 let _ = app.emit("player:tick", snap);
@@ -1543,10 +1700,49 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 #[cfg(test)]
 mod tests {
     use super::{
-        Snapshot, back_cache, bool_value, color_value, ended_early, forward_cache, number_value,
-        parse_chapters, parse_tracks, reopen_position, validate_media_url,
+        RECOVER_GAP, Recovery, Snapshot, back_cache, bool_value, color_value, ended_early,
+        forward_cache, number_value, parse_chapters, parse_tracks, preferred_sub,
+        reopen_position, validate_media_url,
     };
     use serde_json::json;
+    use std::time::Instant;
+
+    #[test]
+    fn the_embedded_subtitle_in_our_language_is_the_one_turned_on() {
+        let subs = parse_tracks(&json!([
+            { "type": "sub", "id": 3, "lang": "fre", "external": false },
+            { "type": "sub", "id": 4, "lang": "eng", "external": false },
+            { "type": "sub", "id": 9, "lang": "eng", "external": true },
+        ]))
+        .1;
+        // The English one, not the French one, and never an external file.
+        assert_eq!(preferred_sub(&subs, "eng"), Some(4));
+        assert_eq!(preferred_sub(&subs, "en-GB"), Some(4));
+        // Untagged tracks are still found by the language in their title.
+        let untagged = parse_tracks(&json!([
+            { "type": "sub", "id": 5, "title": "English SDH", "external": false },
+        ]))
+        .1;
+        assert_eq!(preferred_sub(&untagged, "eng"), Some(5));
+        // Nothing to pick when the file carries no such track.
+        assert_eq!(preferred_sub(&subs, "hin"), None);
+    }
+
+    #[test]
+    fn a_stall_is_reopened_a_few_times_then_left_alone() {
+        let mut budget = Recovery::default();
+        assert!(budget.allow());
+        // A second reload in the same moment would be a reload loop.
+        assert!(!budget.allow());
+        // Once the gap has passed, the retries resume up to the limit.
+        budget.last = Some(Instant::now() - RECOVER_GAP);
+        assert!(budget.allow());
+        budget.last = Some(Instant::now() - RECOVER_GAP);
+        assert!(budget.allow());
+        // Out of attempts: a source that keeps dying gets the failure card.
+        budget.last = Some(Instant::now() - RECOVER_GAP);
+        assert!(!budget.allow());
+    }
 
     #[test]
     fn an_eof_short_of_the_duration_is_a_dropped_stream() {

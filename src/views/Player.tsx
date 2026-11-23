@@ -179,6 +179,9 @@ function Overlay({
 }
 
 /** Bits per second, in the unit a person would say out loud. */
+// Playback runs at the chosen speed, so the wall clock is what the viewer plans by.
+const ENDS_AT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
 function bitrateLabel(bits: number): string {
   if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbps`;
   if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbps`;
@@ -1071,6 +1074,8 @@ export function PlayerView() {
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // A spinner that never resolves must not trap the viewer.
+  const [stuck, setStuck] = useState(false);
   // The player generation that failed, so only a newer picture clears the card.
   const retryGen = useRef(-1);
 
@@ -1309,6 +1314,15 @@ export function PlayerView() {
   const failed = retryError ?? (dead && recoverable ? null : local?.error);
   // mpv drained its cache: the picture is frozen on the network, not on us.
   const buffering = Boolean(local?.buffering) && !paused && !failed;
+  // Past this long the source is not slow, it is gone: offer the way out.
+  useEffect(() => {
+    if (!buffering) {
+      setStuck(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setStuck(true), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [buffering]);
   // The first painted frame; every snapshot carries the flag.
   const firstFrame = local?.started === true;
   // A live stream never reports a duration, so only silence before the first
@@ -1490,12 +1504,19 @@ export function PlayerView() {
     ],
   );
 
+  // Browser fullscreen would outlive the screen. The desktop window keeps
+  // whatever it had, so leaving the player never snaps back to a window.
+  const dropBrowserFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) return;
+    void document.exitFullscreen().catch(() => undefined);
+    setFullscreen(false);
+  }, [setFullscreen]);
+
   const leaveFullscreen = useCallback(() => {
-    // A browser fullscreen left set would outlive this screen.
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    dropBrowserFullscreen();
     setFullscreen(false);
     void api.window.fullscreen(false);
-  }, [setFullscreen]);
+  }, [dropBrowserFullscreen, setFullscreen]);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
   useEffect(() => {
@@ -1506,14 +1527,14 @@ export function PlayerView() {
 
   const stop = useCallback(() => {
     alive.current = false;
-    leaveFullscreen();
+    dropBrowserFullscreen();
     // Leave the screen first: a stuck IPC call must not trap the user.
     leavePlayer();
     stopPlayer();
-  }, [leaveFullscreen, leavePlayer, stopPlayer]);
+  }, [dropBrowserFullscreen, leavePlayer, stopPlayer]);
 
   // Never leave the window frameless after the overlay goes away.
-  useEffect(() => () => leaveFullscreen(), [leaveFullscreen]);
+  useEffect(() => () => dropBrowserFullscreen(), [dropBrowserFullscreen]);
 
   // mpv gets the target state, not a toggle: two senders can never cancel out.
   const togglePause = useCallback(() => {
@@ -1796,7 +1817,9 @@ export function PlayerView() {
       });
       void api.player
         .subtitle(variant.url, variant.lang)
-        .then(() => notify(`${variant.lang} subtitles`))
+        .then(() =>
+          notify("Subtitles loaded", "success", `Subtitles from ${variant.source ?? "Addons"} loaded`),
+        )
         .catch((error) => notify(error instanceof Error ? error.message : String(error), "error"));
     },
     [loadedSub?.url, notify, send],
@@ -1991,6 +2014,26 @@ export function PlayerView() {
     if (session?.key) void loadSubtitles(true);
   }, [session?.key]);
 
+  // The notice names the track that actually took the slot, once the picture is
+  // up, so it can never claim a subtitle that is not on screen.
+  const subTold = useRef<string | null>(null);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || subTold.current === key || !firstFrame) return;
+    if (activeSub?.selected && !activeSub.external) {
+      subTold.current = key;
+      notify(
+        "Subtitles loaded",
+        "success",
+        `Embedded ${langLabel(activeSub.lang, activeSub.label)} track`,
+      );
+      return;
+    }
+    if (!loadedSub) return;
+    subTold.current = key;
+    notify("Subtitles loaded", "success", `Subtitles from ${loadedSub.addon ?? "addons"} loaded`);
+  }, [session?.key, firstFrame, activeSub, loadedSub, notify]);
+
   // Markers are stored per episode, keyed like the session. The command still
   // names the argument `metaId`. With no hand-set markers, IntroDB supplies the
   // community timestamps, so most shows skip without any setup.
@@ -2133,6 +2176,45 @@ export function PlayerView() {
     setLoadedSub({ lang: saved.lang, url: saved.url });
     void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
   }, [session?.key, playerReady, send]);
+
+  // The addon hunt runs beside the stream, so the track it found is handed over
+  // as the file opens. mpv turns away a track until a file is live, so each
+  // refusal is retried while the stream settles.
+  const autoSub = useRef<string | null>(null);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || autoSub.current === key || !playerReady || !subs?.length) return;
+    // An explicit choice, including off, outranks any guess of ours.
+    if (rememberedSubtitle(key)) {
+      autoSub.current = key;
+      return;
+    }
+    // The file's own track is better synced than anything an addon offers.
+    if (subTracks.some((track) => track.selected && !track.external)) {
+      autoSub.current = key;
+      return;
+    }
+    const want = (settings?.subtitleLanguage ?? "").trim().toLowerCase().slice(0, 2);
+    if (!want) return;
+    const track = subs.find(
+      (entry) => (entry.lang ?? "").trim().toLowerCase().slice(0, 2) === want,
+    );
+    if (!track) return;
+    autoSub.current = key;
+    const handOver = async (attempt: number): Promise<void> => {
+      try {
+        await api.player.subtitle(track.url, track.lang);
+      } catch (error) {
+        if (attempt >= 3 || sessionRef.current?.key !== key) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        return handOver(attempt + 1);
+      }
+      if (sessionRef.current?.key !== key) return;
+      setSelectedLang(langLabel(track.lang, track.lang));
+      setLoadedSub({ lang: track.lang, url: track.url, addon: track.addon });
+    };
+    void handOver(1).catch(() => undefined);
+  }, [session?.key, playerReady, subs, subKey, settings?.subtitleLanguage]);
 
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
@@ -2529,10 +2611,19 @@ export function PlayerView() {
     session && session.season != null
       ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
       : null;
+  // Frozen with the pause, so the card cannot drift while it is read.
+  const endsAt = useMemo(() => {
+    const left = duration - shownPosition;
+    if (!(left > 0)) return null;
+    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
+    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
+  }, [duration, shownPosition, local?.speed]);
+
   const nowMeta = [
     playingSource?.addon,
     playingSource?.quality,
     duration > 0 ? formatTime(duration) : runtimeLabel(details?.runtime),
+    endsAt ? `Ends ${endsAt}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -2700,6 +2791,11 @@ export function PlayerView() {
             </span>
           )}
           <span className="pv-buffering-label">Buffering</span>
+          {stuck ? (
+            <button type="button" className="pv-buffering-action" onClick={retrySource}>
+              Change source
+            </button>
+          ) : null}
         </div>
       ) : null}
 
