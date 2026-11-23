@@ -21,6 +21,20 @@ import {
 const DETAILS_CACHE = new Map<string, Details>();
 const DETAILS_CACHE_LIMIT = 40;
 
+const AIR_DATE = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** "Airs 12 Nov 2026" for an episode the catalogue has not caught up with. */
+function airsLabel(released?: string | null): string | null {
+  if (!released) return null;
+  const date = new Date(released);
+  if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
+  return `Airs ${AIR_DATE.format(date)}`;
+}
+
 function firstSeason(details: Details): number | null {
   const seasons = [...new Set(details.videos.map((video) => video.season ?? 1))].sort(
     (a, b) => a - b,
@@ -120,6 +134,8 @@ export function DetailsView({
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
+  // Episode stills that failed to load: the card falls back to a plate.
+  const [deadStills, setDeadStills] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
   // The card that was clicked already knows the hero, so paint it at once and
   // let the rest of the page fill in behind it.
@@ -396,6 +412,8 @@ export function DetailsView({
       const markedAt = marks.get(key);
       const done = markedAt != null || percent >= 90;
       const code = episodeCode(video);
+      const still = video.thumbnail && !deadStills[video.id] ? video.thumbnail : null;
+      const airs = airsLabel(video.released);
       return (
         <div
           key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
@@ -416,7 +434,26 @@ export function DetailsView({
             aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
           >
             <span className="episode-thumb">
-              {video.thumbnail ? <img src={video.thumbnail} alt="" loading="lazy" /> : null}
+              {still ? (
+                <img
+                  src={still}
+                  alt=""
+                  loading="lazy"
+                  onError={() =>
+                    setDeadStills((current) => ({ ...current, [video.id]: true }))
+                  }
+                />
+              ) : (
+                // No still yet: the number on a plate reads as deliberate,
+                // where an empty box read as a broken card.
+                <span
+                  className="episode-plate"
+                  style={{ background: placeholderGradient(key) }}
+                  aria-hidden="true"
+                >
+                  {String(video.episode ?? video.number ?? 0).padStart(2, "0")}
+                </span>
+              )}
               <span className="episode-play">
                 <Icon name="play" size={16} />
               </span>
@@ -433,7 +470,7 @@ export function DetailsView({
                   <span className="episode-seen">In progress</span>
                 ) : null}
               </span>
-              <span className="episode-overview">{video.overview ?? ""}</span>
+              <span className="episode-overview">{video.overview || airs || ""}</span>
               {percent > 0 && percent < 90 ? (
                 <span className="episode-progress">
                   <span style={{ width: `${percent}%` }} />
@@ -462,6 +499,7 @@ export function DetailsView({
     buildSession,
     marks,
     toggleWatched,
+    deadStills,
   ]);
 
   const startStream = async (stream: StreamOption) => {
