@@ -1,6 +1,6 @@
 # Features
 
-What works in Duvy 0.1.15 beta, and where each area stops. This is a per-area snapshot, not
+What works in Duvy 0.1.16 beta, and where each area stops. This is a per-area snapshot, not
 a delivery promise. Planned work lives in [`ROADMAP.md`](./ROADMAP.md).
 
 Legend: **Done** works in the beta · **Partial** works but is narrower · **Planned** not built.
