@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { rememberedLogo } from "../lib/art";
 import { rememberSource, useApp } from "../lib/store";
@@ -28,7 +28,7 @@ const AIR_DATE = new Intl.DateTimeFormat(undefined, {
 });
 
 /** "Airs 12 Nov 2026" for an episode the catalogue has not caught up with. */
-function airsLabel(released?: string | null): string | null {
+function airsDateLabel(released?: string | null): string | null {
   if (!released) return null;
   const date = new Date(released);
   if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
@@ -50,6 +50,38 @@ function languageName(code: string): string {
   } catch {
     return code;
   }
+}
+
+/** Episode still or trailer frame. Addons ship dead image URLs often enough
+ *  that a broken one falls back to the posterless gradient, not a torn icon. */
+function Thumb({
+  src,
+  seed,
+  className,
+  fallback,
+  children,
+}: {
+  src?: string | null;
+  seed: string;
+  className: string;
+  fallback?: ReactNode;
+  children?: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const show = Boolean(src) && !failed;
+  return (
+    <span
+      className={className}
+      style={show ? undefined : ({ background: placeholderGradient(seed) } as CSSProperties)}
+    >
+      {show ? (
+        <img src={src as string} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        fallback
+      )}
+      {children}
+    </span>
+  );
 }
 
 /** The first episode of the default season, so Specials never lead. */
@@ -134,8 +166,6 @@ export function DetailsView({
   const [imageFailed, setImageFailed] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [brokenPhotos, setBrokenPhotos] = useState<Record<string, boolean>>({});
-  // Episode stills that failed to load: the card falls back to a plate.
-  const [deadStills, setDeadStills] = useState<Record<string, boolean>>({});
   const [similar, setSimilar] = useState<MetaPreview[]>([]);
   // The card that was clicked already knows the hero, so paint it at once and
   // let the rest of the page fill in behind it.
@@ -412,8 +442,7 @@ export function DetailsView({
       const markedAt = marks.get(key);
       const done = markedAt != null || percent >= 90;
       const code = episodeCode(video);
-      const still = video.thumbnail && !deadStills[video.id] ? video.thumbnail : null;
-      const airs = airsLabel(video.released);
+      const airs = airsDateLabel(video.released);
       return (
         <div
           key={`${video.id}:${video.season ?? 1}:${video.episode ?? video.number ?? 0}`}
@@ -433,31 +462,22 @@ export function DetailsView({
             }}
             aria-label={`Play ${code}${video.title ? ` · ${video.title}` : ""}`}
           >
-            <span className="episode-thumb">
-              {still ? (
-                <img
-                  src={still}
-                  alt=""
-                  loading="lazy"
-                  onError={() =>
-                    setDeadStills((current) => ({ ...current, [video.id]: true }))
-                  }
-                />
-              ) : (
+            <Thumb
+              className="episode-thumb"
+              src={video.thumbnail}
+              seed={key}
+              fallback={
                 // No still yet: the number on a plate reads as deliberate,
                 // where an empty box read as a broken card.
-                <span
-                  className="episode-plate"
-                  style={{ background: placeholderGradient(key) }}
-                  aria-hidden="true"
-                >
+                <span className="episode-plate" aria-hidden="true">
                   {String(video.episode ?? video.number ?? 0).padStart(2, "0")}
                 </span>
-              )}
+              }
+            >
               <span className="episode-play">
                 <Icon name="play" size={16} />
               </span>
-            </span>
+            </Thumb>
             <span className="episode-body">
               <span className="episode-top">
                 <span className="episode-num">{code}</span>
@@ -499,7 +519,6 @@ export function DetailsView({
     buildSession,
     marks,
     toggleWatched,
-    deadStills,
   ]);
 
   const startStream = async (stream: StreamOption) => {
@@ -855,12 +874,11 @@ export function DetailsView({
                   )
                 }
               >
-                <span className="trailer-thumb">
-                  {link.thumbnail ? <img src={link.thumbnail} alt="" loading="lazy" /> : null}
+                <Thumb className="trailer-thumb" src={link.thumbnail} seed={link.name}>
                   <span className="trailer-play">
                     <Icon name="play" size={16} />
                   </span>
-                </span>
+                </Thumb>
                 <span className="trailer-name">{link.name}</span>
                 {link.year ? <span className="trailer-year">{link.year}</span> : null}
               </button>
