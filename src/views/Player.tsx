@@ -179,6 +179,9 @@ function Overlay({
 }
 
 /** Bits per second, in the unit a person would say out loud. */
+// Playback runs at the chosen speed, so the wall clock is what the viewer plans by.
+const ENDS_AT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
 function bitrateLabel(bits: number): string {
   if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbps`;
   if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbps`;
@@ -2608,10 +2611,19 @@ export function PlayerView() {
     session && session.season != null
       ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
       : null;
+  // Frozen with the pause, so the card cannot drift while it is read.
+  const endsAt = useMemo(() => {
+    const left = duration - shownPosition;
+    if (!(left > 0)) return null;
+    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
+    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
+  }, [duration, shownPosition, local?.speed]);
+
   const nowMeta = [
     playingSource?.addon,
     playingSource?.quality,
     duration > 0 ? formatTime(duration) : runtimeLabel(details?.runtime),
+    endsAt ? `Ends ${endsAt}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -3126,10 +3138,6 @@ export function PlayerView() {
               <span className="pv-now-title">{title}</span>
               {nowMeta ? <span className="pv-now-meta">{nowMeta}</span> : null}
               {overview ? <span className="pv-now-note">{overview}</span> : null}
-              <span className="pv-now-go">
-                <Icon name="play" size={13} />
-                Resume
-              </span>
             </span>
           </button>
         ) : null}
