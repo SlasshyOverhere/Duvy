@@ -1327,6 +1327,15 @@ export function PlayerView() {
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
   // Once the picture is up, the card has its say and then gets out of the way.
   const guideWanted = guide.length > 0 && !guideSeen && !loading && !failed && Boolean(local);
+  // An embedded English track that is already on: the stream opened, and the
+  // viewer is told so before the picture arrives rather than left guessing.
+  const englishSub = (local?.subTracks ?? []).some(
+    (track) =>
+      track.selected &&
+      !track.external &&
+      (/^en(g|[-_])/i.test(track.lang ?? "") || /english/i.test(track.label)),
+  );
+  const subNotice = englishSub && !failed && (loading || shownPosition < 8);
   // Dismissing starts the exit; the card unmounts when its own animation ends.
   const guideOn = guideWanted || guideLeaving;
   useEffect(() => {
@@ -2698,7 +2707,14 @@ export function PlayerView() {
           ) : (
             <h1 className="pv-wait-title">{title}</h1>
           )}
+          {subNotice ? <p className="pv-wait-note">English subtitles on</p> : null}
         </div>
+      ) : null}
+
+      {subNotice && !loading ? (
+        <p className="pv-subnotice" role="status">
+          English subtitles on
+        </p>
       ) : null}
 
       {buffering && !loading ? (

@@ -27,6 +27,8 @@ pub struct Track {
     pub lang: Option<String>,
     pub selected: bool,
     pub external: bool,
+    /// Signs and songs only, not the dialogue.
+    pub forced: bool,
     /// Channels and codec, e.g. "5.1 · Dolby Digital".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
@@ -216,6 +218,10 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 .get("external")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let forced = track
+                .get("forced")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let label = track_label(
                 kind,
                 if kind == "audio" {
@@ -242,6 +248,7 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
                 lang,
                 selected,
                 external,
+                forced,
                 details,
             };
             if kind == "audio" {
@@ -263,6 +270,42 @@ fn parse_tracks(value: &Value) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
 /// The track list and the selected ids, read from mpv outside any lock.
 fn read_track_state(mpv: &Mpv) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i64>) {
     parse_tracks(&read_tracks(mpv))
+}
+
+/// The embedded subtitle in one of the preferred languages, so it can be turned
+/// on at load instead of leaving the viewer to hunt for the track.
+fn preferred_sub(subs: &[Track], slang: &str) -> Option<i64> {
+    // "eng", "en-GB" and "en" all mean the same track.
+    let short = |code: &str| -> String {
+        code.split(['-', '_'])
+            .next()
+            .unwrap_or(code)
+            .chars()
+            .take(2)
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let wanted: Vec<String> = slang
+        .split(',')
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+        .map(short)
+        .collect();
+    let names: Vec<String> = wanted
+        .iter()
+        .filter_map(|code| language_name(code))
+        .map(str::to_lowercase)
+        .collect();
+    subs.iter()
+        .find(|track| {
+            if track.external || track.forced {
+                return false;
+            }
+            let lang = track.lang.as_deref().map(short).unwrap_or_default();
+            let label = track.label.to_lowercase();
+            wanted.contains(&lang) || names.iter().any(|name| label.contains(name))
+        })
+        .map(|track| track.id)
 }
 
 /// Describe the video stream. Read on load and on a reconfig, never per tick.
@@ -1050,6 +1093,8 @@ fn spawn_events(
 ) {
     thread::spawn(move || {
         let mut ended = false;
+        // Read once: the language the app prefers for subtitles.
+        let slang = mpv.get_property::<String>("slang").unwrap_or_default();
         while !stop.load(Ordering::Relaxed) {
             let event = match events.wait_event(0.2) {
                 None => continue,
@@ -1150,6 +1195,14 @@ fn spawn_events(
                 }
                 Event::FileLoaded => {
                     let media = read_media(&mpv);
+                    // A file that carries the preferred subtitles has them on
+                    // already: nobody should have to go looking for the track.
+                    let (_, subs, _, active_sub) = read_track_state(&mpv);
+                    if active_sub.is_none()
+                        && let Some(id) = preferred_sub(&subs, &slang)
+                    {
+                        let _ = mpv.set_property("sid", id);
+                    }
                     if let Ok(mut snap) = snapshot.lock() {
                         snap.playing = true;
                         snap.paused = false;
@@ -1643,11 +1696,32 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 mod tests {
     use super::{
         RECOVER_GAP, Recovery, Snapshot, back_cache, bool_value, color_value, ended_early,
-        forward_cache, number_value, parse_chapters, parse_tracks, reopen_position,
-        validate_media_url,
+        forward_cache, number_value, parse_chapters, parse_tracks, preferred_sub,
+        reopen_position, validate_media_url,
     };
     use serde_json::json;
     use std::time::Instant;
+
+    #[test]
+    fn the_embedded_subtitle_in_our_language_is_the_one_turned_on() {
+        let subs = parse_tracks(&json!([
+            { "type": "sub", "id": 3, "lang": "fre", "external": false },
+            { "type": "sub", "id": 4, "lang": "eng", "external": false },
+            { "type": "sub", "id": 9, "lang": "eng", "external": true },
+        ]))
+        .1;
+        // The English one, not the French one, and never an external file.
+        assert_eq!(preferred_sub(&subs, "eng"), Some(4));
+        assert_eq!(preferred_sub(&subs, "en-GB"), Some(4));
+        // Untagged tracks are still found by the language in their title.
+        let untagged = parse_tracks(&json!([
+            { "type": "sub", "id": 5, "title": "English SDH", "external": false },
+        ]))
+        .1;
+        assert_eq!(preferred_sub(&untagged, "eng"), Some(5));
+        // Nothing to pick when the file carries no such track.
+        assert_eq!(preferred_sub(&subs, "hin"), None);
+    }
 
     #[test]
     fn a_stall_is_reopened_a_few_times_then_left_alone() {

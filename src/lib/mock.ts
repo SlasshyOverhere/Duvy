@@ -395,10 +395,10 @@ function snapshot(): PlayerSnapshot | null {
     ended: elapsed >= player.duration,
     cutShort: false,
     error: null,
-    audioTracks: [{ id: 1, label: "English · 5.1", lang: "eng", selected: true, external: false }],
+    audioTracks: [{ id: 1, label: "English · 5.1", lang: "eng", selected: true, external: false, forced: false }],
     subTracks: [
-      { id: 1, label: "English", lang: "eng", selected: true, external: false },
-      { id: 2, label: "English SDH", lang: "eng", selected: false, external: true },
+      { id: 1, label: "English", lang: "eng", selected: true, external: false, forced: false },
+      { id: 2, label: "English SDH", lang: "eng", selected: false, external: true, forced: false },
     ],
     activeAudio: 1,
     activeSub: 1,

@@ -317,6 +317,8 @@ export interface Track {
   lang?: string | null;
   selected: boolean;
   external: boolean;
+  /** Signs and songs only, not the dialogue. */
+  forced: boolean;
   /** Channels and codec, e.g. "5.1 · Dolby Digital". */
   details?: string | null;
 }

@@ -1889,6 +1889,48 @@
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 
+/* A track the file already carries, said out loud: the stream opened. */
+.pv .pv-wait-note {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+
+/* Same words once the picture is up, out of the way of the controls. */
+.pv .pv-subnotice {
+  position: absolute;
+  left: 50%;
+  bottom: 15%;
+  z-index: 2;
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  transform: translateX(-50%);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+  pointer-events: none;
+  animation: pv-subnotice-in 0.3s ease both;
+}
+
+@keyframes pv-subnotice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv .pv-subnotice {
+    animation: none;
+  }
+}
+
 /* The mark breathes in and out while the picture is being fetched, so a wait
    reads as motion rather than a still frame that looks hung. */
 @keyframes pv-pulse {
