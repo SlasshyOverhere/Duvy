@@ -1071,6 +1071,8 @@ export function PlayerView() {
   const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // A spinner that never resolves must not trap the viewer.
+  const [stuck, setStuck] = useState(false);
   // The player generation that failed, so only a newer picture clears the card.
   const retryGen = useRef(-1);
 
@@ -1309,6 +1311,15 @@ export function PlayerView() {
   const failed = retryError ?? (dead && recoverable ? null : local?.error);
   // mpv drained its cache: the picture is frozen on the network, not on us.
   const buffering = Boolean(local?.buffering) && !paused && !failed;
+  // Past this long the source is not slow, it is gone: offer the way out.
+  useEffect(() => {
+    if (!buffering) {
+      setStuck(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setStuck(true), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [buffering]);
   // The first painted frame; every snapshot carries the flag.
   const firstFrame = local?.started === true;
   // A live stream never reports a duration, so only silence before the first
@@ -2700,6 +2711,11 @@ export function PlayerView() {
             </span>
           )}
           <span className="pv-buffering-label">Buffering</span>
+          {stuck ? (
+            <button type="button" className="pv-buffering-action" onClick={retrySource}>
+              Change source
+            </button>
+          ) : null}
         </div>
       ) : null}
 

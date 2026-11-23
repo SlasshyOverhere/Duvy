@@ -1937,6 +1937,25 @@
   white-space: nowrap;
 }
 
+/* A stall the player could not recover from still needs a way out. */
+.pv .pv-buffering-action {
+  pointer-events: auto;
+  border: 0;
+  border-radius: 8px;
+  padding: 11px 16px;
+  background: #fff;
+  color: #050505;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pv .pv-buffering-action:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
 @keyframes pv-buffering-pop {
   0%,
   100% {
