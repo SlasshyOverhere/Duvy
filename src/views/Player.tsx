@@ -1327,15 +1327,6 @@ export function PlayerView() {
   const loading = Boolean(local && !local.ended && !local.error && !firstFrame && duration <= 0);
   // Once the picture is up, the card has its say and then gets out of the way.
   const guideWanted = guide.length > 0 && !guideSeen && !loading && !failed && Boolean(local);
-  // An embedded English track that is already on: the stream opened, and the
-  // viewer is told so before the picture arrives rather than left guessing.
-  const englishSub = (local?.subTracks ?? []).some(
-    (track) =>
-      track.selected &&
-      !track.external &&
-      (/^en(g|[-_])/i.test(track.lang ?? "") || /english/i.test(track.label)),
-  );
-  const subNotice = englishSub && !failed && (loading || shownPosition < 8);
   // Dismissing starts the exit; the card unmounts when its own animation ends.
   const guideOn = guideWanted || guideLeaving;
   useEffect(() => {
@@ -1816,7 +1807,9 @@ export function PlayerView() {
       });
       void api.player
         .subtitle(variant.url, variant.lang)
-        .then(() => notify(`${variant.lang} subtitles`))
+        .then(() =>
+          notify("Subtitles loaded", "success", `Subtitles from ${variant.source ?? "Addons"} loaded`),
+        )
         .catch((error) => notify(error instanceof Error ? error.message : String(error), "error"));
     },
     [loadedSub?.url, notify, send],
@@ -2011,6 +2004,26 @@ export function PlayerView() {
     if (session?.key) void loadSubtitles(true);
   }, [session?.key]);
 
+  // The notice names the track that actually took the slot, once the picture is
+  // up, so it can never claim a subtitle that is not on screen.
+  const subTold = useRef<string | null>(null);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || subTold.current === key || !firstFrame) return;
+    if (activeSub?.selected && !activeSub.external) {
+      subTold.current = key;
+      notify(
+        "Subtitles loaded",
+        "success",
+        `Embedded ${langLabel(activeSub.lang, activeSub.label)} track`,
+      );
+      return;
+    }
+    if (!loadedSub) return;
+    subTold.current = key;
+    notify("Subtitles loaded", "success", `Subtitles from ${loadedSub.addon ?? "addons"} loaded`);
+  }, [session?.key, firstFrame, activeSub, loadedSub, notify]);
+
   // Markers are stored per episode, keyed like the session. The command still
   // names the argument `metaId`. With no hand-set markers, IntroDB supplies the
   // community timestamps, so most shows skip without any setup.
@@ -2153,6 +2166,45 @@ export function PlayerView() {
     setLoadedSub({ lang: saved.lang, url: saved.url });
     void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
   }, [session?.key, playerReady, send]);
+
+  // The addon hunt runs beside the stream, so the track it found is handed over
+  // as the file opens. mpv turns away a track until a file is live, so each
+  // refusal is retried while the stream settles.
+  const autoSub = useRef<string | null>(null);
+  useEffect(() => {
+    const key = session?.key;
+    if (!key || autoSub.current === key || !playerReady || !subs?.length) return;
+    // An explicit choice, including off, outranks any guess of ours.
+    if (rememberedSubtitle(key)) {
+      autoSub.current = key;
+      return;
+    }
+    // The file's own track is better synced than anything an addon offers.
+    if (subTracks.some((track) => track.selected && !track.external)) {
+      autoSub.current = key;
+      return;
+    }
+    const want = (settings?.subtitleLanguage ?? "").trim().toLowerCase().slice(0, 2);
+    if (!want) return;
+    const track = subs.find(
+      (entry) => (entry.lang ?? "").trim().toLowerCase().slice(0, 2) === want,
+    );
+    if (!track) return;
+    autoSub.current = key;
+    const handOver = async (attempt: number): Promise<void> => {
+      try {
+        await api.player.subtitle(track.url, track.lang);
+      } catch (error) {
+        if (attempt >= 3 || sessionRef.current?.key !== key) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 700));
+        return handOver(attempt + 1);
+      }
+      if (sessionRef.current?.key !== key) return;
+      setSelectedLang(langLabel(track.lang, track.lang));
+      setLoadedSub({ lang: track.lang, url: track.url, addon: track.addon });
+    };
+    void handOver(1).catch(() => undefined);
+  }, [session?.key, playerReady, subs, subKey, settings?.subtitleLanguage]);
 
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
@@ -2707,14 +2759,7 @@ export function PlayerView() {
           ) : (
             <h1 className="pv-wait-title">{title}</h1>
           )}
-          {subNotice ? <p className="pv-wait-note">English subtitles on</p> : null}
         </div>
-      ) : null}
-
-      {subNotice && !loading ? (
-        <p className="pv-subnotice" role="status">
-          English subtitles on
-        </p>
       ) : null}
 
       {buffering && !loading ? (

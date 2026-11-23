@@ -1198,7 +1198,12 @@ fn spawn_events(
                     // A file that carries the preferred subtitles has them on
                     // already: nobody should have to go looking for the track.
                     let (_, subs, _, active_sub) = read_track_state(&mpv);
-                    if active_sub.is_none()
+                    // An addon track the page handed over early is never better
+                    // synced than the file's own, so the file wins.
+                    let borrowed = active_sub
+                        .and_then(|id| subs.iter().find(|track| track.id == id))
+                        .is_some_and(|track| track.external);
+                    if (active_sub.is_none() || borrowed)
                         && let Some(id) = preferred_sub(&subs, &slang)
                     {
                         let _ = mpv.set_property("sid", id);

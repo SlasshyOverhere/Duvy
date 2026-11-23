@@ -55,6 +55,8 @@ interface Toast {
   id: number;
   text: string;
   tone: ToastTone;
+  /** Second line, for what the notice is about. */
+  detail?: string;
 }
 
 interface Store {
@@ -100,7 +102,7 @@ interface Store {
   checkUpdate: () => Promise<UpdateInfo | null>;
   /** Hide this version from background checks. */
   skipUpdate: (version: string) => Promise<void>;
-  notify: (text: string, tone?: ToastTone) => void;
+  notify: (text: string, tone?: ToastTone, detail?: string) => void;
   dismissToast: (id: number) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   watched: WatchedItem[];
@@ -495,11 +497,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const notify = useCallback(
-    (text: string, tone: ToastTone = "info") => {
+    (text: string, tone: ToastTone = "info", detail?: string) => {
       // Every failure the user is told about is also a failure we could fix.
       if (tone === "error") report(text, { area: "ui" });
       const id = toastId.current++;
-      setToasts((current) => [...current.slice(-4), { id, text, tone }]);
+      setToasts((current) => [...current.slice(-4), { id, text, tone, detail }]);
       toastTimers.current.set(id, window.setTimeout(() => dismissToast(id), 4200));
     },
     [dismissToast],
