@@ -206,7 +206,7 @@ function PrivacyPanel() {
   const toggle = async (value: boolean) => {
     try {
       await saveSettings({ telemetry: value });
-      notify(value ? "Crash reports are on" : "Crash reports are off");
+      notify(value ? "Telemetry and crash reports are on" : "Telemetry and crash reports are off");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
@@ -215,7 +215,7 @@ function PrivacyPanel() {
   const toggleUsage = async (value: boolean) => {
     try {
       await saveSettings({ analytics: value });
-      notify(value ? "Usage counts are on" : "Usage counts are off");
+      notify(value ? "Telemetry is on" : "Telemetry is off");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
@@ -235,49 +235,30 @@ function PrivacyPanel() {
 
   return (
     <>
-      <Card
-        title="Usage counts"
-        description="Anonymous numbers so Duvy knows how many people use it and what they play. No titles, accounts or links leave the app."
-      >
+      <section className="settings-group">
         <Row
-          title="Share usage counts"
-          description={
-            analyticsAvailable
-              ? "A random install id, the app version, how many titles and addons you have, and for each playback: the media type, the seconds watched and whether it finished. Plus the host each request went to, never the address itself. Nothing that identifies you or what you watched."
-              : "This build has no analytics endpoint, so nothing is counted."
-          }
+          title="Telemetry"
           control={
             <Toggle
               checked={usage}
               onChange={(value) => void toggleUsage(value)}
-              label="Share usage counts"
+              label="Telemetry"
               disabled={!analyticsAvailable}
             />
           }
         />
-      </Card>
-
-      <Card
-        title="Crash reports"
-        description="When something in Duvy breaks, the error can be sent to Sentry so it can be fixed in a later build."
-      >
         <Row
-          title="Send error reports"
-          description={
-            telemetryAvailable
-              ? "The error, the screen it happened on, the app version and the last few playback steps, plus a masked recording with every word and picture blanked out. Never accounts, tokens or links."
-              : "This build has no reporting endpoint, so reports stay on this machine."
-          }
+          title="Telemetry and crash report"
           control={
             <Toggle
               checked={on}
               onChange={(value) => void toggle(value)}
-              label="Send error reports"
+              label="Telemetry and crash report"
               disabled={!telemetryAvailable}
             />
           }
         />
-      </Card>
+      </section>
 
       <Card
         title="Local log"

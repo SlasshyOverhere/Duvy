@@ -693,6 +693,19 @@ run("sentinel: one owner drives fullscreen", () => {
   return out;
 });
 
+run("sentinel: privacy is two telemetry switches", () => {
+  const out: string[] = [];
+  if (!/title="Telemetry"/.test(settingsView)) out.push("the usage switch is not named Telemetry");
+  if (!/title="Telemetry and crash report"/.test(settingsView)) {
+    out.push("the crash switch is not named Telemetry and crash report");
+  }
+  if (/Share usage counts|Send error reports|Usage counts|Crash reports/.test(settingsView)) {
+    out.push("the old descriptive privacy labels are still there");
+  }
+  if (!/analytics: true/.test(rustSettings)) out.push("usage counts are not on by default");
+  return out;
+});
+
 run("sentinel: PlayerView calls its hooks before the loading return", () => {
   const out: string[] = [];
   const loading = playerView.indexOf("if (!local) {");
