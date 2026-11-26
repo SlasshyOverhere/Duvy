@@ -1794,7 +1794,9 @@ export function PlayerView() {
     }
     setSurface("subs");
     void loadSubtitles();
-    setSelectedLang(activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null);
+    setSelectedLang(
+      activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub ? langLabel(loadedSub.lang) : null,
+    );
   }, [activeSub?.lang, activeSub?.label, loadSubtitles, loadedSub?.lang, surface]);
 
   const chooseSub = useCallback(
@@ -2166,7 +2168,7 @@ export function PlayerView() {
       send("sub", null);
       return;
     }
-    setSelectedLang(saved.lang);
+    setSelectedLang(langLabel(saved.lang));
     if (saved.trackId != null) {
       setLoadedSub(null);
       send("sub", saved.trackId);
@@ -2586,7 +2588,11 @@ export function PlayerView() {
     [nextEpisode?.thumbnail, details?.background, session?.background].find(
       (url): url is string => Boolean(url) && !badArt.includes(url as string),
     ) ?? null;
-  const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
+  const activeLang = activeSub
+    ? langLabel(activeSub.lang, activeSub.label)
+    : loadedSub
+      ? langLabel(loadedSub.lang)
+      : null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
   const offSelected =

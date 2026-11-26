@@ -530,7 +530,14 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
       return [
         { id: "sub-1", url: "https://example.com/sub/en.srt", lang: "English", addon: "OpenSubtitles" },
         { id: "sub-2", url: "https://example.com/sub/en.sdh.srt", lang: "English SDH", addon: "OpenSubtitles" },
-        { id: "sub-3", url: "https://example.com/sub/es.srt", lang: "Spanish", addon: "OpenSubtitles" },
+        {
+          id: "sub-3",
+          url: "https://example.com/sub/en.cc.srt",
+          lang: "English",
+          label: "English [CC]",
+          addon: "OpenSubtitles",
+        },
+        { id: "sub-4", url: "https://example.com/sub/es.srt", lang: "Spanish", addon: "OpenSubtitles" },
       ] satisfies SubtitleTrack[];
 
     case "library_list":

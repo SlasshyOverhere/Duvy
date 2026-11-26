@@ -131,6 +131,7 @@ pub struct SubtitleTrack {
     pub id: String,
     pub url: String,
     pub lang: String,
+    pub label: String,
     pub addon: String,
 }
 

@@ -1456,6 +1456,7 @@ pub async fn subtitles(
                         id: subtitle.id,
                         url: subtitle.url,
                         lang: subtitle.lang,
+                        label: subtitle.label.unwrap_or_default(),
                         addon: addon.clone(),
                     });
                 }

@@ -134,6 +134,7 @@ export interface SubtitleTrack {
   id: string;
   url: string;
   lang: string;
+  label?: string;
   addon: string;
 }
 

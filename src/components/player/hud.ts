@@ -102,7 +102,7 @@ const LANG_NAMES: Record<string, string> = {
   ta: "Tamil", tam: "Tamil", te: "Telugu", tel: "Telugu",
   ml: "Malayalam", mal: "Malayalam", kn: "Kannada", kan: "Kannada",
   bn: "Bengali", ben: "Bengali", mr: "Marathi", mar: "Marathi",
-  pa: "Punjabi", pun: "Punjabi", ur: "Urdu", ar: "Arabic", ara: "Arabic",
+  pa: "Punjabi", pan: "Punjabi", pun: "Punjabi", ur: "Urdu", ar: "Arabic", ara: "Arabic",
   fa: "Persian", fas: "Persian", per: "Persian", es: "Spanish", spa: "Spanish",
   fr: "French", fra: "French", fre: "French", de: "German", deu: "German",
   ger: "German", it: "Italian", ita: "Italian", pt: "Portuguese", por: "Portuguese",
@@ -118,17 +118,83 @@ const LANG_NAMES: Record<string, string> = {
   rum: "Romanian", th: "Thai", tha: "Thai", vi: "Vietnamese", vie: "Vietnamese",
   id: "Indonesian", ind: "Indonesian", ms: "Malay", msa: "Malay", may: "Malay",
   fil: "Filipino", tgl: "Filipino",
+  af: "Afrikaans", afr: "Afrikaans", sq: "Albanian", sqi: "Albanian", alb: "Albanian",
+  am: "Amharic", amh: "Amharic", hy: "Armenian", hye: "Armenian", arm: "Armenian",
+  az: "Azerbaijani", aze: "Azerbaijani", be: "Belarusian", bel: "Belarusian",
+  bs: "Bosnian", bos: "Bosnian", bg: "Bulgarian", bul: "Bulgarian",
+  ca: "Catalan", cat: "Catalan", ceb: "Cebuano",
+  hr: "Croatian", hrv: "Croatian", et: "Estonian", est: "Estonian",
+  gl: "Galician", glg: "Galician", ka: "Georgian", kat: "Georgian", geo: "Georgian",
+  gu: "Gujarati", guj: "Gujarati", ht: "Haitian", hat: "Haitian",
+  ha: "Hausa", hau: "Hausa", haw: "Hawaiian",
+  is: "Icelandic", isl: "Icelandic", ice: "Icelandic", ig: "Igbo", ibo: "Igbo",
+  jw: "Javanese", jav: "Javanese", kk: "Kazakh", kaz: "Kazakh",
+  km: "Khmer", khm: "Khmer", rw: "Kinyarwanda", kin: "Kinyarwanda",
+  ky: "Kyrgyz", kir: "Kyrgyz", lo: "Lao", lao: "Lao", la: "Latin", lat: "Latin",
+  lv: "Latvian", lav: "Latvian", lt: "Lithuanian", lit: "Lithuanian",
+  lb: "Luxembourgish", ltz: "Luxembourgish", mk: "Macedonian", mkd: "Macedonian", mac: "Macedonian",
+  mg: "Malagasy", mlg: "Malagasy", ny: "Chichewa", nya: "Chichewa",
+  ne: "Nepali", nep: "Nepali", or: "Odia", ori: "Odia", ps: "Pashto", pus: "Pashto",
+  sm: "Samoan", smo: "Samoan", gd: "Scots Gaelic", gla: "Scots Gaelic",
+  sr: "Serbian", srp: "Serbian", st: "Sesotho", sot: "Sesotho",
+  sn: "Shona", sna: "Shona", sd: "Sindhi", snd: "Sindhi", si: "Sinhala", sin: "Sinhala",
+  so: "Somali", som: "Somali", su: "Sundanese", sun: "Sundanese",
+  sw: "Swahili", swa: "Swahili", tg: "Tajik", tgk: "Tajik", tt: "Tatar", tat: "Tatar",
+  tk: "Turkmen", tuk: "Turkmen", ug: "Uyghur", uig: "Uyghur",
+  uz: "Uzbek", uzb: "Uzbek", cy: "Welsh", cym: "Welsh", xh: "Xhosa", xho: "Xhosa",
+  yi: "Yiddish", yid: "Yiddish", yo: "Yoruba", yor: "Yoruba", zu: "Zulu", zul: "Zulu",
+  my: "Burmese", mya: "Burmese", bur: "Burmese",
 };
 
-export function langLabel(lang?: string | null, fallback?: string | null): string {
-  const raw = (lang ?? "").trim();
-  if (!raw) {
-    const spare = (fallback ?? "").trim();
-    return spare || "Unknown";
-  }
-  const key = raw.toLowerCase().split(/[-_]/)[0];
+for (const name of new Set(Object.values(LANG_NAMES))) {
+  LANG_NAMES[name.toLowerCase()] = name;
+}
+
+const LANG_ALIASES = Object.keys(LANG_NAMES).sort((a, b) => b.length - a.length);
+const LANG_BREAK = /[\s()\[\-_·|/.,]/;
+const QUALIFIER_TAIL = /\s+(?:sdh|cc|hi|hearing impaired|forced|foreign|commentary|director'?s commentary|dubbed|subbed|full|signs?|songs?|karaoke)$/i;
+
+function knownLanguage(value: string): string | null {
+  const key = value.trim().toLowerCase();
+  if (!key) return null;
   if (LANG_NAMES[key]) return LANG_NAMES[key];
+  for (const alias of LANG_ALIASES) {
+    if (!key.startsWith(alias)) continue;
+    const next = key.charAt(alias.length);
+    if (!next || LANG_BREAK.test(next)) return LANG_NAMES[alias] ?? null;
+  }
+  return null;
+}
+
+function qualifierBase(value: string): string | null {
+  const raw = value.trim();
+  let base = raw.replace(/\s+[-–—|:·/]\s*.+$/, "").trim();
+  base = base.replace(/\s*[\(\[\{][^)\]}]*[)\]\}]\s*$/, "").trim();
+  base = base.replace(QUALIFIER_TAIL, "").trim();
+  return base && base !== raw ? base : null;
+}
+
+/** Base language for grouping; qualifiers such as SDH stay in the variant label. */
+export function langLabel(lang?: string | null, fallback?: string | null): string {
+  const raw = (lang ?? "").trim() || (fallback ?? "").trim();
+  if (!raw) return "Unknown";
+  return knownLanguage(raw) ?? qualifierBase(raw) ?? (raw.length <= 3 ? raw.toUpperCase() : raw);
+}
+
+/** Full picker label; addon labels and qualifiers survive. */
+export function subtitleLabel(lang?: string | null, fallback?: string | null): string {
+  const raw = (lang ?? "").trim() || (fallback ?? "").trim();
+  if (!raw) return "Subtitle";
+  const exact = LANG_NAMES[raw.toLowerCase()];
+  if (exact) return exact;
+  const region = /^([a-z]{2,3})[-_][a-z0-9]{2,8}$/i.exec(raw);
+  if (region) return LANG_NAMES[region[1].toLowerCase()] ?? raw.toUpperCase();
   return raw.length <= 3 ? raw.toUpperCase() : raw;
+}
+
+function addonLabel(label?: string | null): string | null {
+  const value = (label ?? "").trim();
+  return value && !value.toLowerCase().startsWith("http") ? value : null;
 }
 
 export function readVideoMode(): VideoMode {
@@ -178,20 +244,19 @@ export function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null):
   for (const track of tracks) {
     add({
       key: `e${track.id}`,
-      label: track.label || langLabel(track.lang),
+      label: track.label || subtitleLabel(track.lang, track.label),
       source: track.external ? "Loaded file" : "Built in",
       lang: langLabel(track.lang, track.label),
       trackId: track.id,
     });
   }
   for (const sub of addons ?? []) {
-    const lang = langLabel(sub.lang);
     add({
       // A separator no id or URL can contain, so two results cannot collide.
       key: `a${sub.id}\u0000${sub.url}`,
-      label: sub.lang ? langLabel(sub.lang) : "Subtitle",
+      label: addonLabel(sub.label) ?? subtitleLabel(sub.lang, sub.label),
       source: sub.addon,
-      lang,
+      lang: langLabel(sub.lang, sub.label),
       url: sub.url,
     });
   }

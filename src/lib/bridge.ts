@@ -301,6 +301,7 @@ function readSubtitles(value: unknown): SubtitleTrack[] {
         id: text(track.id),
         url: text(track.url),
         lang: text(track.lang),
+        label: text(track.label),
         addon: text(track.addon),
       });
     })

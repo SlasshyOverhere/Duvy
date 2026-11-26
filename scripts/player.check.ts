@@ -345,6 +345,37 @@ run("buffer maths", async () => {
   return out;
 });
 
+run("subtitle variants keep their context", async () => {
+  const out: string[] = [];
+  const mod = (await import(pathToFileURL(root + "src/components/player/hud.ts").href)) as Record<
+    string,
+    unknown
+  >;
+  type Variant = { label: string };
+  type Group = { lang: string; variants: Variant[] };
+  const group = mod.groupSubtitles as (tracks: unknown[], addons: unknown[]) => Group[];
+  const language = mod.langLabel as (value: string) => string;
+  if (typeof group !== "function" || typeof language !== "function") {
+    return ["hud.ts does not export groupSubtitles and langLabel"];
+  }
+
+  const groups = group([], [
+    { id: "a", url: "a.srt", lang: "English SDH", addon: "OpenSubtitles" },
+    { id: "b", url: "b.srt", lang: "English", label: "English [CC]", addon: "OpenSubtitles" },
+  ]);
+  if (groups.length !== 1 || groups[0].lang !== "English") {
+    out.push(`groups = ${JSON.stringify(groups.map((group) => group.lang))}, want ["English"]`);
+  }
+  const labels = new Set(groups[0]?.variants.map((variant) => variant.label));
+  for (const want of ["English SDH", "English [CC]"]) {
+    if (!labels.has(want)) out.push(`missing variant label ${want}`);
+  }
+  if (language("Spanish (Latin America)") !== "Spanish") {
+    out.push("langLabel('Spanish (Latin America)') does not reduce to Spanish");
+  }
+  return out;
+});
+
 run("catch-up marking spans seasons", async () => {
   const out: string[] = [];
   const mod = (await import(pathToFileURL(root + "src/lib/format.ts").href)) as Record<string, unknown>;
