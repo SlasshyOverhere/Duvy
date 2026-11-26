@@ -1,35 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/bridge";
-import { errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
-import { applyTelemetry, report, telemetryAvailable } from "../lib/telemetry";
-import { useFocusTrap } from "./ui";
+import { applyTelemetry, report } from "../lib/telemetry";
 
-/**
- * Asks once, then honours the answer: the SDK is only live while the user has
- * agreed, and the same switch lives in Settings, Privacy.
- */
+/** Applies the telemetry choice and forwards Rust panics. */
 export function CrashReporting() {
-  const { settings, appInfo, saveSettings } = useApp();
-  const [error, setError] = useState<string | null>(null);
-  const choice = settings?.telemetry ?? null;
-  const trap = useFocusTrap<HTMLDivElement>(
-    Boolean(telemetryAvailable && settings?.onboarded && choice === null),
-  );
-
-  const decide = (telemetry: boolean) => {
-    setError(null);
-    // A failed save keeps the dialog open, so the answer is never lost silently.
-    void saveSettings({ telemetry }).catch((e) => setError(errorMessage(e)));
-  };
+  const { settings, appInfo } = useApp();
+  const enabled = settings ? settings.analytics && settings.telemetry !== false : false;
 
   useEffect(() => {
     if (!appInfo) return;
-    applyTelemetry(choice === true, `duvy@${appInfo.version}`);
-  }, [choice, appInfo]);
+    applyTelemetry(enabled, `duvy@${appInfo.version}`);
+  }, [enabled, appInfo]);
 
-  // A panic in the Rust side aborts the process, so the shell hands it over.
   useEffect(() => {
     if (!isTauri()) return;
     let stop: (() => void) | undefined;
@@ -42,7 +26,7 @@ export function CrashReporting() {
         else stop = unlisten;
       })
       .catch(() => {
-        // No event bridge: the panic is still in the local log.
+        // Still in the local log.
       });
     return () => {
       disposed = true;
@@ -50,52 +34,5 @@ export function CrashReporting() {
     };
   }, []);
 
-  if (!telemetryAvailable || !settings?.onboarded || choice !== null) return null;
-
-  return (
-    <div className="consent">
-      <div
-        ref={trap}
-        className="consent-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="consent-title"
-      >
-        <h2 id="consent-title">Send crash reports?</h2>
-        <p>
-          When something in Duvy breaks, the error can go to Sentry so it can be fixed later. A
-          report carries the error, the screen it happened on, the app version and the last few
-          playback steps: title, episode, position. It can also include a short
-          recording of the window with every word and picture blanked out, and how long
-          each screen took.
-        </p>
-        <p className="consent-fine">
-          No accounts, tokens or file paths, and links are cut down to the host. Off until you say
-          yes, and you can change it anytime in Settings, Privacy.
-        </p>
-        <div className="consent-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            autoFocus
-            onClick={() => decide(true)}
-          >
-            Send reports
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => decide(false)}
-          >
-            No thanks
-          </button>
-        </div>
-        {error ? (
-          <p className="form-error" role="alert" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
+  return null;
 }

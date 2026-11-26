@@ -18,6 +18,7 @@ const playerView = read("src/views/Player.tsx");
 const playerHud = read("src/components/player/hud.ts");
 const drawer = read("src/components/StreamDrawer.tsx");
 const settingsView = read("src/views/Settings.tsx");
+const onboardingView = read("src/views/Onboarding.tsx");
 const rustSettings = read("src-tauri/src/settings.rs");
 const capability = read("src-tauri/capabilities/default.json");
 const debrid = read("src/views/Debrid.tsx");
@@ -693,16 +694,19 @@ run("sentinel: one owner drives fullscreen", () => {
   return out;
 });
 
-run("sentinel: privacy is two telemetry switches", () => {
+run("sentinel: privacy is one telemetry and crash report switch", () => {
   const out: string[] = [];
-  if (!/title="Telemetry"/.test(settingsView)) out.push("the usage switch is not named Telemetry");
-  if (!/title="Telemetry and crash report"/.test(settingsView)) {
-    out.push("the crash switch is not named Telemetry and crash report");
-  }
+  const labels = settingsView.match(/title="Telemetry and crash report"/g) ?? [];
+  if (labels.length !== 1) out.push(`${labels.length} telemetry and crash report switches, want 1`);
+  if (/title="Telemetry"/.test(settingsView)) out.push("a second telemetry switch is still there");
   if (/Share usage counts|Send error reports|Usage counts|Crash reports/.test(settingsView)) {
     out.push("the old descriptive privacy labels are still there");
   }
   if (!/analytics: true/.test(rustSettings)) out.push("usage counts are not on by default");
+  if (!/telemetry: Some\(true\)/.test(rustSettings)) out.push("crash reporting is not on by default");
+  if (/anonymous launches|counts anonymous/i.test(onboardingView)) {
+    out.push("the onboarding still explains telemetry");
+  }
   return out;
 });
 

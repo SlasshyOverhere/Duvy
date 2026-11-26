@@ -125,7 +125,7 @@ let settings: Settings = {
   ignoredUpdateVersion: "",
   defaultsSeeded: true,
   onboarded: true,
-  telemetry: null,
+  telemetry: true,
   analytics: true,
 };
 

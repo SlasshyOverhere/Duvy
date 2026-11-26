@@ -1,4 +1,4 @@
-/** Sentry is opt-in and heavy; the SDK loads only once the user agrees. */
+/** Sentry is heavy; the SDK loads only when telemetry is on. */
 type SentryModule = typeof import("@sentry/react");
 
 let loaded: SentryModule | null = null;

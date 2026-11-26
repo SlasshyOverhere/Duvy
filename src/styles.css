@@ -6109,14 +6109,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--muted);
 }
 
-.ob-fine {
-  margin: 14px 0 0;
-  max-width: 52ch;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--faint);
-}
-
 .ob-providers {
   display: flex;
   flex-direction: column;
@@ -6325,12 +6317,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.55;
-}
-
-.consent-card .consent-fine {
-  margin-bottom: 0;
-  color: var(--faint);
-  font-size: 12.5px;
 }
 
 .consent-actions {

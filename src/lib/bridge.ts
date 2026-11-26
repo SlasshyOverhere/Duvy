@@ -389,7 +389,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
       return mock(command, args) as Promise<T>;
     }
     // One span per backend call, so a slow screen shows which command stalled.
-    // Tracing is only live once the reporter is loaded (opt-in), so before that
+    // Tracing is only live once the reporter is loaded, so before that
     // the call goes straight to the bridge.
     const Sentry = sentry();
     const raw = Sentry

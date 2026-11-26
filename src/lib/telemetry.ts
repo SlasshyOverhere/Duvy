@@ -11,8 +11,8 @@ import {
 } from "./errors";
 
 /**
- * Crash reporting is opt-in and only exists in a release build that was built
- * with a DSN: a local build has no endpoint, so nothing is ever sent.
+ * Crash reporting is on by default and only exists in a release build with a
+ * DSN: a local build has no endpoint, so nothing is ever sent.
  */
 const DSN = (import.meta.env.VITE_SENTRY_DSN ?? "").trim();
 
@@ -95,7 +95,7 @@ export { note };
 type ReportLevel = "error" | "fatal" | "warning" | "info";
 
 /**
- * Record a failure for the next fix session. A no-op unless the user opted in,
+ * Record a failure for the next fix session. A no-op unless telemetry is on,
  * unless the build has no endpoint, or unless this exact failure was reported
  * already. `withLog` attaches the player's own timing log, which is the only
  * record when mpv fails without throwing.
