@@ -3568,21 +3568,6 @@ button.pill:hover {
   color: #ffffff;
 }
 
-.stream-more {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  margin-right: -4px;
-  color: var(--faint);
-  opacity: 0;
-  transition: opacity 0.14s var(--ease);
-}
-
-.stream-row:hover .stream-more,
-.stream-more:focus-visible {
-  opacity: 0.7;
-}
-
 .drawer-foot {
   padding: 12px 18px;
   border-top: 1px solid var(--glass-edge-soft);

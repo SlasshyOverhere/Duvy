@@ -570,7 +570,21 @@ export function StreamDrawer({
                         .join(", ");
                       return (
                         <li key={`${group.key}-${stream.infoHash ?? stream.url ?? index}-${index}`}>
-                          <div className="stream-row">
+                          <div
+                            className="stream-row"
+                            onContextMenu={(event) => {
+                              // Right-click anywhere on the row for link actions.
+                              if (!url) return;
+                              event.preventDefault();
+                              const box = event.currentTarget.getBoundingClientRect();
+                              setMenu({
+                                x: event.clientX || box.left + 24,
+                                y: event.clientY || box.top + box.height / 2,
+                                title: label,
+                                url,
+                              });
+                            }}
+                          >
                             <button
                               type="button"
                               className="stream-play"
@@ -630,28 +644,6 @@ export function StreamDrawer({
                                 <Icon name="play" size={14} />
                               </span>
                             </button>
-                            {url ? (
-                              <button
-                                type="button"
-                                className="icon-btn stream-more"
-                                aria-label="Stream link actions"
-                                aria-haspopup="menu"
-                                title="Stream link actions"
-                                onClick={(event) => {
-                                  // A keyboard press reports 0,0: anchor the menu
-                                  // to the button instead of the corner.
-                                  const box = event.currentTarget.getBoundingClientRect();
-                                  setMenu({
-                                    x: event.clientX || box.left,
-                                    y: event.clientY || box.bottom,
-                                    title: label,
-                                    url,
-                                  });
-                                }}
-                              >
-                                <Icon name="more" size={15} />
-                              </button>
-                            ) : null}
                           </div>
                         </li>
                       );
