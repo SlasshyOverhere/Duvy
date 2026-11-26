@@ -3538,11 +3538,6 @@ button.pill:hover {
   text-transform: uppercase;
 }
 
-.stream-cached {
-  color: var(--good);
-  font-weight: 600;
-}
-
 .stream-langs {
   display: inline-flex;
   align-items: center;

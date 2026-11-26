@@ -556,7 +556,6 @@ export function StreamDrawer({
                         stream.size ||
                           stream.seeders != null ||
                           stream.badges.length ||
-                          stream.cached ||
                           audio,
                       );
                       const playLabel = [
@@ -618,7 +617,6 @@ export function StreamDrawer({
                                         {badge}
                                       </span>
                                     ))}
-                                    {stream.cached ? <span className="stream-cached">Cached</span> : null}
                                     {audio ? (
                                       <span className="stream-langs">
                                         <Icon name="languages" size={11} />
