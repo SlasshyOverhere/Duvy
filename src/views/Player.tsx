@@ -1849,12 +1849,13 @@ export function PlayerView() {
       setLoadedSub(choice);
       void queueSub(() => api.player.subtitle(url, title))
         .then(() => {
-          if (seq !== subSeq.current) return;
+          if (!alive.current || seq !== subSeq.current) return;
           rememberSubtitle(sessionRef.current?.key, choice);
           notify("Subtitles loaded", "success", `Subtitles from ${variant.source ?? "Addons"} loaded`);
         })
         .catch((error) => {
-          if (seq !== subSeq.current) return;
+          // A subtitle that lost its player to a close is not a failure to show.
+          if (!alive.current || seq !== subSeq.current) return;
           setLoadedSub(previous);
           setSelectedLang(
             activeSub ? langLabel(activeSub.lang, activeSub.label) : previous ? previous.lang : null,
@@ -2467,22 +2468,28 @@ export function PlayerView() {
       notify("Picking a subtitle file needs the desktop app", "error");
       return;
     }
+    const session = sessionRef.current?.key ?? null;
+    let seq = subSeq.current;
     try {
       const selected = await open({
         multiple: false,
         filters: [{ name: "Subtitles", extensions: ["srt", "ass", "ssa", "vtt", "sub"] }],
       });
       if (typeof selected !== "string") return;
-      manualSub.current = sessionRef.current?.key ?? null;
+      if (!alive.current || session !== (sessionRef.current?.key ?? null)) return;
+      manualSub.current = session;
       const name = selected.split(/[\\/]/).pop() ?? "Subtitle";
-      const seq = ++subSeq.current;
+      seq = ++subSeq.current;
       await queueSub(() => api.player.subtitle(selected, name));
-      if (seq === subSeq.current) {
-        setLoadedSub(null);
-        setSelectedLang(null);
-      }
+      if (!alive.current || seq !== subSeq.current) return;
+      if (session !== (sessionRef.current?.key ?? null)) return;
+      setLoadedSub(null);
+      setSelectedLang(null);
       notify(`Loaded ${name}`, "success");
     } catch (e) {
+      // The picker can outlive the screen, and its failure is then expected.
+      if (!alive.current || seq !== subSeq.current) return;
+      if (session !== (sessionRef.current?.key ?? null)) return;
       notify(e instanceof Error ? e.message : String(e), "error");
     }
   }, [notify, queueSub]);

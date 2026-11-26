@@ -1196,6 +1196,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Send control, but remember it: a control that lands nowhere is a bug. */
   const playerControl = useCallback((kind: string, value?: number | string | boolean | null) => {
+    // A control aimed at a player the user just stopped has no target: dropping
+    // it is expected, not a dropped-control failure.
+    if (stopRequested.current) return Promise.resolve();
     const snap = playerRef.current;
     if (snap && WATCHED_CONTROLS.has(kind)) {
       watchAction(watch.current, kind, toSample(snap), typeof value === "number" ? value : 0);

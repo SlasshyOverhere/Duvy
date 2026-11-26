@@ -948,10 +948,15 @@ impl Player {
 
     /// Commands are thread-safe on the handle, so no lock stands between the UI
     /// and a player that is already stopping.
-    pub fn send_action(mpv: &Mpv, action: &str, value: Option<Value>) -> Result<(), String> {
-        fn apply(result: libmpv2::Result<()>) -> Result<(), String> {
-            result.map_err(|error| format!("mpv rejected that: {error}"))
-        }
+    pub fn send_action(
+        mpv: &Mpv,
+        generation: u64,
+        action: &str,
+        value: Option<Value>,
+    ) -> Result<(), String> {
+        let apply = |result: libmpv2::Result<()>| {
+            result.map_err(|error| format!("mpv rejected {action} (player {generation}): {error}"))
+        };
         match action {
             "toggle-pause" => apply(mpv.command("cycle", &["pause"])),
             "pause" => {

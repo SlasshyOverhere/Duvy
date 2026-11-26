@@ -1698,15 +1698,15 @@ pub async fn player_control(
     }
     // Never hold the player slot across a command: libmpv can wedge on a dying
     // source, and that blocked the next play for good.
-    let (handle, failed) = {
+    let (handle, failed, generation) = {
         let guard = crate::player_slot(&state);
         let player = guard.as_ref().ok_or("Nothing is playing")?;
-        (player.handle(), player.failed())
+        (player.handle(), player.failed(), player.generation())
     };
     if failed {
         return Err("Playback has stopped. Choose another source.".into());
     }
-    Player::send_action(&handle, &action, value)
+    Player::send_action(&handle, generation, &action, value)
 }
 
 #[tauri::command]
@@ -1740,16 +1740,17 @@ pub async fn player_subtitle(
 ) -> Result<(), String> {
     // The picker hands over a local path, so both paths are accepted.
     player::validate_media_url(&url)?;
-    let handle = {
+    let (handle, generation) = {
         let guard = crate::player_slot(&state);
         let player = guard.as_ref().ok_or("Nothing is playing")?;
         if player.failed() {
             return Err("Playback has stopped. Choose another source.".into());
         }
-        player.handle()
+        (player.handle(), player.generation())
     };
     Player::send_action(
         &handle,
+        generation,
         "sub-add",
         Some(json!({ "url": url, "label": label.unwrap_or_else(|| "Subtitle".into()) })),
     )

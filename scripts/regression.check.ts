@@ -693,6 +693,22 @@ run("sentinel: one owner drives fullscreen", () => {
   return out;
 });
 
+run("sentinel: player errors name the command and ignore teardown", () => {
+  const out: string[] = [];
+  const send = rustFn(player, "send_action");
+  if (!/generation: u64/.test(send)) out.push("send_action does not take the player generation");
+  if (!/mpv rejected \{action\} \(player \{generation\}\)/.test(send)) {
+    out.push("an mpv rejection does not name the action and player");
+  }
+  if (/rejected that/.test(player)) out.push("the old context-free mpv rejection is still there");
+  if (!/stopRequested\.current\) return Promise\.resolve\(\)/.test(store)) {
+    out.push("playerControl still sends after an intentional stop");
+  }
+  const guarded = playerView.match(/!alive\.current \|\| seq !== subSeq\.current/g) ?? [];
+  if (guarded.length < 3) out.push("a subtitle failure after close can still reach notify()");
+  return out;
+});
+
 run("sentinel: no native confirmation needs a missing dialog grant", () => {
   const out: string[] = [];
   if (!capability.includes('"dialog:allow-message"')) {
