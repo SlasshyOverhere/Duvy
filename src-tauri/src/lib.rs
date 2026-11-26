@@ -423,7 +423,8 @@ pub fn set_fullscreen(host: isize, on: bool) -> bool {
                 Err(poisoned) => poisoned.into_inner().take(),
             };
             let Some((saved_hwnd, style, ex_style, brush, placement)) = saved else {
-                return false;
+                // Already windowed: a second exit is a no-op, not a failure.
+                return true;
             };
             if IsWindow(saved_hwnd as HWND) == 0 {
                 return false;

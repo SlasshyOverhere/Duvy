@@ -7,7 +7,6 @@ import {
   useReducedMotion,
   useSpring,
 } from "motion/react";
-import { analyticsAvailable } from "../lib/analytics";
 import { api } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { errorMessage } from "../lib/format";
@@ -256,13 +255,6 @@ export function Onboarding({
                     Get started
                   </Button>
                 </motion.div>
-
-                {analyticsAvailable ? (
-                  <motion.p className="ob-fine" {...rise(0.88)}>
-                    Duvy counts anonymous launches and playbacks to see how it is used: no titles,
-                    accounts or links. Turn it off anytime in Settings, Privacy.
-                  </motion.p>
-                ) : null}
               </>
             ) : (
               <>

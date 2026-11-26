@@ -2,7 +2,7 @@
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readPayload, validUpdate } from "../src/lib/bridge.ts";
+import { readPayload, toCommandError, validUpdate } from "../src/lib/bridge.ts";
 import { findSkip } from "../src/components/player/skip.ts";
 import { airsLabel } from "../src/lib/format.ts";
 
@@ -18,7 +18,11 @@ const playerView = read("src/views/Player.tsx");
 const playerHud = read("src/components/player/hud.ts");
 const drawer = read("src/components/StreamDrawer.tsx");
 const settingsView = read("src/views/Settings.tsx");
+const onboardingView = read("src/views/Onboarding.tsx");
 const rustSettings = read("src-tauri/src/settings.rs");
+const capability = read("src-tauri/capabilities/default.json");
+const debrid = read("src/views/Debrid.tsx");
+const app = read("src/App.tsx");
 
 /** Slice a top-level Rust function by balancing braces past strings and comments. */
 function rustFn(src: string, name: string): string {
@@ -585,6 +589,166 @@ run("sentinel: a disabled addon is not used", () => {
       out.push(`commands.rs: ${name}() asks a switched-off addon`);
     }
   }
+  return out;
+});
+
+run("a rejected command is an Error", () => {
+  const out: string[] = [];
+  const text = "The window could not go fullscreen";
+  const error = toCommandError("window_fullscreen", text) as Error & {
+    command?: string;
+    cause?: unknown;
+  };
+  if (!(error instanceof Error)) out.push("a string rejection stayed a string");
+  if (error.name !== "CommandError") out.push(`name is ${error.name}, want CommandError`);
+  if (error.message !== text) out.push("the rejection text was lost");
+  if (error.command !== "window_fullscreen") out.push("the command name was lost");
+  if (error.cause !== text) out.push("the original rejection is not kept as the cause");
+
+  const original = new Error("already an Error");
+  const same = toCommandError("player_control", original) as Error & { command?: string };
+  if (same !== original) out.push("a real Error was wrapped and its stack lost");
+  if (same.command !== "player_control") out.push("a real Error was not tagged");
+
+  const blank = toCommandError("player_state", "");
+  if (!blank.message.includes("player_state")) out.push("an empty rejection names no command");
+  return out;
+});
+
+run("fullscreen: a close after exit sends one request", async () => {
+  const { createFullscreenController } = (await import(
+    pathToFileURL(root + "src/lib/fullscreen.ts").href
+  )) as unknown as typeof import("../src/lib/fullscreen.ts");
+  const calls: boolean[] = [];
+  const controller = createFullscreenController(
+    async (on) => {
+      calls.push(on);
+    },
+    () => undefined,
+  );
+  controller.sync(true);
+  const exit = controller.request(false);
+  // The close button lands before the exit has answered; it must not toggle.
+  const close = controller.request(false);
+  const settled = await Promise.all([exit, close]);
+  const out: string[] = [];
+  if (calls.join() !== "false") out.push(`window_fullscreen sent [${calls.join()}], want [false]`);
+  if (settled.some((ok) => !ok)) out.push("a request that was already underway reported failure");
+  if (controller.current) out.push("the controller still reports fullscreen after the exit");
+  return out;
+});
+
+run("fullscreen: requests are serialized and failures keep state", async () => {
+  const { createFullscreenController } = (await import(
+    pathToFileURL(root + "src/lib/fullscreen.ts").href
+  )) as unknown as typeof import("../src/lib/fullscreen.ts");
+  const calls: boolean[] = [];
+  let started!: () => void;
+  const start = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = createFullscreenController(
+    async (on) => {
+      calls.push(on);
+      if (on) {
+        started();
+        await gate;
+        throw new Error("The window could not go fullscreen");
+      }
+    },
+    () => undefined,
+  );
+  const enter = controller.request(true);
+  await start;
+  const exit = controller.request(false);
+  release();
+  const [entered, exited] = await Promise.all([enter, exit]);
+  const out: string[] = [];
+  if (entered !== false) out.push("a refused enter reported success");
+  if (exited !== true) out.push("a no-op exit reported failure");
+  if (calls.join() !== "true") out.push(`calls [${calls.join()}], want [true] only`);
+  if (controller.current) out.push("a refused enter changed the known state");
+  return out;
+});
+
+run("sentinel: one owner drives fullscreen", () => {
+  const out: string[] = [];
+  const titleBar = read("src/components/TitleBar.tsx");
+  if (/api\.window\.fullscreen/.test(playerView)) {
+    out.push("Player.tsx still calls api.window.fullscreen directly");
+  }
+  if (/api\.window\.fullscreen/.test(titleBar)) {
+    out.push("TitleBar.tsx still calls api.window.fullscreen directly");
+  }
+  if (!/requestFullscreen/.test(playerView) || !/requestFullscreen/.test(titleBar)) {
+    out.push("a fullscreen control bypasses the shared controller");
+  }
+  const lib = read("src-tauri/src/lib.rs");
+  if (!/Already windowed/.test(rustFn(lib, "set_fullscreen"))) {
+    out.push("set_fullscreen does not treat a second exit as success");
+  }
+  return out;
+});
+
+run("sentinel: privacy is one telemetry and crash report switch", () => {
+  const out: string[] = [];
+  const labels = settingsView.match(/title="Telemetry and crash report"/g) ?? [];
+  if (labels.length !== 1) out.push(`${labels.length} telemetry and crash report switches, want 1`);
+  if (/title="Telemetry"/.test(settingsView)) out.push("a second telemetry switch is still there");
+  if (/Share usage counts|Send error reports|Usage counts|Crash reports/.test(settingsView)) {
+    out.push("the old descriptive privacy labels are still there");
+  }
+  if (!/analytics: true/.test(rustSettings)) out.push("usage counts are not on by default");
+  if (!/telemetry: Some\(true\)/.test(rustSettings)) out.push("crash reporting is not on by default");
+  if (/anonymous launches|counts anonymous/i.test(onboardingView)) {
+    out.push("the onboarding still explains telemetry");
+  }
+  return out;
+});
+
+run("sentinel: PlayerView calls its hooks before the loading return", () => {
+  const out: string[] = [];
+  const loading = playerView.indexOf("if (!local) {");
+  const hook = playerView.indexOf("const endsAt = useMemo");
+  if (loading < 0 || hook < 0) {
+    out.push("the loading return or the endsAt hook is gone; re-check PlayerView by hand");
+  } else if (hook > loading) {
+    out.push("a hook runs after the loading return, so the first snapshot reorders hooks");
+  }
+  return out;
+});
+
+run("sentinel: player errors name the command and ignore teardown", () => {
+  const out: string[] = [];
+  const send = rustFn(player, "send_action");
+  if (!/generation: u64/.test(send)) out.push("send_action does not take the player generation");
+  if (!/mpv rejected \{action\} \(player \{generation\}\)/.test(send)) {
+    out.push("an mpv rejection does not name the action and player");
+  }
+  if (/rejected that/.test(player)) out.push("the old context-free mpv rejection is still there");
+  if (!/stopRequested\.current\) return Promise\.resolve\(\)/.test(store)) {
+    out.push("playerControl still sends after an intentional stop");
+  }
+  const guarded = playerView.match(/!alive\.current \|\| seq !== subSeq\.current/g) ?? [];
+  if (guarded.length < 3) out.push("a subtitle failure after close can still reach notify()");
+  return out;
+});
+
+run("sentinel: no native confirmation needs a missing dialog grant", () => {
+  const out: string[] = [];
+  if (!capability.includes('"dialog:allow-message"')) {
+    out.push("capabilities/default.json does not grant dialog:allow-message");
+  }
+  if (/window\.(confirm|alert|prompt)\s*\(/.test(debrid)) {
+    out.push("Debrid still asks through the native dialog");
+  }
+  if (!/confirm\(\{/.test(debrid)) out.push("Debrid does not use the in-app confirmation");
+  if (!/useApp\(\)/.test(debrid)) out.push("Debrid cannot reach the in-app confirmation");
+  if (!/<ConfirmHost\s*\/>/.test(app)) out.push("App does not mount the confirmation host");
   return out;
 });
 

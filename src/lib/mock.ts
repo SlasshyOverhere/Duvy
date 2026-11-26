@@ -125,7 +125,7 @@ let settings: Settings = {
   ignoredUpdateVersion: "",
   defaultsSeeded: true,
   onboarded: true,
-  telemetry: null,
+  telemetry: true,
   analytics: true,
 };
 
@@ -520,14 +520,24 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     case "streams": {
       const rows = streamsFor(String(payload.id));
       const only = payload.addon;
-      return typeof only === "string" ? rows.filter((row) => row.addon === only) : rows;
+      if (typeof only !== "string") return rows;
+      // The UI filters by addon URL; fixture rows are labelled by addon name.
+      const addon = addons.find((entry) => entry.url === only);
+      return rows.filter((row) => row.addon === (addon?.name ?? only));
     }
 
     case "subtitles":
       return [
         { id: "sub-1", url: "https://example.com/sub/en.srt", lang: "English", addon: "OpenSubtitles" },
         { id: "sub-2", url: "https://example.com/sub/en.sdh.srt", lang: "English SDH", addon: "OpenSubtitles" },
-        { id: "sub-3", url: "https://example.com/sub/es.srt", lang: "Spanish", addon: "OpenSubtitles" },
+        {
+          id: "sub-3",
+          url: "https://example.com/sub/en.cc.srt",
+          lang: "English",
+          label: "English [CC]",
+          addon: "OpenSubtitles",
+        },
+        { id: "sub-4", url: "https://example.com/sub/es.srt", lang: "Spanish", addon: "OpenSubtitles" },
       ] satisfies SubtitleTrack[];
 
     case "library_list":

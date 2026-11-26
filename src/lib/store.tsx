@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauri, validUpdate } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
+import { createFullscreenController } from "./fullscreen";
 import { wentBackwards } from "./errors";
 import {
   action as watchAction,
@@ -59,6 +60,18 @@ interface Toast {
   detail?: string;
 }
 
+export interface ConfirmOptions {
+  title: string;
+  body?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+}
+
+export interface ConfirmRequest extends ConfirmOptions {
+  id: number;
+}
+
 interface Store {
   booting: boolean;
   bootError: string | null;
@@ -75,7 +88,9 @@ interface Store {
   route: Route;
   /** One fullscreen state for the window, shared by the shell and the player. */
   fullscreen: boolean;
+  /** Adopt a browser fullscreen change; window changes go through requestFullscreen. */
   setFullscreen: (on: boolean) => void;
+  requestFullscreen: (on: boolean) => Promise<boolean>;
   /** Non-null from the click until the source is resolved; the player opens at once. */
   starting: StartingArt | null;
   cancelStart: () => void;
@@ -94,7 +109,7 @@ interface Store {
   /** Intentional stop, so the close it causes is not reported as a crash. */
   stopPlayer: () => void;
   /** A player control, watched so one that lands nowhere can be reported. */
-  playerControl: (kind: string, value?: number | string | boolean | null) => void;
+  playerControl: (kind: string, value?: number | string | boolean | null) => Promise<unknown>;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
   /** The release the last check found, if any. */
@@ -104,6 +119,10 @@ interface Store {
   skipUpdate: (version: string) => Promise<void>;
   notify: (text: string, tone?: ToastTone, detail?: string) => void;
   dismissToast: (id: number) => void;
+  /** An in-app confirmation, since the native dialog needs an ACL grant. */
+  confirm: (options: ConfirmOptions | string) => Promise<boolean>;
+  confirmRequest: ConfirmRequest | null;
+  settleConfirm: (ok: boolean) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   watched: WatchedItem[];
   /** Every marked key, per episode. `watched` keeps one row per title. */
@@ -368,6 +387,7 @@ interface SubtitleMemory {
   trackId?: number;
   url?: string;
   label?: string;
+  addon?: string;
   off?: boolean;
 }
 
@@ -430,7 +450,7 @@ export function noSourceError(options: StreamOption[]): Error {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>({ name: "home" });
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreenRaw] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -445,9 +465,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const toastId = useRef(1);
   const toastTimers = useRef(new Map<number, number>());
+  const confirmId = useRef(0);
+  const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
   const depth = useRef(0);
   const opening = useRef(false);
   // The newest player's generation; events from a killed one are ignored.
@@ -466,6 +489,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
+  // One owner for the window's fullscreen changes: the shell and the player
+  // both ask here, so a close cannot race a second toggle.
+  const fullscreenController = useRef<ReturnType<typeof createFullscreenController> | null>(null);
+  if (!fullscreenController.current) {
+    fullscreenController.current = createFullscreenController(
+      (on) => api.window.fullscreen(on),
+      (on) => setFullscreenRaw(on),
+      (error, on) =>
+        report(error, {
+          area: "window",
+          level: "warning",
+          extra: { command: "window_fullscreen", on },
+        }),
+    );
+  }
   // Watchdog for an open that never paints, which is otherwise invisible.
   const openStartedAt = useRef(0);
   const openedAt = useRef(0);
@@ -507,6 +545,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [dismissToast],
   );
 
+  const settleConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolver.current;
+    confirmResolver.current = null;
+    setConfirmRequest(null);
+    resolve?.(ok);
+  }, []);
+
+  const confirm = useCallback((options: ConfirmOptions | string) => {
+    // One question at a time: a newer one cancels the older.
+    confirmResolver.current?.(false);
+    const request = typeof options === "string" ? { title: options } : options;
+    return new Promise<boolean>((resolve) => {
+      confirmResolver.current = resolve;
+      setConfirmRequest({ ...request, id: ++confirmId.current });
+    });
+  }, []);
+
+  const setFullscreen = useCallback((on: boolean) => {
+    fullscreenController.current?.sync(on);
+    setFullscreenRaw(on);
+  }, []);
+
+  const requestFullscreen = useCallback((on: boolean) => {
+    const controller = fullscreenController.current;
+    return controller ? controller.request(on) : Promise.resolve(false);
+  }, []);
+
   // A pending dismiss must not outlive the provider (or fire into a new toast).
   useEffect(() => {
     const timers = toastTimers.current;
@@ -526,17 +591,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // this runs once and never takes the choice back.
   useEffect(() => {
     if (!isTauri()) return;
-    let alive = true;
-    void api.window
-      .fullscreen(true)
-      .then(() => {
-        if (alive) setFullscreen(true);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void requestFullscreen(true);
+  }, [requestFullscreen]);
 
   const clearFrameWatchdog = useCallback(() => {
     if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
@@ -1140,12 +1196,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Send control, but remember it: a control that lands nowhere is a bug. */
   const playerControl = useCallback((kind: string, value?: number | string | boolean | null) => {
+    // A control aimed at a player the user just stopped has no target: dropping
+    // it is expected, not a dropped-control failure.
+    if (stopRequested.current) return Promise.resolve();
     const snap = playerRef.current;
     if (snap && WATCHED_CONTROLS.has(kind)) {
       watchAction(watch.current, kind, toSample(snap), typeof value === "number" ? value : 0);
       note("control", { kind, value: typeof value === "number" ? value : null });
     }
-    void api.player.control(kind, value).catch(() => undefined);
+    return api.player.control(kind, value).catch(() => undefined);
   }, []);
 
   const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);
@@ -1614,6 +1673,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       fullscreen,
       setFullscreen,
+      requestFullscreen,
       starting,
       cancelStart,
       navigate,
@@ -1634,6 +1694,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       skipUpdate,
       notify,
       dismissToast,
+      confirm,
+      confirmRequest,
+      settleConfirm,
       progressFor,
       watched,
       watchedKeys,
@@ -1659,6 +1722,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       fullscreen,
       setFullscreen,
+      requestFullscreen,
       starting,
       cancelStart,
       navigate,
@@ -1679,6 +1743,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       skipUpdate,
       notify,
       dismissToast,
+      confirm,
+      confirmRequest,
+      settleConfirm,
       progressFor,
       watched,
       watchedKeys,

@@ -301,6 +301,7 @@ function readSubtitles(value: unknown): SubtitleTrack[] {
         id: text(track.id),
         url: text(track.url),
         lang: text(track.lang),
+        label: text(track.label),
         addon: text(track.addon),
       });
     })
@@ -364,20 +365,40 @@ export async function openExternal(url: string): Promise<void> {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (PREVIEW && !isTauri()) {
-    // Loaded at runtime only: the desktop app never imports these fixtures.
-    const { mock } = await import("./mock");
-    return mock(command, args) as Promise<T>;
+/** Every rejected command reaches callers as an Error, never a bare string. */
+export function toCommandError(command: string, reason: unknown): Error {
+  if (reason instanceof Error) {
+    const known = reason as Error & { command?: string };
+    known.command ??= command;
+    return known;
   }
-  // One span per backend call, so a slow screen shows which command stalled.
-  // Tracing is only live once the reporter is loaded (opt-in), so before that
-  // the call goes straight to the bridge.
-  const Sentry = sentry();
-  const raw = Sentry
-    ? await Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<unknown>(command, args))
-    : await invoke<unknown>(command, args);
-  return readPayload(command, raw) as T;
+  const message =
+    typeof reason === "string" && reason.trim() ? reason : `Command ${command} failed`;
+  const error = new Error(message) as Error & { command?: string; cause?: unknown };
+  error.name = "CommandError";
+  error.command = command;
+  error.cause = reason;
+  return error;
+}
+
+async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    if (PREVIEW && !isTauri()) {
+      // Loaded at runtime only: the desktop app never imports these fixtures.
+      const { mock } = await import("./mock");
+      return mock(command, args) as Promise<T>;
+    }
+    // One span per backend call, so a slow screen shows which command stalled.
+    // Tracing is only live once the reporter is loaded, so before that
+    // the call goes straight to the bridge.
+    const Sentry = sentry();
+    const raw = Sentry
+      ? await Sentry.startSpan({ name: command, op: "ipc" }, () => invoke<unknown>(command, args))
+      : await invoke<unknown>(command, args);
+    return readPayload(command, raw) as T;
+  } catch (error) {
+    throw toCommandError(command, error);
+  }
 }
 
 export const api = {

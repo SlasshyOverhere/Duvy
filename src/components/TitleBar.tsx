@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, isTauri } from "../lib/bridge";
+import { isTauri } from "../lib/bridge";
 import { useApp } from "../lib/store";
 import { Icon } from "./ui";
 
@@ -55,7 +55,7 @@ export function ResizeEdges() {
  * `player` drops fullscreen, which the player already owns.
  */
 export function WindowControls({ variant = "app" }: { variant?: "app" | "player" }) {
-  const { fullscreen, setFullscreen } = useApp();
+  const { fullscreen, requestFullscreen } = useApp();
   const [maximized, setMaximized] = useState(false);
   const shellControls = variant === "app";
 
@@ -78,15 +78,10 @@ export function WindowControls({ variant = "app" }: { variant?: "app" | "player"
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
-    const next = !fullscreen;
-    try {
-      await api.window.fullscreen(next);
-    } catch {
-      // The window refused, so the button keeps reporting the real state.
-      return;
-    }
-    setFullscreen(next);
-  }, [fullscreen, setFullscreen]);
+    // The shared controller drops a repeat and reports a refusal, so a failed
+    // toggle leaves the button on the real state.
+    await requestFullscreen(!fullscreen);
+  }, [fullscreen, requestFullscreen]);
 
   useEffect(() => {
     if (!fullscreen || !shellControls) return;

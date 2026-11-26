@@ -94,7 +94,7 @@ const SECTIONS: Section[] = [
     label: "Privacy",
     icon: "lock",
     group: "System",
-    blurb: "What leaves the app, and the switch for each.",
+    blurb: "Telemetry and crash reporting.",
     keywords:
       "privacy crash report sentry telemetry analytics usage counts posthog error log diagnostics opt in out data",
   },
@@ -194,28 +194,18 @@ function Callout({
   );
 }
 
-/** Crash reporting and the local journal: what leaves the machine, and what stays. */
+/** Telemetry, crash reports and the local log. */
 function PrivacyPanel() {
   const { settings, saveSettings, notify } = useApp();
   const [lines, setLines] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
-  const on = settings?.telemetry === true;
-  const usage = settings?.analytics === true;
+  const on = settings ? settings.analytics && settings.telemetry !== false : false;
 
   const toggle = async (value: boolean) => {
     try {
-      await saveSettings({ telemetry: value });
-      notify(value ? "Crash reports are on" : "Crash reports are off");
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e), "error");
-    }
-  };
-
-  const toggleUsage = async (value: boolean) => {
-    try {
-      await saveSettings({ analytics: value });
-      notify(value ? "Usage counts are on" : "Usage counts are off");
+      await saveSettings({ analytics: value, telemetry: value });
+      notify(value ? "Telemetry and crash report on" : "Telemetry and crash report off");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), "error");
     }
@@ -235,57 +225,23 @@ function PrivacyPanel() {
 
   return (
     <>
-      <Card
-        title="Usage counts"
-        description="Anonymous numbers so Duvy knows how many people use it and what they play. No titles, accounts or links leave the app."
-      >
+      <section className="settings-group">
         <Row
-          title="Share usage counts"
-          description={
-            analyticsAvailable
-              ? "A random install id, the app version, how many titles and addons you have, and for each playback: the media type, the seconds watched and whether it finished. Plus the host each request went to, never the address itself. Nothing that identifies you or what you watched."
-              : "This build has no analytics endpoint, so nothing is counted."
-          }
-          control={
-            <Toggle
-              checked={usage}
-              onChange={(value) => void toggleUsage(value)}
-              label="Share usage counts"
-              disabled={!analyticsAvailable}
-            />
-          }
-        />
-      </Card>
-
-      <Card
-        title="Crash reports"
-        description="When something in Duvy breaks, the error can be sent to Sentry so it can be fixed in a later build."
-      >
-        <Row
-          title="Send error reports"
-          description={
-            telemetryAvailable
-              ? "The error, the screen it happened on, the app version and the last few playback steps, plus a masked recording with every word and picture blanked out. Never accounts, tokens or links."
-              : "This build has no reporting endpoint, so reports stay on this machine."
-          }
+          title="Telemetry and crash report"
           control={
             <Toggle
               checked={on}
               onChange={(value) => void toggle(value)}
-              label="Send error reports"
-              disabled={!telemetryAvailable}
+              label="Telemetry and crash report"
+              disabled={!analyticsAvailable && !telemetryAvailable}
             />
           }
         />
-      </Card>
+      </section>
 
-      <Card
-        title="Local log"
-        description="Playback steps and crashes land in playback.log next to your data, whether reports are on or off."
-      >
+      <Card title="Local log">
         <Row
           title="Recent entries"
-          description="The last 60 lines of the log."
           control={
             <Button variant="soft" onClick={() => void read()} disabled={busy}>
               {busy ? "Reading…" : lines ? "Refresh" : "Show"}

@@ -3082,7 +3082,7 @@ button.pill:hover {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  padding: clamp(14px, 2vh, 24px) 0;
+  padding: clamp(12px, 2vh, 22px) clamp(12px, 2vw, 22px);
 }
 
 .drawer-backdrop {
@@ -3090,32 +3090,32 @@ button.pill:hover {
   inset: 0;
   border: 0;
   padding: 0;
-  background: rgba(4, 4, 3, 0.72);
+  background: rgba(3, 3, 4, 0.56);
   cursor: default;
   animation: fade-in 0.18s var(--ease);
 }
 
-/* Docked to the right edge, centred vertically, sized to its list: the page
-   stays visible above and below, and the sources scroll inside. */
+/* Floating sheet, the shape Stremio uses for sources: the page stays visible
+   around it, the addon picker sits on top and only the list scrolls. */
 .drawer {
   position: relative;
-  width: min(760px, 94vw);
-  max-height: min(900px, calc(100vh - 48px));
+  width: min(440px, calc(100vw - 28px));
+  /* Fixed height keeps the addon menu clear of the panel edge. */
+  height: min(480px, calc(100vh - 32px));
   /* Secondary text steps up one tone: the glass is strongest here, but faint
      grey can still dip under 4.5:1 over a bright frame behind it. */
   --faint: var(--muted);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid transparent;
-  border-right: 0;
-  border-radius: 18px 0 0 18px;
-  background: var(--glass-wash), rgba(24, 24, 26, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: var(--glass-wash), rgba(15, 15, 18, 0.94);
   -webkit-backdrop-filter: var(--glass-filter-lg);
   backdrop-filter: var(--glass-filter-lg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    0 1px 2px rgba(0, 0, 0, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 60px rgba(0, 0, 0, 0.5);
   animation: drawer-in 0.22s var(--ease);
 }
 
@@ -3137,23 +3137,21 @@ button.pill:hover {
   outline: none;
 }
 
-/* The filter row is the bar: refresh on the left, pills in the middle,
-   close on the right. */
-.drawer-filter-bar {
+.drawer-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 14px 14px 10px;
   flex: none;
 }
 
-.drawer-refresh {
+.drawer-refresh,
+.drawer-close {
   flex: none;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.07);
@@ -3161,166 +3159,171 @@ button.pill:hover {
   cursor: pointer;
 }
 
-.drawer-refresh:hover {
+.drawer-refresh:hover,
+.drawer-close:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.drawer-close {
+  color: var(--muted);
+}
+
+.drawer-close:hover {
+  color: var(--text);
 }
 
 .drawer-refresh.is-loading svg {
   animation: spin 0.9s linear infinite;
 }
 
-.drawer-close {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.drawer-close:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text);
-}
-
-/* One scrolling row of addon filters, the way Nuvio lays it out: a refresh
-   chip, then each addon that actually answered. The row is draggable because a
-   mouse has no sideways wheel, and an arrow shows up on any edge that still
-   hides chips so the drag is discoverable. */
-.drawer-filters {
+/* Addon picker: Stremio puts one list in charge of the whole filter, so every
+   addon stays reachable and "All" is always one of the choices. */
+.drawer-picker {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.drawer-picker-btn {
+  width: 100%;
+  height: 44px;
   display: flex;
-  flex-wrap: nowrap;
-  gap: 8px;
-  padding: 1px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  user-select: none;
-  cursor: grab;
-}
-
-.drawer-filters:active {
-  cursor: grabbing;
-}
-
-.drawer-filters.can-right {
-  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
-}
-
-.drawer-filters.can-left {
-  mask-image: linear-gradient(to left, #000 calc(100% - 20px), transparent);
-  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 20px), transparent);
-}
-
-.drawer-filters.can-left.can-right {
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 20px,
-    #000 calc(100% - 20px),
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 20px,
-    #000 calc(100% - 20px),
-    transparent 100%
-  );
-}
-
-.drawer-filters::-webkit-scrollbar {
-  display: none;
-}
-
-.drawer-filters .chip {
-  flex: 0 0 auto;
-  height: 36px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: none;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.drawer-filters .chip:hover {
-  border-color: transparent;
-  background-color: rgba(255, 255, 255, 0.12);
-  color: var(--text);
-}
-
-/* The filter row clips at 1px, so its chips ring inwards. */
-.drawer-filters .chip:focus-visible {
-  outline-offset: -2px;
-}
-
-.drawer-filters .chip.is-active,
-.drawer-filters .chip.is-active:hover {
-  border-color: transparent;
-  background: #ffffff;
-  box-shadow: none;
-  color: #111111;
-}
-
-.drawer-scrapers {
-  flex: none;
-  padding: 2px 14px 10px;
-}
-
-.drawer-scrapers-label {
-  display: block;
-  margin-bottom: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.52);
-}
-
-.drawer-scrapers-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.scraper-pill {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 11px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
   font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.14s var(--ease),
+    border-color 0.14s var(--ease);
+}
+
+.drawer-picker-btn:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.drawer-picker-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.drawer-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.scraper-pill.is-empty {
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.scraper-pill.is-error {
-  color: var(--danger);
-}
-
-.scraper-pill svg {
+.drawer-picker-chevron {
   flex: none;
+  color: rgba(255, 255, 255, 0.7);
+  transform: rotate(90deg);
+  transition: transform 0.18s var(--ease);
+}
+
+.drawer-picker-btn.is-open .drawer-picker-chevron {
+  transform: rotate(-90deg);
+}
+
+.drawer-picker-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(340px, 52vh);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #17171a;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: picker-in 0.14s var(--ease);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+@keyframes picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.drawer-picker-option {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: rgba(255, 255, 255, 0.82);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-picker-option:hover,
+.drawer-picker-option:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  outline: none;
+}
+
+.drawer-picker-option.is-active {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.drawer-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-picker-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.drawer-picker-count {
+  min-width: 14px;
+  text-align: right;
+}
+
+.drawer-picker-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(116, 198, 157, 0.16);
 }
 
 .drawer-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 2px 14px 14px;
+  padding: 0 16px 16px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
@@ -3328,60 +3331,69 @@ button.pill:hover {
 .stream-list {
   list-style: none;
   margin: 0;
-  padding: 0 0 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* One addon, one section: an addon that answers first is readable while the
-   others are still working, and a failing one only costs its own block. */
-.stream-group + .stream-group {
-  margin-top: 16px;
-}
-
-.stream-group-title {
-  margin: 14px 4px 8px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.005em;
-  color: var(--text);
-}
-
-.stream-group-error {
-  padding: 6px 4px 2px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--faint);
-}
-
-/* A card per source, like Nuvio: bold provider line, the release underneath,
-   then the numbers. The whole card is the play button. */
-.stream-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  align-items: start;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: background-color 0.14s var(--ease);
-}
-
-.stream-card:hover {
-  background-color: rgba(255, 255, 255, 0.085);
-}
-
-.stream-card:active {
-  background-color: rgba(255, 255, 255, 0.11);
-}
-
-.stream-play {
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* One addon, one section: a late scraper never reorders the groups above it. */
+.stream-group + .stream-group {
+  margin-top: 18px;
+}
+
+.stream-group-title {
+  margin: 16px 2px 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.stream-group:first-of-type .stream-group-title {
+  margin-top: 4px;
+}
+
+.stream-group-error,
+.stream-group-note {
+  margin: 4px 2px 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.stream-group-error {
+  color: var(--danger);
+}
+
+/* A source row: a quality tile anchors the scan, release text carries the
+   detail, and the play target sits on the rail. */
+.stream-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0 6px 0 8px;
+  border-radius: 12px;
+  transition: background-color 0.14s var(--ease);
+}
+
+.stream-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.stream-play {
+  flex: 1 1 auto;
   min-width: 0;
-  padding: 13px 2px 13px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
   border: 0;
+  border-radius: 12px;
   background: none;
   color: inherit;
   text-align: left;
@@ -3389,140 +3401,175 @@ button.pill:hover {
   font: inherit;
 }
 
+.stream-play:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.38);
+  outline-offset: 2px;
+}
+
 .stream-play:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.stream-main {
+.stream-quality-mark {
+  flex: none;
+  align-self: flex-start;
   display: flex;
-  gap: 14px;
-  min-width: 0;
-  align-items: stretch;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 46px;
+  margin-top: 1px;
+  padding: 0 6px;
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color 0.14s var(--ease),
+    box-shadow 0.14s var(--ease),
+    color 0.14s var(--ease);
 }
 
-.stream-texts {
+.stream-quality-mark.is-short {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.stream-quality-mark.is-cached {
+  color: rgba(220, 255, 237, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(116, 198, 157, 0.24);
+}
+
+.stream-row:hover .stream-quality-mark {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.055));
+  color: #ffffff;
+}
+
+.stream-copy {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+}
+
+.stream-title-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
 .stream-title {
+  min-width: 0;
   font-size: 13.5px;
-  font-weight: 700;
+  font-weight: 650;
   color: var(--text);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.stream-title-2 {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1.35;
-}
-
-/* One addon line at a time, exactly as the addon wrote it — emoji, filename,
-   audio and subtitle notes keep their own row. */
 .stream-details {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 3px;
   min-width: 0;
 }
 
 .stream-detail {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: 12px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.58);
   overflow-wrap: anywhere;
-}
-
-.stream-brand {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 72px;
-}
-
-.stream-brand-logo {
-  display: block;
-  width: auto;
-  height: 32px;
-  max-width: 56px;
-  object-fit: contain;
-}
-
-.stream-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.stream-brand-name {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: rgba(255, 255, 255, 0.56);
-  text-align: center;
-  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .stream-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  gap: 4px 8px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.55);
   font-variant-numeric: tabular-nums;
 }
 
 .stream-size,
 .stream-seeds {
-  color: rgba(255, 255, 255, 0.88);
+  color: rgba(255, 255, 255, 0.82);
   font-weight: 600;
 }
 
-.stream-cached {
-  color: var(--good);
+.stream-seeds {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.stream-audio {
-  margin-top: 2px;
+.stream-seed-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--good);
+  box-shadow: 0 0 0 2px rgba(116, 198, 157, 0.12);
+}
+
+.stream-seeds.is-dead .stream-seed-dot {
+  background: var(--faint);
+  box-shadow: none;
+}
+
+.stream-badge {
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.stream-langs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10.5px;
   color: rgba(255, 255, 255, 0.46);
 }
 
-.stream-more {
-  width: 30px;
-  height: 30px;
-  margin: 10px 3px 0 0;
-  color: var(--faint);
-  opacity: 0;
-  transition: opacity 0.14s var(--ease);
+.stream-action {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(255, 255, 255, 0.72);
+  transition:
+    background-color 0.14s var(--ease),
+    border-color 0.14s var(--ease),
+    color 0.14s var(--ease);
 }
 
-.stream-card:hover .stream-more,
-.stream-more:focus-visible {
-  opacity: 1;
+.stream-row:hover .stream-action {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .drawer-foot {
-  padding: 12px 20px;
+  padding: 12px 18px;
   border-top: 1px solid var(--glass-edge-soft);
   background: var(--glass-fill-soft);
   font-size: 11px;
@@ -3546,6 +3593,7 @@ button.pill:hover {
   display: flex;
   flex-direction: column;
   gap: 9px;
+  margin-bottom: 10px;
   padding: 14px;
   border-radius: 12px;
   background: var(--glass-wash), var(--glass-fill-soft);
@@ -3578,6 +3626,20 @@ button.pill:hover {
 
 .skeleton-line.is-label {
   height: 11px;
+}
+
+@media (max-width: 520px) {
+  .drawer-root {
+    padding: 0;
+  }
+
+  .drawer {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -6047,14 +6109,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--muted);
 }
 
-.ob-fine {
-  margin: 14px 0 0;
-  max-width: 52ch;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--faint);
-}
-
 .ob-providers {
   display: flex;
   flex-direction: column;
@@ -6263,12 +6317,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.55;
-}
-
-.consent-card .consent-fine {
-  margin-bottom: 0;
-  color: var(--faint);
-  font-size: 12.5px;
 }
 
 .consent-actions {

@@ -255,6 +255,8 @@ pub struct Subtitle {
     pub url: String,
     #[serde(default)]
     pub lang: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

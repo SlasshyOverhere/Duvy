@@ -54,7 +54,7 @@ pub struct Settings {
     pub defaults_seeded: bool,
     /// First-run setup has been completed or skipped.
     pub onboarded: bool,
-    /// Crash reporting: `None` until the user is asked, and off unless they agree.
+    /// Crash reporting: on unless the telemetry switch is turned off.
     pub telemetry: Option<bool>,
     /// Anonymous usage counts: on from the first run, and only off if turned off.
     pub analytics: bool,
@@ -89,7 +89,7 @@ impl Default for Settings {
             ignored_update_version: String::new(),
             defaults_seeded: false,
             onboarded: false,
-            telemetry: None,
+            telemetry: Some(true),
             analytics: true,
         }
     }

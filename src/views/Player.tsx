@@ -68,6 +68,7 @@ import {
   SubVariant,
   SubGroup,
   groupSubtitles,
+  withoutLoadedAddon,
   whole,
   tenths,
   mpvBackground,
@@ -78,6 +79,8 @@ import {
   magnetFor,
   useReturnFocus,
 } from "../components/player/hud";
+
+type LoadedSub = { lang: string; label?: string; url: string; addon?: string };
 
 const GUIDE_LABELS: Record<ParentalEntry["category"], string> = {
   nudity: "Sex & nudity",
@@ -810,7 +813,7 @@ const SubtitlesPanel = memo(function SubtitlesPanel({
   currentVariants: SubVariant[];
   styleOn: boolean;
   activeSub: number | null;
-  loadedSub: { lang: string; url: string; addon?: string } | null;
+  loadedSub: LoadedSub | null;
   subStyle: SubtitleStyle;
   onLang: (lang: string | null) => void;
   onChoose: (variant: SubVariant) => void;
@@ -1041,6 +1044,7 @@ export function PlayerView() {
     route,
     fullscreen,
     setFullscreen,
+    requestFullscreen,
     playRequest,
     buildSession,
     resolveStream,
@@ -1089,9 +1093,21 @@ export function PlayerView() {
   const [nextOff, setNextOff] = useState(false);
   const [videoMode, setVideoMode] = useState<VideoMode>(readVideoMode);
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
-  const [loadedSub, setLoadedSub] = useState<{ lang: string; url: string; addon?: string } | null>(
-    null,
-  );
+  const [loadedSub, setLoadedSub] = useState<LoadedSub | null>(null);
+  const subSeq = useRef(0);
+  const wasExternalSub = useRef(false);
+  const manualSub = useRef<string | null>(null);
+  // Subtitle loads and picks run one at a time, so a late addon cannot undo a
+  // newer pick.
+  const subQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const queueSub = useCallback((task: () => Promise<unknown>) => {
+    const next = subQueue.current.then(task, task);
+    subQueue.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }, []);
   const [sources, setSources] = useState<StreamOption[] | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -1153,7 +1169,7 @@ export function PlayerView() {
   // unhandled rejection; the next snapshot is the source of truth anyway.
   const send = useCallback(
     (action: string, value?: number | string | boolean | null) => {
-      playerControl(action, value);
+      return playerControl(action, value);
     },
     [playerControl],
   );
@@ -1353,8 +1369,12 @@ export function PlayerView() {
   const chapters = local?.chapters ?? [];
 
   // Track ids are the cheap signature: the array identity changes every tick.
-  const subKey = subTracks.map((track) => track.id).join();
-  const subGroups = useMemo(() => groupSubtitles(subTracks, subs), [subKey, subs]);
+  const subKey = subTracks.map((track) => `${track.id}:${track.label}`).join();
+  const pickerTracks = useMemo(
+    () => withoutLoadedAddon(subTracks, loadedSub?.label),
+    [subKey, loadedSub?.label],
+  );
+  const subGroups = useMemo(() => groupSubtitles(pickerTracks, subs), [pickerTracks, subs]);
 
   const addonNames = useMemo(
     () => [...new Set((sources ?? []).map((entry) => entry.addon))],
@@ -1514,9 +1534,10 @@ export function PlayerView() {
 
   const leaveFullscreen = useCallback(() => {
     dropBrowserFullscreen();
-    setFullscreen(false);
-    void api.window.fullscreen(false);
-  }, [dropBrowserFullscreen, setFullscreen]);
+    // The shared controller drops this when the exit is already in flight, so
+    // closing right after pressing Escape cannot toggle the window twice.
+    void requestFullscreen(false);
+  }, [dropBrowserFullscreen, requestFullscreen]);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
   useEffect(() => {
@@ -1604,14 +1625,9 @@ export function PlayerView() {
       setFullscreen(Boolean(document.fullscreenElement));
       return;
     }
-    const next = !fullscreen;
-    try {
-      await api.window.fullscreen(next);
-      setFullscreen(next);
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e), "error");
-    }
-  }, [fullscreen, notify, setFullscreen]);
+    const ok = await requestFullscreen(!fullscreen);
+    if (!ok) notify("The window could not change fullscreen.", "error");
+  }, [fullscreen, notify, requestFullscreen]);
 
   const showHud = useCallback((label: string, value: string) => {
     if (hudTimer.current) window.clearTimeout(hudTimer.current);
@@ -1703,13 +1719,21 @@ export function PlayerView() {
 
   const cycleSub = useCallback(() => {
     if (subTracks.length === 0) return;
+    manualSub.current = sessionRef.current?.key ?? null;
     const from =
       local?.activeSub != null
         ? subTracks.findIndex((track) => track.id === local.activeSub)
         : -1;
-    const next = from + 1 >= subTracks.length ? null : subTracks[from + 1].id;
-    send("sub", next);
-  }, [local?.activeSub, send, subTracks]);
+    const track = from + 1 >= subTracks.length ? null : subTracks[from + 1];
+    subSeq.current += 1;
+    const keepsAddon =
+      track?.external === true &&
+      loadedSub?.label != null &&
+      track.label.trim().toLowerCase() === loadedSub.label.trim().toLowerCase();
+    if (!keepsAddon) setLoadedSub(null);
+    setSelectedLang(track ? langLabel(track.lang, track.label) : OFF);
+    void queueSub(() => send("sub", track?.id ?? null));
+  }, [loadedSub?.label, local?.activeSub, queueSub, send, subTracks]);
 
   const cycleAudio = useCallback(() => {
     if (audioTracks.length === 0) return;
@@ -1794,43 +1818,62 @@ export function PlayerView() {
     }
     setSurface("subs");
     void loadSubtitles();
-    setSelectedLang(activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null);
+    setSelectedLang(
+      activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub ? langLabel(loadedSub.lang) : null,
+    );
   }, [activeSub?.lang, activeSub?.label, loadSubtitles, loadedSub?.lang, surface]);
 
   const chooseSub = useCallback(
     (variant: SubVariant) => {
-      // Asking for the same addon again would add a second mpv track.
-      if (variant.url && loadedSub?.url === variant.url) return;
+      const previous = loadedSub;
+      // The same addon is already the live track, so leave it alone.
+      if (variant.url && previous?.url === variant.url && activeSub?.external) return;
+      manualSub.current = sessionRef.current?.key ?? null;
+      const seq = ++subSeq.current;
       setSelectedLang(variant.lang);
       if (variant.trackId != null) {
         setLoadedSub(null);
-        send("sub", variant.trackId);
+        void queueSub(() => send("sub", variant.trackId));
         rememberSubtitle(sessionRef.current?.key, { lang: variant.lang, trackId: variant.trackId });
         return;
       }
       if (!variant.url) return;
-      setLoadedSub({ lang: variant.lang, url: variant.url, addon: variant.source });
-      rememberSubtitle(sessionRef.current?.key, {
+      const url = variant.url;
+      const title = variant.label ?? variant.lang;
+      const choice: LoadedSub = {
         lang: variant.lang,
-        url: variant.url,
-        label: variant.label,
-      });
-      void api.player
-        .subtitle(variant.url, variant.lang)
-        .then(() =>
-          notify("Subtitles loaded", "success", `Subtitles from ${variant.source ?? "Addons"} loaded`),
-        )
-        .catch((error) => notify(error instanceof Error ? error.message : String(error), "error"));
+        label: title,
+        url,
+        addon: variant.source,
+      };
+      setLoadedSub(choice);
+      void queueSub(() => api.player.subtitle(url, title))
+        .then(() => {
+          if (!alive.current || seq !== subSeq.current) return;
+          rememberSubtitle(sessionRef.current?.key, choice);
+          notify("Subtitles loaded", "success", `Subtitles from ${variant.source ?? "Addons"} loaded`);
+        })
+        .catch((error) => {
+          // A subtitle that lost its player to a close is not a failure to show.
+          if (!alive.current || seq !== subSeq.current) return;
+          setLoadedSub(previous);
+          setSelectedLang(
+            activeSub ? langLabel(activeSub.lang, activeSub.label) : previous ? previous.lang : null,
+          );
+          notify(error instanceof Error ? error.message : String(error), "error");
+        });
     },
-    [loadedSub?.url, notify, send],
+    [activeSub, loadedSub, notify, queueSub, send],
   );
 
   const turnSubsOff = useCallback(() => {
+    manualSub.current = sessionRef.current?.key ?? null;
+    subSeq.current += 1;
     setLoadedSub(null);
     setSelectedLang(OFF);
-    send("sub", null);
+    void queueSub(() => send("sub", null));
     rememberSubtitle(sessionRef.current?.key, { lang: "", off: true });
-  }, [send]);
+  }, [queueSub, send]);
 
   const openEpisodes = useCallback(() => {
     setSeason(session?.season ?? queue[0]?.season ?? null);
@@ -2163,19 +2206,23 @@ export function PlayerView() {
     if (saved.off) {
       setLoadedSub(null);
       setSelectedLang(OFF);
-      send("sub", null);
+      void queueSub(() => send("sub", null));
       return;
     }
-    setSelectedLang(saved.lang);
+    setSelectedLang(langLabel(saved.lang));
     if (saved.trackId != null) {
+      const id = saved.trackId;
       setLoadedSub(null);
-      send("sub", saved.trackId);
+      void queueSub(() => send("sub", id));
       return;
     }
     if (!saved.url) return;
-    setLoadedSub({ lang: saved.lang, url: saved.url });
-    void api.player.subtitle(saved.url, saved.label ?? saved.lang).catch(() => undefined);
-  }, [session?.key, playerReady, send]);
+    const url = saved.url;
+    setLoadedSub({ lang: saved.lang, label: saved.label, url, addon: saved.addon });
+    void queueSub(() => api.player.subtitle(url, saved.label ?? saved.lang)).catch(
+      () => undefined,
+    );
+  }, [session?.key, playerReady, queueSub, send]);
 
   // The addon hunt runs beside the stream, so the track it found is handed over
   // as the file opens. mpv turns away a track until a file is live, so each
@@ -2201,20 +2248,40 @@ export function PlayerView() {
     );
     if (!track) return;
     autoSub.current = key;
+    const seq = subSeq.current;
     const handOver = async (attempt: number): Promise<void> => {
+      // A manual pick during a retry always wins.
+      if (manualSub.current === key || rememberedSubtitle(key)) return;
       try {
-        await api.player.subtitle(track.url, track.lang);
+        await queueSub(() => api.player.subtitle(track.url, track.label ?? track.lang));
       } catch (error) {
-        if (attempt >= 3 || sessionRef.current?.key !== key) throw error;
+        if (attempt >= 3 || sessionRef.current?.key !== key || seq !== subSeq.current) throw error;
         await new Promise((resolve) => window.setTimeout(resolve, 700));
         return handOver(attempt + 1);
       }
-      if (sessionRef.current?.key !== key) return;
-      setSelectedLang(langLabel(track.lang, track.lang));
-      setLoadedSub({ lang: track.lang, url: track.url, addon: track.addon });
+      if (sessionRef.current?.key !== key || seq !== subSeq.current) return;
+      setSelectedLang(langLabel(track.lang, track.label));
+      setLoadedSub({
+        lang: langLabel(track.lang, track.label),
+        label: track.label ?? track.lang,
+        url: track.url,
+        addon: track.addon,
+      });
     };
     void handOver(1).catch(() => undefined);
-  }, [session?.key, playerReady, subs, subKey, settings?.subtitleLanguage]);
+  }, [session?.key, playerReady, queueSub, subs, subKey, settings?.subtitleLanguage]);
+
+  // A file handover or an embedded pick drops the addon track underneath it.
+  useEffect(() => {
+    if (activeSub?.external) {
+      wasExternalSub.current = true;
+      return;
+    }
+    if (activeSub && wasExternalSub.current) {
+      wasExternalSub.current = false;
+      setLoadedSub(null);
+    }
+  }, [activeSub?.external, activeSub?.id]);
 
   // The picture mode lives on the mpv process, so each new one gets it again.
   useEffect(() => {
@@ -2401,19 +2468,31 @@ export function PlayerView() {
       notify("Picking a subtitle file needs the desktop app", "error");
       return;
     }
+    const session = sessionRef.current?.key ?? null;
+    let seq = subSeq.current;
     try {
       const selected = await open({
         multiple: false,
         filters: [{ name: "Subtitles", extensions: ["srt", "ass", "ssa", "vtt", "sub"] }],
       });
       if (typeof selected !== "string") return;
+      if (!alive.current || session !== (sessionRef.current?.key ?? null)) return;
+      manualSub.current = session;
       const name = selected.split(/[\\/]/).pop() ?? "Subtitle";
-      await api.player.subtitle(selected, name);
+      seq = ++subSeq.current;
+      await queueSub(() => api.player.subtitle(selected, name));
+      if (!alive.current || seq !== subSeq.current) return;
+      if (session !== (sessionRef.current?.key ?? null)) return;
+      setLoadedSub(null);
+      setSelectedLang(null);
       notify(`Loaded ${name}`, "success");
     } catch (e) {
+      // The picker can outlive the screen, and its failure is then expected.
+      if (!alive.current || seq !== subSeq.current) return;
+      if (session !== (sessionRef.current?.key ?? null)) return;
       notify(e instanceof Error ? e.message : String(e), "error");
     }
-  }, [notify]);
+  }, [notify, queueSub]);
 
   // Stable handlers keep the memoized panels out of the tick re-render.
   const closeSurface = useCallback(() => setSurface(null), []);
@@ -2514,7 +2593,7 @@ export function PlayerView() {
       [
         "Track",
         loadedSub
-          ? langLabel(loadedSub.lang)
+          ? (loadedSub.label ?? langLabel(loadedSub.lang))
           : activeSub
             ? [activeSub.lang ? langLabel(activeSub.lang) : activeSub.label, activeSub.details]
                 .filter(Boolean)
@@ -2534,6 +2613,15 @@ export function PlayerView() {
     ],
     [activeSub, loadedSub, streamAddon],
   );
+
+  // Must run before the loading return: skipping a hook reorders every hook after it.
+  // Frozen with the pause, so the card cannot drift while it is read.
+  const endsAt = useMemo(() => {
+    const left = duration - shownPosition;
+    if (!(left > 0)) return null;
+    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
+    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
+  }, [duration, shownPosition, local?.speed]);
 
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
@@ -2586,7 +2674,11 @@ export function PlayerView() {
     [nextEpisode?.thumbnail, details?.background, session?.background].find(
       (url): url is string => Boolean(url) && !badArt.includes(url as string),
     ) ?? null;
-  const activeLang = activeSub ? langLabel(activeSub.lang, activeSub.label) : loadedSub?.lang ?? null;
+  const activeLang = activeSub
+    ? langLabel(activeSub.lang, activeSub.label)
+    : loadedSub
+      ? langLabel(loadedSub.lang)
+      : null;
   const currentLang = selectedLang === OFF ? null : selectedLang ?? activeLang ?? null;
   const currentVariants = subGroups.find((group) => group.lang === currentLang)?.variants ?? NO_VARIANTS;
   const offSelected =
@@ -2611,13 +2703,6 @@ export function PlayerView() {
     session && session.season != null
       ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
       : null;
-  // Frozen with the pause, so the card cannot drift while it is read.
-  const endsAt = useMemo(() => {
-    const left = duration - shownPosition;
-    if (!(left > 0)) return null;
-    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
-    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
-  }, [duration, shownPosition, local?.speed]);
 
   const nowMeta = [
     playingSource?.addon,

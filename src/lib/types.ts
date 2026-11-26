@@ -134,6 +134,7 @@ export interface SubtitleTrack {
   id: string;
   url: string;
   lang: string;
+  label?: string;
   addon: string;
 }
 
@@ -241,7 +242,7 @@ export interface Settings {
   /** The bundled metadata addons were installed once already. */
   defaultsSeeded: boolean;
   onboarded: boolean;
-  /** Crash reporting: null until the user is asked, off unless they agree. */
+  /** Crash reporting: on unless explicitly turned off. */
   telemetry: boolean | null;
   /** Anonymous usage counts. On unless the user turns it off in Privacy. */
   analytics: boolean;
