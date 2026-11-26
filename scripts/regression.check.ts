@@ -2,7 +2,7 @@
 // Run with: bun scripts/regression.check.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readPayload, validUpdate } from "../src/lib/bridge.ts";
+import { readPayload, toCommandError, validUpdate } from "../src/lib/bridge.ts";
 import { findSkip } from "../src/components/player/skip.ts";
 import { airsLabel } from "../src/lib/format.ts";
 
@@ -588,6 +588,29 @@ run("sentinel: a disabled addon is not used", () => {
       out.push(`commands.rs: ${name}() asks a switched-off addon`);
     }
   }
+  return out;
+});
+
+run("a rejected command is an Error", () => {
+  const out: string[] = [];
+  const text = "The window could not go fullscreen";
+  const error = toCommandError("window_fullscreen", text) as Error & {
+    command?: string;
+    cause?: unknown;
+  };
+  if (!(error instanceof Error)) out.push("a string rejection stayed a string");
+  if (error.name !== "CommandError") out.push(`name is ${error.name}, want CommandError`);
+  if (error.message !== text) out.push("the rejection text was lost");
+  if (error.command !== "window_fullscreen") out.push("the command name was lost");
+  if (error.cause !== text) out.push("the original rejection is not kept as the cause");
+
+  const original = new Error("already an Error");
+  const same = toCommandError("player_control", original) as Error & { command?: string };
+  if (same !== original) out.push("a real Error was wrapped and its stack lost");
+  if (same.command !== "player_control") out.push("a real Error was not tagged");
+
+  const blank = toCommandError("player_state", "");
+  if (!blank.message.includes("player_state")) out.push("an empty rejection names no command");
   return out;
 });
 
