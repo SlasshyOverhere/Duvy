@@ -94,7 +94,7 @@ interface Store {
   /** Intentional stop, so the close it causes is not reported as a crash. */
   stopPlayer: () => void;
   /** A player control, watched so one that lands nowhere can be reported. */
-  playerControl: (kind: string, value?: number | string | boolean | null) => void;
+  playerControl: (kind: string, value?: number | string | boolean | null) => Promise<unknown>;
   toggleLibrary: (item: MetaPreview) => Promise<void>;
   inLibrary: (id: string) => boolean;
   /** The release the last check found, if any. */
@@ -368,6 +368,7 @@ interface SubtitleMemory {
   trackId?: number;
   url?: string;
   label?: string;
+  addon?: string;
   off?: boolean;
 }
 
@@ -1145,7 +1146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       watchAction(watch.current, kind, toSample(snap), typeof value === "number" ? value : 0);
       note("control", { kind, value: typeof value === "number" ? value : null });
     }
-    void api.player.control(kind, value).catch(() => undefined);
+    return api.player.control(kind, value).catch(() => undefined);
   }, []);
 
   const libraryIds = useMemo(() => new Set(library.map((item) => item.id)), [library]);

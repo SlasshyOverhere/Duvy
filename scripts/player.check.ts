@@ -376,6 +376,28 @@ run("subtitle variants keep their context", async () => {
   return out;
 });
 
+run("the loaded addon owns its external track", async () => {
+  const out: string[] = [];
+  const mod = (await import(pathToFileURL(root + "src/components/player/hud.ts").href)) as Record<
+    string,
+    unknown
+  >;
+  type Row = { id: number; label: string; external: boolean };
+  const filter = mod.withoutLoadedAddon as (tracks: Row[], label?: string) => Row[];
+  if (typeof filter !== "function") return ["hud.ts does not export withoutLoadedAddon"];
+  const tracks: Row[] = [
+    { id: 1, label: "English SDH", external: false },
+    { id: 2, label: "English SDH", external: true },
+    { id: 3, label: "English (CC)", external: true },
+    { id: 4, label: "Comments.srt", external: true },
+  ];
+  const exact = filter(tracks, "English SDH").map((track) => track.id);
+  if (exact.join() !== "1,3,4") out.push(`exact labels = ${exact.join()}, want 1,3,4`);
+  const suffix = filter(tracks, "CC").map((track) => track.id);
+  if (suffix.join() !== "1,2,4") out.push(`suffix labels = ${suffix.join()}, want 1,2,4`);
+  return out;
+});
+
 run("catch-up marking spans seasons", async () => {
   const out: string[] = [];
   const mod = (await import(pathToFileURL(root + "src/lib/format.ts").href)) as Record<string, unknown>;

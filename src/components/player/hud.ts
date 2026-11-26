@@ -230,6 +230,17 @@ export interface SubGroup {
   variants: SubVariant[];
 }
 
+/** The addon row stands in for the external track it loaded. */
+export function withoutLoadedAddon(tracks: Track[], label?: string | null): Track[] {
+  const wanted = (label ?? "").trim().toLowerCase();
+  if (!wanted) return tracks;
+  return tracks.filter((track) => {
+    if (!track.external) return true;
+    const have = track.label.trim().toLowerCase();
+    return have !== wanted && !have.endsWith(`(${wanted})`);
+  });
+}
+
 /** Embedded tracks and addon results, folded into one language-first list. */
 export function groupSubtitles(tracks: Track[], addons: SubtitleTrack[] | null): SubGroup[] {
   const groups = new Map<string, SubGroup>();

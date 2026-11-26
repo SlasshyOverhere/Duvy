@@ -272,6 +272,23 @@ fn read_track_state(mpv: &Mpv) -> (Vec<Track>, Vec<Track>, Option<i64>, Option<i
     parse_tracks(&read_tracks(mpv))
 }
 
+/// External tracks that no longer belong to the live subtitle choice.
+fn stale_external_subs(tracks: &[Track], keep: Option<i64>) -> Vec<i64> {
+    tracks
+        .iter()
+        .filter(|track| track.external && Some(track.id) != keep)
+        .map(|track| track.id)
+        .collect()
+}
+
+fn remove_sub_tracks(mpv: &Mpv, ids: &[i64]) {
+    for id in ids {
+        let id = id.to_string();
+        // The track can vanish between reading the list and removing it.
+        let _ = mpv.command("sub-remove", &[id.as_str()]);
+    }
+}
+
 /// The embedded subtitle in one of the preferred languages, so it can be turned
 /// on at load instead of leaving the viewer to hunt for the track.
 fn preferred_sub(subs: &[Track], slang: &str) -> Option<i64> {
@@ -974,6 +991,12 @@ impl Player {
             }
             "sub" => {
                 let id = value.and_then(|v| v.as_i64());
+                let (_, subs, _, _) = read_track_state(mpv);
+                if id.is_none_or(|id| subs.iter().any(|track| track.id == id)) {
+                    let keep =
+                        id.filter(|id| subs.iter().any(|track| track.id == *id && track.external));
+                    remove_sub_tracks(mpv, &stale_external_subs(&subs, keep));
+                }
                 apply(mpv.set_property(
                     "sid",
                     id.map(|n| n.to_string()).unwrap_or_else(|| "no".into()),
@@ -1039,7 +1062,15 @@ impl Player {
                     .unwrap_or("Subtitle")
                     .to_string();
                 validate_media_url(&url)?;
-                apply(mpv.command("sub-add", &[url.as_str(), "select", label.as_str()]))
+                let old = read_track_state(mpv)
+                    .1
+                    .iter()
+                    .filter(|track| track.external)
+                    .map(|track| track.id)
+                    .collect::<Vec<_>>();
+                apply(mpv.command("sub-add", &[url.as_str(), "select", label.as_str()]))?;
+                remove_sub_tracks(mpv, &old);
+                Ok(())
             }
             "video-mode" => {
                 // Two properties per mode: aspect first, then the pan/scan crop.
@@ -1701,8 +1732,8 @@ fn persist(app: &AppHandle, snap: &Snapshot, session: Option<&PlaybackSession>) 
 mod tests {
     use super::{
         RECOVER_GAP, Recovery, Snapshot, back_cache, bool_value, color_value, ended_early,
-        forward_cache, number_value, parse_chapters, parse_tracks, preferred_sub,
-        reopen_position, validate_media_url,
+        forward_cache, number_value, parse_chapters, parse_tracks, preferred_sub, reopen_position,
+        stale_external_subs, validate_media_url,
     };
     use serde_json::json;
     use std::time::Instant;
@@ -1726,6 +1757,20 @@ mod tests {
         assert_eq!(preferred_sub(&untagged, "eng"), Some(5));
         // Nothing to pick when the file carries no such track.
         assert_eq!(preferred_sub(&subs, "hin"), None);
+    }
+
+    #[test]
+    fn switching_subtitles_drops_only_stale_external_tracks() {
+        let (_, subs, _, _) = parse_tracks(&json!([
+            { "type": "sub", "id": 1, "lang": "eng", "external": false },
+            { "type": "sub", "id": 2, "lang": "eng", "title": "English", "external": true },
+            { "type": "sub", "id": 3, "lang": "spa", "title": "Spanish", "external": true },
+        ]));
+        // Off and embedded picks clear every addon/file track.
+        assert_eq!(stale_external_subs(&subs, None), vec![2, 3]);
+        assert_eq!(stale_external_subs(&subs, Some(1)), vec![2, 3]);
+        // The live external track stays; its siblings go.
+        assert_eq!(stale_external_subs(&subs, Some(3)), vec![2]);
     }
 
     #[test]
