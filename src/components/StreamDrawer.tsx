@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, openExternal } from "../lib/bridge";
 import { byFileSize, errorMessage } from "../lib/format";
 import { useApp } from "../lib/store";
@@ -52,6 +52,7 @@ export function StreamDrawer({
   const { addons: installed, notify, settings } = useApp();
   const [groups, setGroups] = useState<Group[]>([]);
   const [filter, setFilter] = useState<string>("all");
+  const [picker, setPicker] = useState(false);
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -60,107 +61,28 @@ export function StreamDrawer({
   } | null>(null);
   const runId = useRef(0);
   const drawerRef = useRef<HTMLElement>(null);
-  const filtersRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ down: false, moved: false, x: 0, left: 0, pointer: -1 });
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const pickerButtonRef = useRef<HTMLButtonElement>(null);
+  const activeKey = useRef<string | null>(null);
+  const targetKeys = useRef<string[]>([]);
 
-  // Which edges still hide chips, so the row can say so and offer a step arrow.
-  // The classes are toggled on the node directly: keeping this in React state
-  // re-rendered the whole panel, stream cards included, on every scroll frame.
-  const measureFrame = useRef(0);
-  const measure = useCallback(() => {
-    if (measureFrame.current) return;
-    measureFrame.current = requestAnimationFrame(() => {
-      measureFrame.current = 0;
-      const node = filtersRef.current;
-      if (!node) return;
-      // No edge bookkeeping mid-drag: it is a layout read per frame and the
-      // fade is switched off anyway while the row is being dragged.
-      if (drag.current.down) return;
-      const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
-      node.classList.toggle("can-left", node.scrollLeft > 1);
-      node.classList.toggle("can-right", rest > 1);
-    });
-  }, []);
-
-  useEffect(() => () => cancelAnimationFrame(measureFrame.current), []);
-
-  useEffect(() => {
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure, open, groups]);
-
-  // The filter row is wider than the panel and a mouse has no sideways wheel,
-  // so the row itself is draggable. The pointer is tracked on window rather
-  // than the row: the row is only a chip tall, so a drag that drifted a pixel
-  // off it used to stop dead halfway through.
-  const onDragMove = useCallback((event: globalThis.PointerEvent) => {
-    const node = filtersRef.current;
-    if (!node || !drag.current.down || event.pointerId !== drag.current.pointer) return;
-    const dx = event.clientX - drag.current.x;
-    if (!drag.current.moved) {
-      // A click drifts a few pixels; only a real drag may pan the row.
-      if (Math.abs(dx) < 4) return;
-      drag.current.moved = true;
-      // Re-anchor so the row does not jump by the dead-zone distance.
-      drag.current.x = event.clientX;
-      drag.current.left = node.scrollLeft;
-      // The edge fade is a mask over the scrolled content: left on, it makes
-      // the row re-rasterise on every frame of the drag. measure() restores it.
-      node.classList.remove("can-left", "can-right");
-      return;
-    }
-    node.scrollLeft = drag.current.left - (event.clientX - drag.current.x);
-  }, []);
-
-  const onDragUp = useCallback(
-    (event: globalThis.PointerEvent) => {
-      if (drag.current.pointer !== -1 && event.pointerId !== drag.current.pointer) return;
-      drag.current.down = false;
-      drag.current.pointer = -1;
-      window.removeEventListener("pointermove", onDragMove);
-      window.removeEventListener("pointerup", onDragUp);
-      window.removeEventListener("pointercancel", onDragUp);
-      measure();
-    },
-    [onDragMove, measure],
+  const targets = useMemo(
+    () =>
+      installed
+        .filter((addon) => addon.enabled && addon.resources.includes("stream"))
+        .map((addon) => ({ key: addon.url, name: addon.name })),
+    [installed],
   );
-
-  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const node = filtersRef.current;
-    if (!node || event.button !== 0) return;
-    // Touch and pen already pan a scroller natively. Driving scrollLeft from
-    // pointermove on top of that fights the browser's own gesture, which reads
-    // as lag and stalling, so the manual drag is for the mouse only.
-    if (event.pointerType !== "mouse") return;
-    drag.current = {
-      down: true,
-      moved: false,
-      x: event.clientX,
-      left: node.scrollLeft,
-      pointer: event.pointerId,
-    };
-    window.addEventListener("pointermove", onDragMove);
-    window.addEventListener("pointerup", onDragUp);
-    window.addEventListener("pointercancel", onDragUp);
-  };
-
-  useEffect(() => {
-    return () => {
-      window.removeEventListener("pointermove", onDragMove);
-      window.removeEventListener("pointerup", onDragUp);
-      window.removeEventListener("pointercancel", onDragUp);
-    };
-  }, [onDragMove, onDragUp]);
-
-  const chooseFilter = (next: string) => {
-    if (drag.current.moved) {
-      drag.current.moved = false;
-      return;
-    }
-    // No All chip: tapping the active addon clears back to every addon.
-    setFilter(next === filter ? "all" : next);
-  };
+  const signature = targets.map((target) => target.key).join("|");
+  const requestKey = request
+    ? [
+        request.id,
+        request.mediaType,
+        request.season ?? "",
+        request.episode ?? "",
+        request.imdbId ?? "",
+      ].join("|")
+    : "";
 
   const copyLink = (url: string) => {
     copyText(url)
@@ -207,21 +129,21 @@ export function StreamDrawer({
     [request],
   );
 
-  const targets = useMemo(
-    () =>
-      installed
-        .filter((addon) => addon.enabled && addon.resources.includes("stream"))
-        .map((addon) => ({ key: addon.url, name: addon.name, logo: addon.logo ?? null })),
-    [installed],
-  );
-  const signature = targets.map((target) => target.key).join("|");
-
+  // A new title opens on All. Answers from each addon stay in their own
+  // section, in install order, so a late scraper never jumps over one that
+  // already answered.
   useEffect(() => {
-    if (!open || !request) return;
+    if (!open || !request) {
+      activeKey.current = null;
+      targetKeys.current = [];
+      return;
+    }
+    if (activeKey.current === requestKey) return;
+    activeKey.current = requestKey;
+    targetKeys.current = targets.map((target) => target.key);
     runId.current += 1;
-    // Always open on every addon: a remembered filter hid the answers that
-    // had already arrived and left the panel looking empty.
     setFilter("all");
+    setPicker(false);
     setMenu(null);
     setGroups(
       targets.map((target) => ({
@@ -233,25 +155,69 @@ export function StreamDrawer({
       })),
     );
     targets.forEach((target) => load(target.key));
-    // The request is compared by its parts, not by identity: it is rebuilt on
+    // The request is compared by its parts, not identity: it is rebuilt on
     // every render by the screen that owns this drawer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    open,
-    request?.id,
-    request?.mediaType,
-    request?.season,
-    request?.episode,
-    request?.imdbId,
-    signature,
-  ]);
+  }, [open, requestKey]);
 
-  // A filter that can no longer show anything must not leave an empty panel.
+  // Addons can finish loading while the panel is open. Add their section and
+  // keep every answer and the selected filter already on screen.
   useEffect(() => {
-    if (!open || filter === "all") return;
-    const group = groups.find((item) => item.key === filter);
-    if (!group || (group.state !== "loading" && !group.streams.length)) setFilter("all");
-  }, [open, filter, groups]);
+    if (!open || activeKey.current === null) return;
+    const next = targets.map((target) => target.key);
+    const prev = targetKeys.current;
+    if (prev.length === next.length && prev.every((key, at) => key === next[at])) return;
+    const before = new Set(prev);
+    const after = new Set(next);
+    const added = targets.filter((target) => !before.has(target.key));
+    targetKeys.current = next;
+    setGroups((current) => {
+      const known = new Map(current.map((group) => [group.key, group]));
+      return targets.map(
+        (target) =>
+          known.get(target.key) ?? {
+            key: target.key,
+            addon: target.name,
+            streams: [],
+            state: "loading",
+            error: null,
+          },
+      );
+    });
+    added.forEach((target) => load(target.key));
+    setFilter((current) => (current === "all" || after.has(current) ? current : "all"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, signature]);
+
+  // The picker is a small listbox: outside clicks close it, Escape belongs to
+  // it while it is open, and the selected row takes focus.
+  useEffect(() => {
+    if (!picker) return;
+    pickerRef.current
+      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.focus({ preventScroll: true });
+    const onPointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPicker(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setPicker(false);
+      pickerButtonRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [picker]);
+
+  useEffect(() => {
+    if (open) return;
+    setPicker(false);
+    setMenu(null);
+  }, [open]);
 
   // Focus moves into the drawer on open and back to the opener on close, and
   // Tab stays inside it: it is a modal surface, so the page behind is off limits.
@@ -296,6 +262,12 @@ export function StreamDrawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const chooseFilter = (next: string) => {
+    setFilter(next);
+    setPicker(false);
+    pickerButtonRef.current?.focus({ preventScroll: true });
+  };
+
   const total = groups.reduce((sum, group) => sum + group.streams.length, 0);
   const settled = groups.every((group) => group.state !== "loading");
   const pending = groups.filter((group) => group.state === "loading").length;
@@ -311,26 +283,18 @@ export function StreamDrawer({
       : hasDisabledStreams
         ? "Every stream addon is disabled. Enable one in Addons, then refresh the sources."
         : "Install a stream addon in Addons. Torrent sources need a debrid account in Settings → Integrations.";
-  const ranked = (group: Group) =>
-    group.streams.length ? 0 : group.state === "error" ? 2 : 1;
   const sortBySize = settings?.sourceSort !== "addon";
-  // With size as the order, the addon holding the biggest file leads, so the
-  // largest source in the panel is the first row.
-  const biggest = (group: Group) =>
-    group.streams.reduce((max, stream) => Math.max(max, stream.sizeBytes ?? -1), -1);
-  const visible = (filter === "all" ? groups : groups.filter((group) => group.key === filter))
-    .map((group) =>
-      sortBySize ? { ...group, streams: group.streams.slice().sort(byFileSize) } : group,
-    )
-    // Answers come first, so a slow or failing addon never sits on top of a
-    // list that is already ready to play.
-    .sort((a, b) => ranked(a) - ranked(b) || (sortBySize ? biggest(b) - biggest(a) : 0));
-  // Skeletons stand in for the current view, not the whole set: a filter that
-  // is still loading must not render as a blank panel either.
-  const shown = visible.reduce((sum, group) => sum + group.streams.length, 0);
-  const chipKeys = groups
-    .filter((group) => group.streams.length > 0 || group.state === "loading")
-    .map((group) => group.key);
+  const byInstallOrder = targets
+    .map((target) => groups.find((group) => group.key === target.key))
+    .filter((group): group is Group => Boolean(group));
+  const shownGroups =
+    filter === "all"
+      ? byInstallOrder.filter(
+          (group) => group.streams.length > 0 || group.state === "error",
+        )
+      : byInstallOrder.filter((group) => group.key === filter);
+  const activeName =
+    filter === "all" ? "All" : (targets.find((target) => target.key === filter)?.name ?? "All");
 
   if (!open) return null;
 
@@ -345,7 +309,116 @@ export function StreamDrawer({
         aria-modal="true"
         aria-label={subtitle ? `Sources for ${title}, ${subtitle}` : `Sources for ${title}`}
       >
-        <div className="drawer-filter-bar">
+        <div className="drawer-bar">
+          <div className="drawer-picker" ref={pickerRef}>
+            <button
+              ref={pickerButtonRef}
+              type="button"
+              className={`drawer-picker-btn${picker ? " is-open" : ""}`}
+              aria-haspopup="listbox"
+              aria-expanded={picker}
+              aria-controls={picker ? "stream-addon-list" : undefined}
+              aria-label={`Source addon: ${activeName}`}
+              onClick={() => setPicker((current) => !current)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                event.preventDefault();
+                setPicker(true);
+              }}
+            >
+              <span className="drawer-picker-label">{activeName}</span>
+              <Icon name="chevron" size={15} className="drawer-picker-chevron" />
+            </button>
+
+            {picker ? (
+              <div
+                id="stream-addon-list"
+                role="listbox"
+                aria-label="Filter sources by addon"
+                className="drawer-picker-menu"
+                onKeyDown={(event) => {
+                  const items = Array.from(
+                    pickerRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [],
+                  );
+                  const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                  const step =
+                    event.key === "ArrowDown"
+                      ? 1
+                      : event.key === "ArrowUp"
+                        ? -1
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? 0
+                            : 0;
+                  if (event.key === "Tab") {
+                    setPicker(false);
+                    return;
+                  }
+                  if (!step && event.key !== "Home" && event.key !== "End") return;
+                  event.preventDefault();
+                  const next =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? items.length - 1
+                        : at < 0
+                          ? step > 0
+                            ? 0
+                            : items.length - 1
+                          : (at + step + items.length) % items.length;
+                  items[next]?.focus();
+                }}
+              >
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={filter === "all"}
+                  className={`drawer-picker-option${filter === "all" ? " is-active" : ""}`}
+                  onClick={() => chooseFilter("all")}
+                >
+                  <span className="drawer-picker-name">All</span>
+                  <span className="drawer-picker-state">
+                    {pending > 0 ? (
+                      <Icon name="refresh" size={11} className="drawer-spin" />
+                    ) : (
+                      <span className="drawer-picker-count">{total}</span>
+                    )}
+                    {filter === "all" ? <span className="drawer-picker-dot" /> : null}
+                  </span>
+                </button>
+
+                {targets.map((target) => {
+                  const group = groups.find((item) => item.key === target.key);
+                  const selected = filter === target.key;
+                  const count = group?.streams.length ?? 0;
+                  return (
+                    <button
+                      key={target.key}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={`drawer-picker-option${selected ? " is-active" : ""}`}
+                      onClick={() => chooseFilter(target.key)}
+                    >
+                      <span className="drawer-picker-name">{target.name}</span>
+                      <span className="drawer-picker-state">
+                        {group?.state === "loading" ? (
+                          <Icon name="refresh" size={11} className="drawer-spin" />
+                        ) : group?.state === "error" ? (
+                          <Icon name="alert" size={11} />
+                        ) : (
+                          <span className="drawer-picker-count">{count}</span>
+                        )}
+                        {selected ? <span className="drawer-picker-dot" /> : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
           <button
             type="button"
             className={`drawer-refresh${pending > 0 ? " is-loading" : ""}`}
@@ -359,96 +432,16 @@ export function StreamDrawer({
           >
             <Icon name="refresh" size={16} />
           </button>
-          <div
-            className="drawer-filters"
-            ref={filtersRef}
-            onPointerDown={startDrag}
-            onScroll={measure}
-            onKeyDown={(event) => {
-              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-              if (!step || !chipKeys.length) return;
-              event.preventDefault();
-              const at = chipKeys.indexOf(filter);
-              const next =
-                at < 0
-                  ? chipKeys[step > 0 ? 0 : chipKeys.length - 1]
-                  : chipKeys[(at + step + chipKeys.length) % chipKeys.length];
-              setFilter(next);
-              const chip = filtersRef.current?.querySelector<HTMLElement>(
-                `[data-chip="${CSS.escape(next)}"]`,
-              );
-              chip?.focus();
-              chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
-            }}
-            title="Drag sideways for more addons"
-          >
-            {groups
-              .filter((group) => group.streams.length > 0 || group.state === "loading")
-              .map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  data-chip={group.key}
-                  className={`chip${filter === group.key ? " is-active" : ""}`}
-                  aria-pressed={filter === group.key}
-                  onClick={() => chooseFilter(group.key)}
-                  title={
-                    filter === group.key ? "Show every addon" : `Only ${group.addon}`
-                  }
-                >
-                  {group.addon}
-                </button>
-              ))}
-          </div>
-          <button
-            type="button"
-            className="drawer-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
+
+          <button type="button" className="drawer-close" onClick={onClose} aria-label="Close">
             <Icon name="x" size={18} />
           </button>
-        </div>
-
-        <div className="drawer-scrapers">
-          <span className="drawer-scrapers-label">Active addons</span>
-          <div className="drawer-scrapers-row">
-            {targets.map((target) => {
-              const group = groups.find((item) => item.key === target.key);
-              const state = group?.state ?? "loading";
-              const count = group?.streams.length ?? 0;
-              return (
-                <span
-                  key={target.key}
-                  className={`scraper-pill${state === "error" ? " is-error" : ""}${state === "done" && count === 0 ? " is-empty" : ""}`}
-                  title={
-                    state === "loading"
-                      ? "Searching"
-                      : state === "error"
-                        ? (group?.error ?? "Failed")
-                        : count === 0
-                          ? "No sources"
-                          : `${count} sources`
-                  }
-                >
-                  {state === "loading" ? (
-                    <Icon name="refresh" size={11} />
-                  ) : state === "error" ? (
-                    <Icon name="alert" size={11} />
-                  ) : count > 0 ? (
-                    <Icon name="check" size={11} />
-                  ) : null}
-                  {target.name}
-                </span>
-              );
-            })}
-          </div>
         </div>
 
         <div className="drawer-body">
           {/* Nothing has answered yet: hold the shape of the list that is
               coming, so the panel never opens as an empty shell. */}
-          {shown === 0 && pending > 0 ? (
+          {total === 0 && pending > 0 ? (
             <ul className="stream-list" aria-hidden="true">
               {[64, 48, 72].map((width) => (
                 <li className="skeleton-card" key={width}>
@@ -462,92 +455,91 @@ export function StreamDrawer({
             </ul>
           ) : null}
 
-          {visible.map((group) => (
-            <section className="stream-group" key={group.key}>
-              {group.error ? (
-                <p className="stream-group-error" role="status">
-                  {group.addon}: {group.error}
-                </p>
-              ) : null}
-
-              {total > 0 && group.state === "done" && !group.streams.length && !group.error ? (
-                <p className="stream-group-error" role="status">
-                  No sources from {group.addon}.
-                </p>
-              ) : null}
-
-              {filter === "all" && group.streams.length ? (
+          {shownGroups.map((group) => {
+            const rows = sortBySize ? group.streams.slice().sort(byFileSize) : group.streams;
+            return (
+              <section className="stream-group" key={group.key}>
                 <h3 className="stream-group-title">{group.addon}</h3>
-              ) : null}
 
-              {group.streams.length ? (
-                <ul className="stream-list">
-                  {group.streams.map((stream, index) => {
-                    const url = stream.url?.trim() || null;
-                    // Addons put the useful text in different places: MediaFusion
-                    // writes a multi-line description, Torrentio writes a title.
-                    const detail = (stream.description || stream.title || "").trim();
-                    const label =
-                      stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
-                    const body = detail.startsWith(label)
-                      ? detail.slice(label.length).trim()
-                      : detail;
-                    const showQuality =
-                      stream.quality !== "Auto" &&
-                      !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
-                      !(
-                        /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
-                        /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+                {group.error ? (
+                  <p className="stream-group-error" role="status">
+                    {group.error}
+                  </p>
+                ) : null}
+
+                {!group.error && group.state === "done" && !group.streams.length ? (
+                  <p className="stream-group-note" role="status">
+                    No sources from {group.addon}.
+                  </p>
+                ) : null}
+
+                {rows.length ? (
+                  <ul className="stream-list">
+                    {rows.map((stream, index) => {
+                      const url = stream.url?.trim() || null;
+                      // Addons put the useful text in different places: MediaFusion
+                      // writes a multi-line description, Torrentio writes a title.
+                      const detail = (stream.description || stream.title || "").trim();
+                      const label =
+                        stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
+                      const body = detail.startsWith(label)
+                        ? detail.slice(label.length).trim()
+                        : detail;
+                      const showQuality =
+                        stream.quality !== "Auto" &&
+                        !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
+                        !(
+                          /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
+                          /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
+                        );
+                      const bodyLines = body
+                        ? body
+                            .split("\n")
+                            .map((line) => line.replace(/\s+/g, " ").trim())
+                            .filter(Boolean)
+                        : [];
+                      const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
+                      const audio = detailHasAudio
+                        ? null
+                        : stream.languages.length
+                          ? stream.languages.includes("Multi")
+                            ? "Multi audio"
+                            : stream.languages.slice(0, 3).join(", ")
+                          : null;
+                      const hasMeta = Boolean(
+                        stream.size || stream.seeders != null || stream.badges.length || stream.cached,
                       );
-                    const bodyLines = body
-                      ? body
-                          .split("\n")
-                          .map((line) => line.replace(/\s+/g, " ").trim())
-                          .filter(Boolean)
-                      : [];
-                    const detailHasAudio = bodyLines.some((line) => /audio\s*:/i.test(line));
-                    const audio = detailHasAudio
-                      ? null
-                      : stream.languages.length
-                        ? stream.languages.includes("Multi")
-                          ? "Multi audio"
-                          : stream.languages.slice(0, 3).join(", ")
-                        : null;
-                    const hasMeta = Boolean(
-                      stream.size ||
-                        stream.seeders != null ||
-                        stream.badges.length ||
-                        stream.cached,
-                    );
-                    // A run of seeds/size tokens in the addon's own line is the
-                    // meta row in text form; keep the parsed row instead.
-                    const shownLines = bodyLines.filter((line) => {
-                      const upper = line.toUpperCase();
-                      const looksMeta = /👤|💾|⚙️/.test(line) && upper.includes("GB") || /SEED/.test(upper) && upper.includes("GB");
-                      return !looksMeta;
-                    });
-                    const shown = shownLines.length ? shownLines : bodyLines;
-                    const addonLogo = targets.find((target) => target.key === group.key)?.logo ?? null;
-                    return (
-                      <li key={`${group.key}-${index}`}>
-                        <div className="stream-card">
-                          <button
-                            type="button"
-                            className="stream-play"
-                            onClick={() => stream.playable && onPlay(stream)}
-                            disabled={!stream.playable}
-                            title={stream.playable ? undefined : "This source has no playing link"}
-                            aria-label={`Play ${label}`}
-                          >
-                            <span className="stream-main">
-                              <span className="stream-texts">
-                                <span className="stream-title">{label}</span>
-                                {showQuality ? (
-                                  <span className="stream-title-2">{stream.quality}</span>
-                                ) : null}
-                                {shown.length ? (
+                      // A run of seeds/size tokens in the addon's own line is the
+                      // meta row in text form; keep the parsed row instead.
+                      const shownLines = bodyLines.filter((line) => {
+                        const upper = line.toUpperCase();
+                        const looksMeta =
+                          (/👤|💾|⚙️/.test(line) && upper.includes("GB")) ||
+                          (/SEED/.test(upper) && upper.includes("GB"));
+                        return !looksMeta;
+                      });
+                      const lines = shownLines.length ? shownLines : bodyLines;
+                      return (
+                        <li key={`${group.key}-${stream.infoHash ?? stream.url ?? index}-${index}`}>
+                          <div className="stream-row">
+                            <button
+                              type="button"
+                              className="stream-play"
+                              onClick={() => stream.playable && onPlay(stream)}
+                              disabled={!stream.playable}
+                              title={stream.playable ? undefined : "This source has no playing link"}
+                              aria-label={`Play ${label}`}
+                            >
+                              <span className="stream-copy">
+                                <span className="stream-title-line">
+                                  <span className="stream-title">{label}</span>
+                                  {showQuality ? (
+                                    <span className="stream-quality">{stream.quality}</span>
+                                  ) : null}
+                                </span>
+                                {lines.length ? (
                                   <span className="stream-details">
-                                    {shown.map((line, at) => (
+                                    {lines.map((line, at) => (
                                       <span className="stream-detail" key={at}>
                                         {line}
                                       </span>
@@ -565,62 +557,55 @@ export function StreamDrawer({
                                       <span className="stream-size">💾 {stream.size}</span>
                                     ) : null}
                                     {stream.badges.map((badge) => (
-                                      <span key={badge}>{badge}</span>
+                                      <span className="stream-badge" key={badge}>
+                                        {badge}
+                                      </span>
                                     ))}
                                     {stream.cached ? <span className="stream-cached">Cached</span> : null}
                                   </span>
                                 ) : null}
-                                {audio ? <span className="stream-audio">{audio}</span> : null}
-                              </span>
-                              <span className="stream-brand" aria-hidden="true">
-                                {addonLogo ? (
-                                  <img
-                                    className="stream-brand-logo"
-                                    src={addonLogo}
-                                    alt=""
-                                    onError={(event) => {
-                                      event.currentTarget.style.display = "none";
-                                    }}
-                                  />
-                                ) : (
-                                  <span className="stream-brand-mark">
-                                    {group.addon.trim().charAt(0).toUpperCase()}
+                                {audio ? (
+                                  <span className="stream-langs">
+                                    <Icon name="languages" size={11} />
+                                    {audio}
                                   </span>
-                                )}
-                                <span className="stream-brand-name">{group.addon}</span>
+                                ) : null}
                               </span>
-                            </span>
-                          </button>
-                          {url ? (
-                            <button
-                              type="button"
-                              className="icon-btn stream-more"
-                              aria-label="Stream link actions"
-                              aria-haspopup="menu"
-                              title="Stream link actions"
-                              onClick={(event) => {
-                                // A keyboard press reports 0,0: anchor the menu
-                                // to the button instead of the corner.
-                                const box = event.currentTarget.getBoundingClientRect();
-                                setMenu({
-                                  x: event.clientX || box.left,
-                                  y: event.clientY || box.bottom,
-                                  title: label,
-                                  url,
-                                });
-                              }}
-                            >
-                              <Icon name="more" size={15} />
+                              <span className="stream-action" aria-hidden="true">
+                                <Icon name="play" size={14} />
+                              </span>
                             </button>
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </section>
-          ))}
+                            {url ? (
+                              <button
+                                type="button"
+                                className="icon-btn stream-more"
+                                aria-label="Stream link actions"
+                                aria-haspopup="menu"
+                                title="Stream link actions"
+                                onClick={(event) => {
+                                  // A keyboard press reports 0,0: anchor the menu
+                                  // to the button instead of the corner.
+                                  const box = event.currentTarget.getBoundingClientRect();
+                                  setMenu({
+                                    x: event.clientX || box.left,
+                                    y: event.clientY || box.bottom,
+                                    title: label,
+                                    url,
+                                  });
+                                }}
+                              >
+                                <Icon name="more" size={15} />
+                              </button>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </section>
+            );
+          })}
 
           {menu ? (
             <ContextMenu
