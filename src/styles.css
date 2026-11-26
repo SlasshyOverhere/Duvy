@@ -3100,7 +3100,8 @@ button.pill:hover {
 .drawer {
   position: relative;
   width: min(440px, calc(100vw - 28px));
-  max-height: min(900px, calc(100vh - 32px));
+  /* Fixed height keeps the addon menu clear of the panel edge. */
+  height: min(480px, calc(100vh - 32px));
   /* Secondary text steps up one tone: the glass is strongest here, but faint
      grey can still dip under 4.5:1 over a bright frame behind it. */
   --faint: var(--muted);
@@ -3654,6 +3655,7 @@ button.pill:hover {
 
   .drawer {
     width: 100vw;
+    height: 100vh;
     max-height: 100vh;
     border: 0;
     border-radius: 0;
