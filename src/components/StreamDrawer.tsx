@@ -9,6 +9,41 @@ function isBrowsable(url: string) {
   return /^https?:\/\//i.test(url);
 }
 
+const RESOLUTION = /\b(2160p|1080p|720p|480p|360p|4k|uhd)\b/i;
+
+function splitSourceLabel(label: string) {
+  const match = label.match(RESOLUTION);
+  if (!match) return { label, quality: "" };
+  const cleaned = label
+    .replace(RESOLUTION, "")
+    .replace(/\s*[·|]\s*(?=[·|]|$)/g, "")
+    .replace(/^[\s·|,–-]+|[\s·|,–-]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return { label: cleaned || label, quality: match[0] };
+}
+
+function formatQuality(value: string) {
+  return value.replace(/4k/i, "4K").replace(/uhd/i, "UHD");
+}
+
+function tidySourceDetail(lines: string[], stream: StreamOption) {
+  const size = stream.size?.toLowerCase();
+  const parts = lines.flatMap((line) =>
+    line
+      .split(/\s*[·|•]\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+  const kept = parts.filter((part) => {
+    const lower = part.toLowerCase();
+    if (size && lower === size) return false;
+    if (stream.cached && /^cached$/.test(lower)) return false;
+    return true;
+  });
+  return [...new Set(kept)].join(" · ");
+}
+
 function copyText(text: string) {
   const clipboard = navigator.clipboard;
   if (!clipboard) return Promise.reject(new Error("Clipboard unavailable"));
@@ -479,19 +514,14 @@ export function StreamDrawer({
                       const url = stream.url?.trim() || null;
                       // Addons put the useful text in different places: MediaFusion
                       // writes a multi-line description, Torrentio writes a title.
-                      const detail = (stream.description || stream.title || "").trim();
+                      const raw = (stream.description || stream.title || "").trim();
                       const label =
-                        stream.name?.trim() || detail.split("\n")[0].trim() || "Source";
-                      const body = detail.startsWith(label)
-                        ? detail.slice(label.length).trim()
-                        : detail;
-                      const showQuality =
-                        stream.quality !== "Auto" &&
-                        !label.toLowerCase().includes(stream.quality.toLowerCase()) &&
-                        !(
-                          /2160p|1080p|720p|480p|360p|4k|uhd/.test(label.toLowerCase()) &&
-                          /^(4k|1080p|720p|480p|cam)$/i.test(stream.quality)
-                        );
+                        stream.name?.trim() || raw.split("\n")[0].trim() || "Source";
+                      const body = raw.startsWith(label) ? raw.slice(label.length).trim() : raw;
+                      const split = splitSourceLabel(label);
+                      const qualityMark = formatQuality(
+                        split.quality || (stream.quality !== "Auto" ? stream.quality : ""),
+                      );
                       const bodyLines = body
                         ? body
                             .split("\n")
@@ -506,9 +536,6 @@ export function StreamDrawer({
                             ? "Multi audio"
                             : stream.languages.slice(0, 3).join(", ")
                           : null;
-                      const hasMeta = Boolean(
-                        stream.size || stream.seeders != null || stream.badges.length || stream.cached,
-                      );
                       // A run of seeds/size tokens in the addon's own line is the
                       // meta row in text form; keep the parsed row instead.
                       const shownLines = bodyLines.filter((line) => {
@@ -518,7 +545,30 @@ export function StreamDrawer({
                           (/SEED/.test(upper) && upper.includes("GB"));
                         return !looksMeta;
                       });
-                      const lines = shownLines.length ? shownLines : bodyLines;
+                      const detail = tidySourceDetail(
+                        shownLines.length ? shownLines : bodyLines,
+                        stream,
+                      );
+                      const showDetail =
+                        detail.length > 0 &&
+                        !split.label.toLowerCase().startsWith(detail.toLowerCase());
+                      const hasMeta = Boolean(
+                        stream.size ||
+                          stream.seeders != null ||
+                          stream.badges.length ||
+                          stream.cached ||
+                          audio,
+                      );
+                      const playLabel = [
+                        `Play ${label}`,
+                        stream.seeders != null
+                          ? `${stream.seeders.toLocaleString()} seeders`
+                          : null,
+                        stream.size,
+                        stream.cached ? "cached" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ");
                       return (
                         <li key={`${group.key}-${stream.infoHash ?? stream.url ?? index}-${index}`}>
                           <div className="stream-row">
@@ -528,33 +578,40 @@ export function StreamDrawer({
                               onClick={() => stream.playable && onPlay(stream)}
                               disabled={!stream.playable}
                               title={stream.playable ? undefined : "This source has no playing link"}
-                              aria-label={`Play ${label}`}
+                              aria-label={playLabel}
                             >
+                              {qualityMark ? (
+                                <span
+                                  className={`stream-quality-mark${qualityMark.length <= 3 ? " is-short" : ""}${stream.cached ? " is-cached" : ""}`}
+                                  aria-hidden="true"
+                                >
+                                  {qualityMark}
+                                </span>
+                              ) : null}
                               <span className="stream-copy">
                                 <span className="stream-title-line">
-                                  <span className="stream-title">{label}</span>
-                                  {showQuality ? (
-                                    <span className="stream-quality">{stream.quality}</span>
-                                  ) : null}
+                                  <span className="stream-title">{split.label}</span>
                                 </span>
-                                {lines.length ? (
+                                {showDetail ? (
                                   <span className="stream-details">
-                                    {lines.map((line, at) => (
-                                      <span className="stream-detail" key={at}>
-                                        {line}
-                                      </span>
-                                    ))}
+                                    <span className="stream-detail">{detail}</span>
                                   </span>
                                 ) : null}
                                 {hasMeta ? (
                                   <span className="stream-meta">
                                     {stream.seeders != null ? (
-                                      <span className="stream-seeds">
-                                        👤 {stream.seeders.toLocaleString()}
+                                      <span
+                                        className={`stream-seeds${stream.seeders === 0 ? " is-dead" : ""}`}
+                                        title={`${stream.seeders.toLocaleString()} seeders`}
+                                      >
+                                        <span className="stream-seed-dot" aria-hidden="true" />
+                                        {stream.seeders.toLocaleString()}
                                       </span>
                                     ) : null}
                                     {stream.size ? (
-                                      <span className="stream-size">💾 {stream.size}</span>
+                                      <span className="stream-size" title="File size">
+                                        {stream.size}
+                                      </span>
                                     ) : null}
                                     {stream.badges.map((badge) => (
                                       <span className="stream-badge" key={badge}>
@@ -562,12 +619,12 @@ export function StreamDrawer({
                                       </span>
                                     ))}
                                     {stream.cached ? <span className="stream-cached">Cached</span> : null}
-                                  </span>
-                                ) : null}
-                                {audio ? (
-                                  <span className="stream-langs">
-                                    <Icon name="languages" size={11} />
-                                    {audio}
+                                    {audio ? (
+                                      <span className="stream-langs">
+                                        <Icon name="languages" size={11} />
+                                        {audio}
+                                      </span>
+                                    ) : null}
                                   </span>
                                 ) : null}
                               </span>
