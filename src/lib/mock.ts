@@ -520,7 +520,10 @@ export async function mock(command: string, args?: Record<string, unknown>): Pro
     case "streams": {
       const rows = streamsFor(String(payload.id));
       const only = payload.addon;
-      return typeof only === "string" ? rows.filter((row) => row.addon === only) : rows;
+      if (typeof only !== "string") return rows;
+      // The UI filters by addon URL; fixture rows are labelled by addon name.
+      const addon = addons.find((entry) => entry.url === only);
+      return rows.filter((row) => row.addon === (addon?.name ?? only));
     }
 
     case "subtitles":
