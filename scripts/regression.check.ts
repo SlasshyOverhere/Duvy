@@ -19,6 +19,9 @@ const playerHud = read("src/components/player/hud.ts");
 const drawer = read("src/components/StreamDrawer.tsx");
 const settingsView = read("src/views/Settings.tsx");
 const rustSettings = read("src-tauri/src/settings.rs");
+const capability = read("src-tauri/capabilities/default.json");
+const debrid = read("src/views/Debrid.tsx");
+const app = read("src/App.tsx");
 
 /** Slice a top-level Rust function by balancing braces past strings and comments. */
 function rustFn(src: string, name: string): string {
@@ -664,6 +667,20 @@ run("sentinel: one owner drives fullscreen", () => {
   if (!/Already windowed/.test(rustFn(lib, "set_fullscreen"))) {
     out.push("set_fullscreen does not treat a second exit as success");
   }
+  return out;
+});
+
+run("sentinel: no native confirmation needs a missing dialog grant", () => {
+  const out: string[] = [];
+  if (!capability.includes('"dialog:allow-message"')) {
+    out.push("capabilities/default.json does not grant dialog:allow-message");
+  }
+  if (/window\.(confirm|alert|prompt)\s*\(/.test(debrid)) {
+    out.push("Debrid still asks through the native dialog");
+  }
+  if (!/confirm\(\{/.test(debrid)) out.push("Debrid does not use the in-app confirmation");
+  if (!/useApp\(\)/.test(debrid)) out.push("Debrid cannot reach the in-app confirmation");
+  if (!/<ConfirmHost\s*\/>/.test(app)) out.push("App does not mount the confirmation host");
   return out;
 });
 

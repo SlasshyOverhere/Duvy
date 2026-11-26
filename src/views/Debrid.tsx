@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/bridge";
 import type { DebridProvider } from "../lib/types";
 import { errorMessage } from "../lib/format";
+import { useApp } from "../lib/store";
 import { Badge, Button, EmptyState, Icon, Loading } from "../components/ui";
 
 const HINTS: Record<string, string> = {
@@ -12,6 +13,7 @@ const HINTS: Record<string, string> = {
 };
 
 export function DebridView() {
+  const { confirm } = useApp();
   const [providers, setProviders] = useState<DebridProvider[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
@@ -83,7 +85,13 @@ export function DebridView() {
 
   const disconnect = async (provider: DebridProvider) => {
     if (pending.current) return;
-    if (!window.confirm(`Disconnect ${provider.name}? The stored key is deleted.`)) return;
+    const ok = await confirm({
+      title: `Disconnect ${provider.name}?`,
+      body: "The stored key is deleted. You can paste it again at any time.",
+      confirmLabel: "Disconnect",
+      danger: true,
+    });
+    if (!ok) return;
     clearError(provider.id);
     pending.current = true;
     setBusy(provider.id);

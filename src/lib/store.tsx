@@ -60,6 +60,18 @@ interface Toast {
   detail?: string;
 }
 
+export interface ConfirmOptions {
+  title: string;
+  body?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+}
+
+export interface ConfirmRequest extends ConfirmOptions {
+  id: number;
+}
+
 interface Store {
   booting: boolean;
   bootError: string | null;
@@ -107,6 +119,10 @@ interface Store {
   skipUpdate: (version: string) => Promise<void>;
   notify: (text: string, tone?: ToastTone, detail?: string) => void;
   dismissToast: (id: number) => void;
+  /** An in-app confirmation, since the native dialog needs an ACL grant. */
+  confirm: (options: ConfirmOptions | string) => Promise<boolean>;
+  confirmRequest: ConfirmRequest | null;
+  settleConfirm: (ok: boolean) => void;
   progressFor: (key: string) => ProgressItem | undefined;
   watched: WatchedItem[];
   /** Every marked key, per episode. `watched` keeps one row per title. */
@@ -449,9 +465,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
   const [starting, setStarting] = useState<StartingArt | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const toastId = useRef(1);
   const toastTimers = useRef(new Map<number, number>());
+  const confirmId = useRef(0);
+  const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
   const depth = useRef(0);
   const opening = useRef(false);
   // The newest player's generation; events from a killed one are ignored.
@@ -525,6 +544,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [dismissToast],
   );
+
+  const settleConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolver.current;
+    confirmResolver.current = null;
+    setConfirmRequest(null);
+    resolve?.(ok);
+  }, []);
+
+  const confirm = useCallback((options: ConfirmOptions | string) => {
+    // One question at a time: a newer one cancels the older.
+    confirmResolver.current?.(false);
+    const request = typeof options === "string" ? { title: options } : options;
+    return new Promise<boolean>((resolve) => {
+      confirmResolver.current = resolve;
+      setConfirmRequest({ ...request, id: ++confirmId.current });
+    });
+  }, []);
 
   const setFullscreen = useCallback((on: boolean) => {
     fullscreenController.current?.sync(on);
@@ -1655,6 +1691,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       skipUpdate,
       notify,
       dismissToast,
+      confirm,
+      confirmRequest,
+      settleConfirm,
       progressFor,
       watched,
       watchedKeys,
@@ -1701,6 +1740,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       skipUpdate,
       notify,
       dismissToast,
+      confirm,
+      confirmRequest,
+      settleConfirm,
       progressFor,
       watched,
       watchedKeys,

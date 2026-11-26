@@ -5,6 +5,7 @@ import { isBrowserPreview } from "./lib/bridge";
 import { StoreProvider, useApp } from "./lib/store";
 import { report } from "./lib/telemetry";
 import { CrashReporting } from "./components/Consent";
+import { ConfirmHost } from "./components/Confirm";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { AppMenu } from "./components/AppMenu";
 import { Icon, LogoMark } from "./components/ui";
@@ -252,6 +253,7 @@ export default function App() {
       <ResizeEdges />
       {/* Outside the shell so boot and onboarding can report failures too. */}
       <Toasts />
+      <ConfirmHost />
       <UpdatePrompt />
       <AppMenu />
       <CrashReporting />
