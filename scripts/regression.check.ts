@@ -693,6 +693,18 @@ run("sentinel: one owner drives fullscreen", () => {
   return out;
 });
 
+run("sentinel: PlayerView calls its hooks before the loading return", () => {
+  const out: string[] = [];
+  const loading = playerView.indexOf("if (!local) {");
+  const hook = playerView.indexOf("const endsAt = useMemo");
+  if (loading < 0 || hook < 0) {
+    out.push("the loading return or the endsAt hook is gone; re-check PlayerView by hand");
+  } else if (hook > loading) {
+    out.push("a hook runs after the loading return, so the first snapshot reorders hooks");
+  }
+  return out;
+});
+
 run("sentinel: player errors name the command and ignore teardown", () => {
   const out: string[] = [];
   const send = rustFn(player, "send_action");

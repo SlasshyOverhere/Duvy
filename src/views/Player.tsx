@@ -2614,6 +2614,15 @@ export function PlayerView() {
     [activeSub, loadedSub, streamAddon],
   );
 
+  // Must run before the loading return: skipping a hook reorders every hook after it.
+  // Frozen with the pause, so the card cannot drift while it is read.
+  const endsAt = useMemo(() => {
+    const left = duration - shownPosition;
+    if (!(left > 0)) return null;
+    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
+    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
+  }, [duration, shownPosition, local?.speed]);
+
   if (!local) {
     // Clicked play: the screen opens at once and the source resolves behind it.
     if (starting) {
@@ -2694,13 +2703,6 @@ export function PlayerView() {
     session && session.season != null
       ? [episodeCode(session), session.episodeTitle].filter(Boolean).join(" · ")
       : null;
-  // Frozen with the pause, so the card cannot drift while it is read.
-  const endsAt = useMemo(() => {
-    const left = duration - shownPosition;
-    if (!(left > 0)) return null;
-    const speed = local?.speed && local.speed > 0 ? local.speed : 1;
-    return ENDS_AT.format(new Date(Date.now() + (left / speed) * 1000));
-  }, [duration, shownPosition, local?.speed]);
 
   const nowMeta = [
     playingSource?.addon,
