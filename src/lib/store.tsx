@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, isTauri, validUpdate } from "./bridge";
 import { rememberedLogo } from "./art";
 import { errorMessage, seasonLabel } from "./format";
+import { createFullscreenController } from "./fullscreen";
 import { wentBackwards } from "./errors";
 import {
   action as watchAction,
@@ -75,7 +76,9 @@ interface Store {
   route: Route;
   /** One fullscreen state for the window, shared by the shell and the player. */
   fullscreen: boolean;
+  /** Adopt a browser fullscreen change; window changes go through requestFullscreen. */
   setFullscreen: (on: boolean) => void;
+  requestFullscreen: (on: boolean) => Promise<boolean>;
   /** Non-null from the click until the source is resolved; the player opens at once. */
   starting: StartingArt | null;
   cancelStart: () => void;
@@ -431,7 +434,7 @@ export function noSourceError(options: StreamOption[]): Error {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<Route>({ name: "home" });
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreenRaw] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -467,6 +470,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const routeRef = useRef<Route>(route);
   const lastSession = useRef<PlaybackSession | null>(null);
   const playerBase = useRef<Route | null>(null);
+  // One owner for the window's fullscreen changes: the shell and the player
+  // both ask here, so a close cannot race a second toggle.
+  const fullscreenController = useRef<ReturnType<typeof createFullscreenController> | null>(null);
+  if (!fullscreenController.current) {
+    fullscreenController.current = createFullscreenController(
+      (on) => api.window.fullscreen(on),
+      (on) => setFullscreenRaw(on),
+      (error, on) =>
+        report(error, {
+          area: "window",
+          level: "warning",
+          extra: { command: "window_fullscreen", on },
+        }),
+    );
+  }
   // Watchdog for an open that never paints, which is otherwise invisible.
   const openStartedAt = useRef(0);
   const openedAt = useRef(0);
@@ -508,6 +526,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [dismissToast],
   );
 
+  const setFullscreen = useCallback((on: boolean) => {
+    fullscreenController.current?.sync(on);
+    setFullscreenRaw(on);
+  }, []);
+
+  const requestFullscreen = useCallback((on: boolean) => {
+    const controller = fullscreenController.current;
+    return controller ? controller.request(on) : Promise.resolve(false);
+  }, []);
+
   // A pending dismiss must not outlive the provider (or fire into a new toast).
   useEffect(() => {
     const timers = toastTimers.current;
@@ -527,17 +555,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // this runs once and never takes the choice back.
   useEffect(() => {
     if (!isTauri()) return;
-    let alive = true;
-    void api.window
-      .fullscreen(true)
-      .then(() => {
-        if (alive) setFullscreen(true);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
+    void requestFullscreen(true);
+  }, [requestFullscreen]);
 
   const clearFrameWatchdog = useCallback(() => {
     if (frameTimer.current !== null) window.clearTimeout(frameTimer.current);
@@ -1615,6 +1634,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       fullscreen,
       setFullscreen,
+      requestFullscreen,
       starting,
       cancelStart,
       navigate,
@@ -1660,6 +1680,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       route,
       fullscreen,
       setFullscreen,
+      requestFullscreen,
       starting,
       cancelStart,
       navigate,

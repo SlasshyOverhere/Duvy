@@ -1044,6 +1044,7 @@ export function PlayerView() {
     route,
     fullscreen,
     setFullscreen,
+    requestFullscreen,
     playRequest,
     buildSession,
     resolveStream,
@@ -1533,9 +1534,10 @@ export function PlayerView() {
 
   const leaveFullscreen = useCallback(() => {
     dropBrowserFullscreen();
-    setFullscreen(false);
-    void api.window.fullscreen(false);
-  }, [dropBrowserFullscreen, setFullscreen]);
+    // The shared controller drops this when the exit is already in flight, so
+    // closing right after pressing Escape cannot toggle the window twice.
+    void requestFullscreen(false);
+  }, [dropBrowserFullscreen, requestFullscreen]);
 
   // The browser can leave fullscreen on its own (Esc, gesture), so state follows it.
   useEffect(() => {
@@ -1623,14 +1625,9 @@ export function PlayerView() {
       setFullscreen(Boolean(document.fullscreenElement));
       return;
     }
-    const next = !fullscreen;
-    try {
-      await api.window.fullscreen(next);
-      setFullscreen(next);
-    } catch (e) {
-      notify(e instanceof Error ? e.message : String(e), "error");
-    }
-  }, [fullscreen, notify, setFullscreen]);
+    const ok = await requestFullscreen(!fullscreen);
+    if (!ok) notify("The window could not change fullscreen.", "error");
+  }, [fullscreen, notify, requestFullscreen]);
 
   const showHud = useCallback((label: string, value: string) => {
     if (hudTimer.current) window.clearTimeout(hudTimer.current);

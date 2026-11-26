@@ -588,6 +588,85 @@ run("sentinel: a disabled addon is not used", () => {
   return out;
 });
 
+run("fullscreen: a close after exit sends one request", async () => {
+  const { createFullscreenController } = (await import(
+    pathToFileURL(root + "src/lib/fullscreen.ts").href
+  )) as unknown as typeof import("../src/lib/fullscreen.ts");
+  const calls: boolean[] = [];
+  const controller = createFullscreenController(
+    async (on) => {
+      calls.push(on);
+    },
+    () => undefined,
+  );
+  controller.sync(true);
+  const exit = controller.request(false);
+  // The close button lands before the exit has answered; it must not toggle.
+  const close = controller.request(false);
+  const settled = await Promise.all([exit, close]);
+  const out: string[] = [];
+  if (calls.join() !== "false") out.push(`window_fullscreen sent [${calls.join()}], want [false]`);
+  if (settled.some((ok) => !ok)) out.push("a request that was already underway reported failure");
+  if (controller.current) out.push("the controller still reports fullscreen after the exit");
+  return out;
+});
+
+run("fullscreen: requests are serialized and failures keep state", async () => {
+  const { createFullscreenController } = (await import(
+    pathToFileURL(root + "src/lib/fullscreen.ts").href
+  )) as unknown as typeof import("../src/lib/fullscreen.ts");
+  const calls: boolean[] = [];
+  let started!: () => void;
+  const start = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = createFullscreenController(
+    async (on) => {
+      calls.push(on);
+      if (on) {
+        started();
+        await gate;
+        throw new Error("The window could not go fullscreen");
+      }
+    },
+    () => undefined,
+  );
+  const enter = controller.request(true);
+  await start;
+  const exit = controller.request(false);
+  release();
+  const [entered, exited] = await Promise.all([enter, exit]);
+  const out: string[] = [];
+  if (entered !== false) out.push("a refused enter reported success");
+  if (exited !== true) out.push("a no-op exit reported failure");
+  if (calls.join() !== "true") out.push(`calls [${calls.join()}], want [true] only`);
+  if (controller.current) out.push("a refused enter changed the known state");
+  return out;
+});
+
+run("sentinel: one owner drives fullscreen", () => {
+  const out: string[] = [];
+  const titleBar = read("src/components/TitleBar.tsx");
+  if (/api\.window\.fullscreen/.test(playerView)) {
+    out.push("Player.tsx still calls api.window.fullscreen directly");
+  }
+  if (/api\.window\.fullscreen/.test(titleBar)) {
+    out.push("TitleBar.tsx still calls api.window.fullscreen directly");
+  }
+  if (!/requestFullscreen/.test(playerView) || !/requestFullscreen/.test(titleBar)) {
+    out.push("a fullscreen control bypasses the shared controller");
+  }
+  const lib = read("src-tauri/src/lib.rs");
+  if (!/Already windowed/.test(rustFn(lib, "set_fullscreen"))) {
+    out.push("set_fullscreen does not treat a second exit as success");
+  }
+  return out;
+});
+
 let failed = 0;
 for (const { name, fn } of checks) {
   let detail: string[];
